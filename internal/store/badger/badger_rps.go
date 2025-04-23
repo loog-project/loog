@@ -62,7 +62,10 @@ func (b *badgerResourcePatchStore) Commit(ctx context.Context, uid string, revis
 		if err := txn.Set(key, payload); err != nil {
 			return fmt.Errorf("failed to set key %s: %w", key, err)
 		}
-		if err := txn.Set(b.keyLatestRevision(uid), []byte(fmt.Sprintf("%d", revision))); err != nil {
+
+		latestRev := make([]byte, 8)
+		binary.BigEndian.PutUint64(latestRev, revision)
+		if err := txn.Set(b.keyLatestRevision(uid), latestRev); err != nil {
 			return fmt.Errorf("failed to set latest revision for uid %s: %w", uid, err)
 		}
 		return nil
@@ -114,7 +117,9 @@ func (b *badgerResourcePatchStore) LoadSnapshot(
 			}
 		}
 
-		snapRev = binary.BigEndian.Uint64(it.Item().Key()[len(prefix):])
+		// TODO: change this
+		_, _ = fmt.Sscanf(string(it.Item().Key()[len(prefix):]), "%020d", &snapRev)
+
 		return it.Item().Value(func(val []byte) error {
 			payload = make([]byte, len(val))
 			copy(payload, val)
