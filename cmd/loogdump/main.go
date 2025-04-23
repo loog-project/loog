@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
@@ -9,8 +10,11 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
+	"github.com/sergi/go-diff/diffmatchpatch"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -32,9 +36,15 @@ type EventEntry struct {
 	Object *unstructured.Unstructured
 }
 
-func performWrite(entries []EventEntry) error {
-	log.Println("Writing entries to file...")
+func mustEncode(v any) string {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
+}
 
+func performWrite(entries []EventEntry) error {
 	f, err := os.OpenFile("dump.json", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
 		return fmt.Errorf("cannot open file: %w", err)
@@ -89,7 +99,7 @@ func main() {
 		log.Fatalf("Error watching resource: %v", err)
 		return
 	}
-
+	//
 	var entries []EventEntry
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -120,17 +130,24 @@ func main() {
 		}
 	}()
 
+	last := make(map[string]EventEntry)
+	dmp := diffmatchpatch.New()
+
 	// reader
 	// TODO(future): make this fancier
 	go func() {
 		for event := range w.ResultChan() {
 			unstr, ok := event.Object.(*unstructured.Unstructured)
 			if !ok {
+				spew.Dump(event)
 				fmt.Println("Skipping event", event.Type, "because object is not unstructured")
 				continue
 			}
 
 			fmt.Println(event.Type, "::", unstr.GetName(), "@", unstr.GetNamespace())
+
+			uid := string(unstr.GetUID())
+			lastEntry, lastOk := last[uid]
 
 			unstr.SetManagedFields(nil)
 			entry := EventEntry{
@@ -144,8 +161,45 @@ func main() {
 				ResourceVersion:    unstr.GetResourceVersion(),
 				Object:             unstr,
 			}
+			last[uid] = entry
 
 			entries = append(entries, entry)
+
+			// compare current and last object
+			if lastOk {
+				prevCopy := *entry.Object
+				prevCopy.SetResourceVersion("")
+				prevCopy.SetManagedFields(nil)
+				afterCopy := *lastEntry.Object
+				afterCopy.SetResourceVersion("")
+				afterCopy.SetManagedFields(nil)
+
+				previous, after := mustEncode(prevCopy), mustEncode(afterCopy)
+				if previous == after {
+					fmt.Println("< No change in object >")
+				} else {
+					diffs := dmp.DiffMain(after, previous, false)
+					diffs = dmp.DiffCleanupSemantic(diffs)
+
+					colored := DiffPrettyText(diffs)
+					const (
+						red   = "\x1b[9;90m"
+						green = "\x1b[32m"
+					)
+					for i, ln := range strings.Split(colored, "\n") {
+						if strings.Contains(ln, `"lastReconciledAt": `) {
+							continue
+						}
+						if strings.Contains(ln, red) || strings.Contains(ln, green) {
+							fmt.Printf("%3d | %s\n", i+1, ln)
+						}
+					}
+				}
+			} else {
+				fmt.Println("< First seen >")
+			}
+
+			fmt.Println()
 		}
 	}()
 
@@ -156,4 +210,28 @@ func main() {
 	log.Println("Received interrupt signal, stopping watcher")
 	cancel()
 	<-result
+}
+
+func DiffPrettyText(diffs []diffmatchpatch.Diff) string {
+	var buff bytes.Buffer
+	for _, diff := range diffs {
+		text := diff.Text
+
+		switch diff.Type {
+		case diffmatchpatch.DiffInsert:
+			_, _ = buff.WriteString("\x1b[32m") // green
+			_, _ = buff.WriteString(text)
+			_, _ = buff.WriteString("\x1b[0m") // reset
+
+		case diffmatchpatch.DiffDelete:
+			// grey + strikethrough, then reset
+			_, _ = buff.WriteString("\x1b[9;90m")
+			_, _ = buff.WriteString(text)
+			_, _ = buff.WriteString("\x1b[0m")
+
+		case diffmatchpatch.DiffEqual:
+			_, _ = buff.WriteString(text)
+		}
+	}
+	return buff.String()
 }
