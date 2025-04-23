@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/expr-lang/expr"
 	"github.com/sergi/go-diff/diffmatchpatch"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -33,6 +34,11 @@ type EventEntry struct {
 	ResourceGeneration int64
 	ResourceVersion    string
 
+	Object *unstructured.Unstructured
+}
+
+type EventEntryEnv struct {
+	Event  watch.Event
 	Object *unstructured.Unstructured
 }
 
@@ -64,10 +70,15 @@ func main() {
 		flagVersion    string
 		flagKind       string
 		flagKubeconfig string
+		flagExpr       string
+		flagVerbose    bool
 	)
 	flag.StringVar(&flagGroup, "group", "", "Group of the resource to watch")
 	flag.StringVar(&flagVersion, "version", "v1", "Version of the resource to watch")
 	flag.StringVar(&flagKind, "kind", "", "Kind of the resource to watch")
+	flag.StringVar(&flagExpr, "expr", "true", "Expression to filter the resource to watch")
+	flag.BoolVar(&flagVerbose, "verbose", false, "Enable verbose output")
+
 	if home := homedir.HomeDir(); home != "" {
 		flag.StringVar(&flagKubeconfig, "kubeconfig", filepath.Join(home, ".kube", "config"), "Path to the kubeconfig file")
 	} else {
@@ -75,6 +86,16 @@ func main() {
 	}
 	flag.Parse()
 
+	// compile expression
+	log.Println("Compiling expression:", flagExpr, "...")
+	program, err := expr.Compile(flagExpr, expr.Env(EventEntryEnv{}), expr.AsBool())
+	if err != nil {
+		log.Fatalf("Error compiling expression: %v", err)
+		return
+	}
+	log.Println("Expression compiled successfully")
+
+	log.Println("Connecting to Kubernetes cluster...")
 	config, err := clientcmd.BuildConfigFromFlags("", flagKubeconfig)
 	if err != nil {
 		log.Fatalf("Error building kubeconfig: %v", err)
@@ -94,6 +115,7 @@ func main() {
 		return
 	}
 
+	log.Println("Watching", gvr, "...")
 	w, err := dyn.Resource(gvr).Watch(context.TODO(), v1.ListOptions{})
 	if err != nil {
 		log.Fatalf("Error watching resource: %v", err)
@@ -144,10 +166,15 @@ func main() {
 				continue
 			}
 
-			fmt.Println(event.Type, "::", unstr.GetName(), "@", unstr.GetNamespace())
-
-			uid := string(unstr.GetUID())
-			lastEntry, lastOk := last[uid]
+			// check if event should be included
+			output, err := expr.Run(program, EventEntryEnv{
+				Event:  event,
+				Object: unstr,
+			})
+			if err != nil {
+				log.Println("[WARN] Error evaluating expression, skipping:", err)
+				continue
+			}
 
 			unstr.SetManagedFields(nil)
 			entry := EventEntry{
@@ -161,6 +188,19 @@ func main() {
 				ResourceVersion:    unstr.GetResourceVersion(),
 				Object:             unstr,
 			}
+
+			if !output.(bool) {
+				if flagVerbose {
+					log.Println("[INFO] Skipping event because expression evaluated to false")
+				}
+				continue
+			}
+
+			fmt.Println(event.Type, "::", unstr.GetName(), "@", unstr.GetNamespace())
+
+			uid := string(unstr.GetUID())
+			lastEntry, lastOk := last[uid]
+
 			last[uid] = entry
 
 			entries = append(entries, entry)
