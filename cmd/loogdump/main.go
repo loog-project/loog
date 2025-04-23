@@ -26,6 +26,12 @@ import (
 	"k8s.io/client-go/util/homedir"
 )
 
+const (
+	red   = "\x1b[9;90m"
+	green = "\x1b[32m"
+	reset = "\x1b[0m"
+)
+
 type EventEntry struct {
 	EventType  watch.EventType
 	ReceivedAt time.Time
@@ -40,6 +46,50 @@ type EventEntry struct {
 type EventEntryEnv struct {
 	Event  watch.Event
 	Object *unstructured.Unstructured
+}
+
+func (e EventEntryEnv) All() bool {
+	return true
+}
+
+func (e EventEntryEnv) None() bool {
+	return false
+}
+
+func (e EventEntryEnv) Namespaces(vals ...string) bool {
+	if len(vals) == 0 {
+		return true
+	}
+	for _, val := range vals {
+		if val == e.Object.GetNamespace() {
+			return true
+		}
+	}
+	return false
+}
+
+func (e EventEntryEnv) Namespace(vals ...string) bool {
+	return e.Namespaces(vals...)
+}
+
+func (e EventEntryEnv) Names(vals ...string) bool {
+	if len(vals) == 0 {
+		return true
+	}
+	for _, val := range vals {
+		if val == e.Object.GetName() {
+			return true
+		}
+	}
+	return false
+}
+
+func (e EventEntryEnv) Name(vals ...string) bool {
+	return e.Names(vals...)
+}
+
+func (e EventEntryEnv) Namespaced(namespace, name string) bool {
+	return e.Object.GetNamespace() == namespace && e.Object.GetName() == name
 }
 
 func mustEncode(v any) string {
@@ -66,18 +116,20 @@ func performWrite(entries []EventEntry) error {
 
 func main() {
 	var (
-		flagGroup      string
-		flagVersion    string
-		flagKind       string
-		flagKubeconfig string
-		flagExpr       string
-		flagVerbose    bool
+		flagGroup       string
+		flagVersion     string
+		flagKind        string
+		flagKubeconfig  string
+		flagExpr        string
+		flagVerbose     bool
+		flagContextSize int
 	)
 	flag.StringVar(&flagGroup, "group", "", "Group of the resource to watch")
 	flag.StringVar(&flagVersion, "version", "v1", "Version of the resource to watch")
 	flag.StringVar(&flagKind, "kind", "", "Kind of the resource to watch")
 	flag.StringVar(&flagExpr, "expr", "true", "Expression to filter the resource to watch")
 	flag.BoolVar(&flagVerbose, "verbose", false, "Enable verbose output")
+	flag.IntVar(&flagContextSize, "context-size", 3, "Number of lines to show in context for diffs")
 
 	if home := homedir.HomeDir(); home != "" {
 		flag.StringVar(&flagKubeconfig, "kubeconfig", filepath.Join(home, ".kube", "config"), "Path to the kubeconfig file")
@@ -175,6 +227,12 @@ func main() {
 				log.Println("[WARN] Error evaluating expression, skipping:", err)
 				continue
 			}
+			if !output.(bool) {
+				if flagVerbose {
+					log.Println("[INFO] Skipping event because expression evaluated to false")
+				}
+				continue
+			}
 
 			unstr.SetManagedFields(nil)
 			entry := EventEntry{
@@ -188,22 +246,15 @@ func main() {
 				ResourceVersion:    unstr.GetResourceVersion(),
 				Object:             unstr,
 			}
-
-			if !output.(bool) {
-				if flagVerbose {
-					log.Println("[INFO] Skipping event because expression evaluated to false")
-				}
-				continue
-			}
+			entries = append(entries, entry)
 
 			fmt.Println(event.Type, "::", unstr.GetName(), "@", unstr.GetNamespace())
 
 			uid := string(unstr.GetUID())
 			lastEntry, lastOk := last[uid]
-
 			last[uid] = entry
 
-			entries = append(entries, entry)
+			wasSuppressed := false
 
 			// compare current and last object
 			if lastOk {
@@ -222,23 +273,44 @@ func main() {
 					diffs = dmp.DiffCleanupSemantic(diffs)
 
 					colored := DiffPrettyText(diffs)
-					const (
-						red   = "\x1b[9;90m"
-						green = "\x1b[32m"
-					)
-					for i, ln := range strings.Split(colored, "\n") {
+
+					lines := strings.Split(colored, "\n")
+
+					keep := make(map[int]struct{}, len(lines))
+					for i, ln := range lines {
 						if strings.Contains(ln, `"lastReconciledAt": `) {
+							wasSuppressed = true
 							continue
 						}
 						if strings.Contains(ln, red) || strings.Contains(ln, green) {
-							fmt.Printf("%3d | %s\n", i+1, ln)
+							for j := i - flagContextSize; j <= i+flagContextSize; j++ {
+								if j >= 0 && j < len(lines) {
+									keep[j] = struct{}{}
+								}
+							}
 						}
+					}
+					gap := false
+					for i, ln := range lines {
+						if _, ok := keep[i]; !ok {
+							gap = true
+							continue
+						}
+						if gap {
+							fmt.Println("    | ...") // visual separator for large omitted block
+							gap = false
+						}
+						fmt.Printf("%3d | %s%s\n", i+1, ln, reset)
+						wasSuppressed = false
 					}
 				}
 			} else {
 				fmt.Println("< First seen >")
 			}
 
+			if wasSuppressed {
+				fmt.Println("< Output suppressed >")
+			}
 			fmt.Println()
 		}
 	}()
@@ -259,15 +331,14 @@ func DiffPrettyText(diffs []diffmatchpatch.Diff) string {
 
 		switch diff.Type {
 		case diffmatchpatch.DiffInsert:
-			_, _ = buff.WriteString("\x1b[32m") // green
+			_, _ = buff.WriteString(green)
 			_, _ = buff.WriteString(text)
-			_, _ = buff.WriteString("\x1b[0m") // reset
+			_, _ = buff.WriteString(reset)
 
 		case diffmatchpatch.DiffDelete:
-			// grey + strikethrough, then reset
-			_, _ = buff.WriteString("\x1b[9;90m")
+			_, _ = buff.WriteString(red)
 			_, _ = buff.WriteString(text)
-			_, _ = buff.WriteString("\x1b[0m")
+			_, _ = buff.WriteString(reset)
 
 		case diffmatchpatch.DiffEqual:
 			_, _ = buff.WriteString(text)
