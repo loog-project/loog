@@ -1,11 +1,21 @@
 package store
 
-import "context"
+import (
+	"context"
+	"errors"
+
+	"github.com/loog-project/loog/internal/patch"
+)
+
+var ErrNotFound = errors.New("not found")
 
 type ResourcePatchStore interface {
-	Commit(ctx context.Context, uid string, revision uint64, isSnapshot bool, payload []byte) error
-	WalkPatches(ctx context.Context, uid string, from, to uint64, fn func(revision uint64, payload []byte) error) error
-	LoadSnapshot(ctx context.Context, uid string, upto uint64) (payload []byte, snapRev uint64, err error)
-	LatestRevision(ctx context.Context, uid string) (uint64, error)
+	SaveSnapshot(ctx context.Context, objectID string, snap *patch.RevisionSnapshot) error
+	SavePatch(ctx context.Context, objectID string, p *patch.RevisionPatch) error
+
+	GetSnapshot(ctx context.Context, objectID string, revID patch.RevisionID) (*patch.RevisionSnapshot, error)
+	GetPatch(ctx context.Context, objectID string, revID patch.RevisionID) (*patch.RevisionPatch, error)
+
+	GetLatestRevision(ctx context.Context, objectID string) (patch.RevisionID, error)
 	Close() error
 }
