@@ -13,7 +13,7 @@ import (
 	"github.com/expr-lang/expr"
 	"github.com/loog-project/loog/internal/service"
 	"github.com/loog-project/loog/internal/store"
-	badgerStore "github.com/loog-project/loog/internal/store/badger"
+	bboltStore "github.com/loog-project/loog/internal/store/bbolt"
 	"github.com/loog-project/loog/internal/util"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -42,7 +42,7 @@ func main() {
 
 	flag.Var(&flagResources, "resource", "Resource to watch (can be specified multiple times)")
 
-	flag.StringVar(&flagDataDir, "data-dir", "./data", "Directory to store the data")
+	flag.StringVar(&flagDataDir, "out", "output.bb", "File to store the object revisions")
 	flag.BoolVar(&flagSyncWrites, "sync-writes", true, "Enable sync writes for the database")
 	flag.Uint64Var(&flagSnapshotEvery, "snapshot-every", 3, "Number of patches to store before taking a snapshot")
 
@@ -83,21 +83,15 @@ func main() {
 	}
 	log.Println("Expression compiled successfully")
 
-	rps, err := badgerStore.NewResourcePatchStore(flagDataDir, flagSyncWrites)
+	rps, err := bboltStore.New(flagDataDir, nil)
 	if err != nil {
-		panic("failed to create store: " + err.Error())
+		panic("failed to create bbolt store: " + err.Error())
 	}
 	defer func(rps store.ResourcePatchStore) {
 		_ = rps.Close()
 	}(rps)
 
-	svc := service.New(rps, flagSnapshotEvery)
-	defer func(svc *service.Service) {
-		err := svc.Close()
-		if err != nil {
-			log.Fatalf("Error closing service: %v", err)
-		}
-	}(svc)
+	svc := service.NewTrackerService(rps, flagSnapshotEvery)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
@@ -143,9 +137,11 @@ func main() {
 				log.Println(event.Type, "::", unstr.GetName(), "(", unstr.GetUID(), ") in", unstr.GetNamespace())
 
 				unstr.SetManagedFields(nil)
-				if err := svc.Commit(ctx, string(unstr.GetUID()), unstr); err != nil {
+				if rid, err := svc.Commit(ctx, string(unstr.GetUID()), unstr); err != nil {
 					log.Println("[ERROR] Error committing object:", err)
 					continue
+				} else {
+					log.Println(" >> committed revision:", rid)
 				}
 			}
 		}
