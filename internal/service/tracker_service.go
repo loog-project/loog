@@ -91,38 +91,52 @@ func (t *TrackerService) Commit(
 }
 
 // Restore brings back the object state at *rev*.
-func (t *TrackerService) Restore(ctx context.Context, objID string, rev patch.RevisionID) (*patch.RevisionSnapshot, error) {
-	var chain []patch.RevisionID
-	cur := rev
+func (t *TrackerService) Restore(ctx context.Context, objID string, revision patch.RevisionID) (*patch.RevisionSnapshot, error) {
+	var patchChain []*patch.RevisionPatch
+	currentRevision := revision
+
+	// build the chain of patches
 	for {
-		if snap, err := t.rps.GetSnapshot(ctx, objID, cur); err == nil {
-			// we have now found the base snapshot
-			state := snap.Object
-			for i := len(chain) - 1; i >= 0; i-- {
-				p, err := t.rps.GetPatch(ctx, objID, chain[i])
-				if err != nil {
-					return nil, fmt.Errorf("broken chain at %s: %w", chain[i], err)
-				}
-				newData, err := patch.ApplyOperations(state, p.Operations)
+		// first we need to find the base snapshot
+		// meaning either the current revision is already a snapshot
+		// or we need to find the previous snapshot
+		snapshot, err := t.rps.GetSnapshot(ctx, objID, currentRevision)
+		if err == nil {
+			// we have now found some base snapshot so we can use the chain (which might be empty if base == revision)
+			// to reconstruct the object state at revision
+			state := snapshot.Object
+			for i := len(patchChain) - 1; i >= 0; i-- {
+				currentPatch := patchChain[i]
+
+				newData, err := patch.ApplyOperations(state, currentPatch.Operations)
 				if err != nil {
 					return nil, fmt.Errorf("failed to apply operations: %w", err)
 				}
+
+				// newData is the state at currentPatch.ID
+				// we need to unmarshal it back to the original object type so in the next iteration
+				// we can apply the next patch
 				err = json.Unmarshal(newData, &state)
 				if err != nil {
 					return nil, fmt.Errorf("failed to unmarshal new data: %w", err)
 				}
 			}
 			return &patch.RevisionSnapshot{
-				ID:     rev,
+				ID:     revision,
 				Object: state,
 			}, nil
 		}
-		p, err := t.rps.GetPatch(ctx, objID, cur)
-		if err != nil {
-			return nil, fmt.Errorf("broken chain at %s: %w", cur, err)
+		if !errors.Is(err, store.ErrNotFound) { // TODO(future): maybe optimize this using !=
+			// the error is not related to building the chain
+			return nil, err
 		}
-		chain = append(chain, cur)
-		cur = p.PreviousID
+		p, err := t.rps.GetPatch(ctx, objID, currentRevision)
+		if err != nil {
+			return nil, fmt.Errorf("broken chain at %s: %w", currentRevision, err)
+		}
+		patchChain = append(patchChain, p)
+
+		currentRevision = p.PreviousID
 	}
 }
 
