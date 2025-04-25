@@ -25,15 +25,14 @@ func keyObjectChunk(objectUID string, chunkID uint64) []byte {
 
 // claimNextRevision atomically increments the counter in bLatest *and*
 // updates the in-memory cache. It returns the newly assigned revision number.
-func claimNextRevision(tx *bbolt.Tx, objectID string) (patch.RevisionID, error) {
+func (s *Store) claimNextRevision(tx *bbolt.Tx, objectID string) (patch.RevisionID, error) {
 	latest := tx.Bucket(bucketLatest)
 
-	raw := latest.Get([]byte(objectID))
 	var next uint64
-	if raw != nil {
+	if raw := latest.Get([]byte(objectID)); raw != nil {
 		next = binary.BigEndian.Uint64(raw)
 	}
-	revisionNumber := next
+	revisionNumber := patch.RevisionID(next)
 	next++
 
 	buf := make([]byte, 8)
@@ -42,11 +41,11 @@ func claimNextRevision(tx *bbolt.Tx, objectID string) (patch.RevisionID, error) 
 		return 0, err
 	}
 
-	counterMu.Lock()
-	counter[objectID] = next
-	counterMu.Unlock()
+	s.counterMu.Lock()
+	s.counter[objectID] = next
+	s.counterMu.Unlock()
 
-	return patch.NewRevisionID(revisionNumber), nil
+	return revisionNumber, nil
 }
 
 // putChunk updates (or creates) the patch chunk for objectID/chunkID and
@@ -75,4 +74,19 @@ func (s *Store) putChunk(
 		return err
 	}
 	return tx.Bucket(bucketChunks).Put(cKey, enc)
+}
+
+// setLatest updates the latest revision for the given object in the database and
+func (s *Store) setLatest(tx *bbolt.Tx, obj string, rev uint64) error {
+	buf := make([]byte, 8)
+	binary.BigEndian.PutUint64(buf, rev)
+	if err := tx.Bucket(bucketLatest).Put([]byte(obj), buf); err != nil {
+		return err
+	}
+
+	s.mutex.Lock()
+	s.head[obj] = rev
+	s.mutex.Unlock()
+
+	return nil
 }

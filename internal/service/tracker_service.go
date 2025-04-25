@@ -38,17 +38,16 @@ func (t *TrackerService) Commit(
 ) (patch.RevisionID, error) {
 	latest, err := t.rps.GetLatestRevision(ctx, objID)
 	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			// if there's not yet a revision, we can just save the object as a snapshot
-			snap := &patch.RevisionSnapshot{
-				Object: obj.Object,
-			}
-			if err := t.rps.SaveSnapshot(ctx, objID, snap); err != nil {
-				return 0, err
-			}
-			return snap.ID, nil
+		if !errors.Is(err, store.ErrNotFound) {
+			return 0, err
 		}
-		return 0, err
+
+		snapshot := patch.RevisionSnapshot{Object: obj.Object}
+		if err := t.rps.SaveSnapshot(ctx, objID, &snapshot); err != nil {
+			return 0, err
+		}
+
+		return snapshot.ID, nil
 	}
 
 	chain, err := t.patchDistance(ctx, objID, latest)
@@ -56,15 +55,17 @@ func (t *TrackerService) Commit(
 		return 0, err
 	}
 
+	// check if it's time for a full snapshot
 	if uint64(chain) >= t.snapshotEvery-1 {
-		snap := &patch.RevisionSnapshot{
+		snapshot := patch.RevisionSnapshot{
 			PreviousID: latest,
 			Object:     obj.Object,
 		}
-		if err := t.rps.SaveSnapshot(ctx, objID, snap); err != nil {
+		err = t.rps.SaveSnapshot(ctx, objID, &snapshot)
+		if err != nil {
 			return 0, err
 		}
-		return snap.ID, nil
+		return snapshot.ID, nil
 	}
 
 	// reconstruct latest state to diff
@@ -82,7 +83,8 @@ func (t *TrackerService) Commit(
 		PreviousID: latest,
 		Operations: operations,
 	}
-	if err := t.rps.SavePatch(ctx, objID, p); err != nil {
+	err = t.rps.SavePatch(ctx, objID, p)
+	if err != nil {
 		return 0, err
 	}
 	return p.ID, nil
@@ -124,8 +126,6 @@ func (t *TrackerService) Restore(ctx context.Context, objID string, rev patch.Re
 	}
 }
 
-// ------------------- helpers --------------------------------------------------
-
 func (t *TrackerService) patchDistance(ctx context.Context, obj string, from patch.RevisionID) (int, error) {
 	n := 0
 	cur := from
@@ -141,115 +141,3 @@ func (t *TrackerService) patchDistance(ctx context.Context, obj string, from pat
 		cur = p.PreviousID
 	}
 }
-
-/*
-
-func (t *TrackerService) countPatchesSinceLastSnapshot(
-	ctx context.Context,
-	objectID string,
-	from patch.RevisionID,
-) (int, error) {
-	n := 0
-	curr := from
-	for {
-		if _, err := t.rps.GetSnapshot(ctx, objectID, curr); err == nil {
-			return n, nil
-		}
-		p, err := t.rps.GetPatch(ctx, objectID, curr)
-		if err != nil {
-			return 0, err
-		}
-		n++
-		curr = p.PreviousID
-	}
-}
-
-func (t *TrackerService) Commit(
-	ctx context.Context,
-	objectID string,
-	obj *unstructured.Unstructured,
-) (patch.RevisionID, error) {
-	newRevisionID := patch.NewRevisionID()
-
-	latest, err := t.rps.GetLatestRevision(ctx, objectID)
-	if err != nil {
-		// if there's not yet a revision, we can just save the object as a snapshot
-		if errors.Is(err, store.ErrNotFound) {
-			snapshot := &patch.RevisionSnapshot{
-				ID:     newRevisionID,
-				Object: obj.Object,
-			}
-			return newRevisionID, t.rps.SaveSnapshot(ctx, objectID, snapshot)
-		}
-		return "", err
-	}
-
-	// TODO: this can be optimized by using a cache
-
-	// reconstruct latest object to compute diff
-	restoredObject, err := t.RestoreAtRevision(ctx, objectID, latest)
-	if err != nil {
-		return "", err
-	}
-
-	operations, err := patch.Diff(restoredObject.Object, obj.Object)
-	if err != nil {
-		return "", err
-	}
-
-	chainLen, err := t.countPatchesSinceLastSnapshot(ctx, objectID, latest)
-	if err != nil {
-		return "", err
-	}
-
-	if uint64(chainLen)+1 >= t.snapshotEvery {
-		snapshot := &patch.RevisionSnapshot{
-			ID:         newRevisionID,
-			PreviousID: latest,
-			Object:     obj.Object,
-		}
-		return newRevisionID, t.rps.SaveSnapshot(ctx, objectID, snapshot)
-	}
-	p := &patch.RevisionPatch{
-		ID:         newRevisionID,
-		PreviousID: latest,
-		Operations: operations,
-	}
-	return newRevisionID, t.rps.SavePatch(ctx, objectID, p)
-}
-
-// RestoreAtRevision rebuilds the full object state at *revID*.
-func (t *TrackerService) RestoreAtRevision(
-	ctx context.Context,
-	objectID string,
-	revID patch.RevisionID,
-) (*patch.RevisionSnapshot, error) {
-	var chain []patch.RevisionID // patches to replay (youngest→oldest)
-	curr := revID
-	for {
-		if snap, err := t.rps.GetSnapshot(ctx, objectID, curr); err == nil {
-			if snap.ID == revID {
-				// we are already at the requested revision, no need to replay patches
-				return snap, nil
-			}
-			// Found base snapshot – apply patches in reverse.
-			state := snap.Object
-			for i := len(chain) - 1; i >= 0; i-- {
-				p, _ := t.st.GetPatch(ctx, objectID, chain[i])
-				data, _ := patch.ApplyOperations(state, p.Operations)
-				if err := json.Unmarshal(data, &state); err != nil {
-					return nil, err
-				}
-			}
-			return &patch.RevisionSnapshot{ID: revID, Object: state, Generation: snap.Generation}, nil
-		}
-		p, err := t.st.GetPatch(ctx, objectID, curr)
-		if err != nil {
-			return nil, fmt.Errorf("revision chain broken at %s: %w", curr, err)
-		}
-		chain = append(chain, curr)
-		curr = p.PreviousID
-	}
-}
-
-*/

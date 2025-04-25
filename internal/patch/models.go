@@ -8,10 +8,6 @@ import (
 
 type RevisionID uint64
 
-func NewRevisionID(u uint64) RevisionID {
-	return RevisionID(u)
-}
-
 func (id RevisionID) String() string {
 	return fmt.Sprintf("%016x", uint64(id))
 }
