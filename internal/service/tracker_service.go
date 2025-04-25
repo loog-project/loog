@@ -11,12 +11,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-// metaAccessor extracts LatestRevision from the loosely‑typed metadata.
-// The concrete type is defined by the storage layer.
-type metaAccessor interface {
-	GetLatestRevision() patch.RevisionID
-}
-
 // TrackerService is a service that tracks changes to Kubernetes resources.
 // It stores the changes in a resource patch store and allows restoring
 // the full object state at a specific revision.
@@ -42,62 +36,56 @@ func (t *TrackerService) Commit(
 	objID string,
 	obj *unstructured.Unstructured,
 ) (patch.RevisionID, error) {
-	revision := patch.NewRevisionID()
-
-	fmt.Println("committing", objID, "rev", revision, "...")
-
 	latest, err := t.rps.GetLatestRevision(ctx, objID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			fmt.Println(" >> no previous revision found: storing snapshot")
 			// if there's not yet a revision, we can just save the object as a snapshot
 			snap := &patch.RevisionSnapshot{
-				ID:         revision,
-				PreviousID: "",
-				Object:     obj.Object,
+				Object: obj.Object,
 			}
-			return revision, t.rps.SaveSnapshot(ctx, objID, snap)
+			if err := t.rps.SaveSnapshot(ctx, objID, snap); err != nil {
+				return 0, err
+			}
+			return snap.ID, nil
 		}
-		return "", err
+		return 0, err
 	}
 
-	fmt.Println(" >> latest revision found:", latest)
 	chain, err := t.patchDistance(ctx, objID, latest)
 	if err != nil {
-		return "", err
+		return 0, err
 	}
 
-	fmt.Println(" >> patch distance:", chain)
 	if uint64(chain) >= t.snapshotEvery-1 {
-		fmt.Println(" >> time for a snapshot")
 		snap := &patch.RevisionSnapshot{
-			ID:         revision,
 			PreviousID: latest,
 			Object:     obj.Object,
 		}
-		return revision, t.rps.SaveSnapshot(ctx, objID, snap)
+		if err := t.rps.SaveSnapshot(ctx, objID, snap); err != nil {
+			return 0, err
+		}
+		return snap.ID, nil
 	}
-
-	fmt.Println(" >> restoring ...")
 
 	// reconstruct latest state to diff
 	base, err := t.Restore(ctx, objID, latest)
 	if err != nil {
-		return "", err
+		return 0, err
 	}
 
 	operations, err := patch.Diff(base.Object, obj.Object)
 	if err != nil {
-		return "", err
+		return 0, err
 	}
 
-	fmt.Println(" >> diff operations:", operations)
-
-	return revision, t.rps.SavePatch(ctx, objID, &patch.RevisionPatch{
-		ID:         revision,
+	p := &patch.RevisionPatch{
 		PreviousID: latest,
 		Operations: operations,
-	})
+	}
+	if err := t.rps.SavePatch(ctx, objID, p); err != nil {
+		return 0, err
+	}
+	return p.ID, nil
 }
 
 // Restore brings back the object state at *rev*.

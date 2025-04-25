@@ -2,18 +2,18 @@ package patch
 
 import (
 	"fmt"
-	"sync/atomic"
 
 	gojsondiff "github.com/wI2L/jsondiff"
 )
 
-type RevisionID = string
+type RevisionID uint64
 
-var counter uint64
+func NewRevisionID(u uint64) RevisionID {
+	return RevisionID(u)
+}
 
-func NewRevisionID() RevisionID {
-	n := atomic.AddUint64(&counter, 1)
-	return fmt.Sprintf("%016x", n)
+func (id RevisionID) String() string {
+	return fmt.Sprintf("%016x", uint64(id))
 }
 
 type RevisionPatch struct {

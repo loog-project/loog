@@ -34,7 +34,7 @@ func main() {
 	}
 	data.SetNamespace("default")
 	data.SetName("test")
-	data.SetUID("ffffffff-ffff-ffff-ffff-fffffffffff2")
+	data.SetUID("ffffffff-ffff-ffff-ffff-fffffffffff3")
 
 	uid := string(data.GetUID())
 

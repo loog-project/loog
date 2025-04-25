@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"strconv"
 	"sync"
 
 	"github.com/loog-project/loog/internal/patch"
@@ -25,6 +24,11 @@ var (
 	errIndexEntryMissing  = errors.New("index entry missing")
 	errRevisionIsSnapshot = errors.New("revision is a snapshot")
 	errPatchChunkMissing  = errors.New("patch chunk missing")
+)
+
+var (
+	counterMu sync.RWMutex
+	counter   = map[string]uint64{}
 )
 
 const chunkSize = 64 // patches per chunk value
@@ -96,111 +100,10 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-// SaveSnapshot stores a [RevisionSnapshot] and updates metadata
-func (s *Store) SaveSnapshot(_ context.Context, obj string, snap *patch.RevisionSnapshot) error {
-	revision := idToUint64(snap.ID)
-	payload, _ := s.codec.Marshal(snap)
-
-	return s.db.Update(func(tx *bbolt.Tx) error {
-		if err := tx.Bucket(bucketSnapshots).Put(keyObjRev(obj, revision), payload); err != nil {
-			return err
-		}
-		raw, err := msgpack.Marshal(indexEntry{Snap: true})
-		if err != nil {
-			return err
-		}
-		err = tx.Bucket(bucketIndex).Put(keyObjRev(obj, revision), raw)
-		if err != nil {
-			return err
-		}
-		return s.setLatest(tx, obj, revision)
-	})
-}
-
-// SavePatch stores a [RevisionPatch] and updates metadata
-func (s *Store) SavePatch(_ context.Context, obj string, p *patch.RevisionPatch) error {
-	revision := idToUint64(p.ID)
-	payload, err := s.codec.Marshal(p)
-	if err != nil {
-		return err
-	}
-	return s.db.Update(func(tx *bbolt.Tx) error {
-		chunkID := revision / chunkSize
-		offset := uint16(revision % chunkSize)
-
-		cKey := keyObjChunk(obj, chunkID)
-		var chunk []rawPatch
-		if v := tx.Bucket(bucketChunks).Get(cKey); v != nil {
-			// if the chunk already exists, unmarshal it
-			if err := s.codec.Unmarshal(v, &chunk); err != nil {
-				return err
-			}
-		} else {
-			// if the chunk doesn't exist, create a new one
-			chunk = make([]rawPatch, chunkSize)
-		}
-		chunk[offset] = rawPatch{Data: payload}
-
-		// store the chunk
-		encoded, err := s.codec.Marshal(chunk)
-		if err != nil {
-			return err
-		}
-		err = tx.Bucket(bucketChunks).Put(cKey, encoded)
-		if err != nil {
-			return err
-		}
-
-		// index entry
-		idxBytes, err := msgpack.Marshal(indexEntry{
-			Snap:   false,
-			Chunk:  chunkID,
-			Offset: offset,
-		})
-		if err != nil {
-			return err
-		}
-		err = tx.Bucket(bucketIndex).Put(keyObjRev(obj, revision), idxBytes)
-		if err != nil {
-			return err
-		}
-		return s.setLatest(tx, obj, revision)
-	})
-}
-
-func (s *Store) GetLatestRevision(_ context.Context, obj string) (patch.RevisionID, error) {
-	s.mutex.RLock()
-	if rev, ok := s.head[obj]; ok {
-		s.mutex.RUnlock()
-		return uint64ToID(rev), nil
-	}
-	s.mutex.RUnlock()
-
-	var rev uint64
-	err := s.db.View(func(tx *bbolt.Tx) error {
-		v := tx.Bucket(bucketLatest).Get([]byte(obj))
-		if v == nil {
-			return store.ErrNotFound
-		}
-		rev = binary.BigEndian.Uint64(v)
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-
-	s.mutex.Lock()
-	s.head[obj] = rev
-	s.mutex.Unlock()
-	return uint64ToID(rev), nil
-}
-
 func (s *Store) GetSnapshot(_ context.Context, obj string, revID patch.RevisionID) (*patch.RevisionSnapshot, error) {
-	rev := idToUint64(revID)
-
 	var snapshot patch.RevisionSnapshot
 	err := s.db.View(func(tx *bbolt.Tx) error {
-		v := tx.Bucket(bucketSnapshots).Get(keyObjRev(obj, rev))
+		v := tx.Bucket(bucketSnapshots).Get(keyObjectRevision(obj, revID))
 		if v == nil {
 			return store.ErrNotFound
 		}
@@ -211,11 +114,9 @@ func (s *Store) GetSnapshot(_ context.Context, obj string, revID patch.RevisionI
 }
 
 func (s *Store) GetPatch(_ context.Context, obj string, revID patch.RevisionID) (*patch.RevisionPatch, error) {
-	rev := idToUint64(revID)
 	var patchRec patch.RevisionPatch
-
 	err := s.db.View(func(tx *bbolt.Tx) error {
-		idxBytes := tx.Bucket(bucketIndex).Get(keyObjRev(obj, rev))
+		idxBytes := tx.Bucket(bucketIndex).Get(keyObjectRevision(obj, revID))
 		if idxBytes == nil {
 			return errIndexEntryMissing
 		}
@@ -227,7 +128,7 @@ func (s *Store) GetPatch(_ context.Context, obj string, revID patch.RevisionID) 
 			return errRevisionIsSnapshot
 		}
 
-		chunkBytes := tx.Bucket(bucketChunks).Get(keyObjChunk(obj, idx.Chunk))
+		chunkBytes := tx.Bucket(bucketChunks).Get(keyObjectChunk(obj, idx.Chunk))
 		if chunkBytes == nil {
 			return errPatchChunkMissing
 		}
@@ -253,28 +154,4 @@ func (s *Store) setLatest(tx *bbolt.Tx, obj string, rev uint64) error {
 	s.mutex.Unlock()
 
 	return nil
-}
-
-func keyObjRev(obj string, rev uint64) []byte {
-	buf := make([]byte, len(obj)+1+8)
-	copy(buf, obj)
-	buf[len(obj)] = '|'
-	binary.BigEndian.PutUint64(buf[len(obj)+1:], rev)
-	return buf
-}
-
-func keyObjChunk(obj string, chunk uint64) []byte {
-	buf := make([]byte, len(obj)+1+8)
-	copy(buf, obj)
-	buf[len(obj)] = '|'
-	binary.BigEndian.PutUint64(buf[len(obj)+1:], chunk)
-	return buf
-}
-
-func idToUint64(id patch.RevisionID) uint64 {
-	n, _ := strconv.ParseUint(id, 16, 64)
-	return n
-}
-func uint64ToID(n uint64) patch.RevisionID {
-	return fmt.Sprintf("%016x", n)
 }
