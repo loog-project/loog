@@ -138,8 +138,7 @@ func (t *TrackerService) patchDistance(ctx context.Context, obj string, from sto
 			cur = p.PreviousID
 			continue
 		}
-		// if we reach here, it means we have no more patches or snapshots
-		// but we have not found the base snapshot
+		// if we reach here, it means we have no more patches or snapshots and didn't find the base snapshot
 		return 0, fmt.Errorf("no base snapshot found for revision %d", from)
 	}
 }

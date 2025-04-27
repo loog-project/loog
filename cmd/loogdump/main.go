@@ -83,7 +83,7 @@ func main() {
 	}
 	log.Println("Expression compiled successfully")
 
-	rps, err := bboltStore.New(flagDataDir, nil)
+	rps, err := bboltStore.New(flagDataDir, nil, flagSyncWrites)
 	if err != nil {
 		panic("failed to create bbolt store: " + err.Error())
 	}

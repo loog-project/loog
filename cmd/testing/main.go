@@ -23,7 +23,7 @@ func Must2[T any](v T, err error) T {
 func main() {
 	ctx := context.TODO()
 
-	rps, err := bboltStore.New("test.bb", nil)
+	rps, err := bboltStore.New("test.bb", nil, true)
 	if err != nil {
 		panic(err)
 	}

@@ -12,36 +12,60 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
+func BenchmarkCommit_SnapshotEvery1Durable(b *testing.B) {
+	benchCommit(b, 1, true)
+}
+
 func BenchmarkCommit_SnapshotEvery1(b *testing.B) {
-	benchCommit(b, 1)
+	benchCommit(b, 1, false)
+}
+
+func BenchmarkCommit_SnapshotEvery2Durable(b *testing.B) {
+	benchCommit(b, 2, true)
 }
 
 func BenchmarkCommit_SnapshotEvery2(b *testing.B) {
-	benchCommit(b, 2)
+	benchCommit(b, 2, false)
+}
+
+func BenchmarkCommit_SnapshotEvery4Durable(b *testing.B) {
+	benchCommit(b, 4, true)
 }
 
 func BenchmarkCommit_SnapshotEvery4(b *testing.B) {
-	benchCommit(b, 4)
+	benchCommit(b, 4, false)
+}
+
+func BenchmarkCommit_SnapshotEvery8Durable(b *testing.B) {
+	benchCommit(b, 8, true)
 }
 
 func BenchmarkCommit_SnapshotEvery8(b *testing.B) {
-	benchCommit(b, 8)
+	benchCommit(b, 8, false)
+}
+
+func BenchmarkCommit_SnapshotEvery16Durable(b *testing.B) {
+	benchCommit(b, 16, true)
 }
 
 func BenchmarkCommit_SnapshotEvery16(b *testing.B) {
-	benchCommit(b, 16)
+	benchCommit(b, 16, false)
+}
+
+func BenchmarkCommit_SnapshotEvery32Durable(b *testing.B) {
+	benchCommit(b, 32, true)
 }
 
 func BenchmarkCommit_SnapshotEvery32(b *testing.B) {
-	benchCommit(b, 32)
+	benchCommit(b, 32, false)
 }
 
 // benchCommit is the shared benchmark body.
-func benchCommit(b *testing.B, snapshotEvery uint64) {
+func benchCommit(b *testing.B, snapshotEvery uint64, durable bool) {
 	tempDir := b.TempDir()
 	dbPath := fmt.Sprintf("%s/bench-%d.db", tempDir, snapshotEvery)
 
-	store, err := bboltStore.New(dbPath, nil)
+	store, err := bboltStore.New(dbPath, nil, durable)
 	if err != nil {
 		b.Fatalf("init store: %v", err)
 	}
