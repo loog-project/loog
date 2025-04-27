@@ -43,7 +43,7 @@ func (t *TrackerService) Commit(
 		}
 
 		snapshot := patch.RevisionSnapshot{Object: obj.Object}
-		if err := t.rps.SaveSnapshot(ctx, objID, &snapshot); err != nil {
+		if err := t.rps.SetSnapshot(ctx, objID, &snapshot); err != nil {
 			return 0, err
 		}
 
@@ -61,7 +61,7 @@ func (t *TrackerService) Commit(
 			PreviousID: latest,
 			Object:     obj.Object,
 		}
-		err = t.rps.SaveSnapshot(ctx, objID, &snapshot)
+		err = t.rps.SetSnapshot(ctx, objID, &snapshot)
 		if err != nil {
 			return 0, err
 		}
@@ -83,7 +83,7 @@ func (t *TrackerService) Commit(
 		PreviousID: latest,
 		Operations: operations,
 	}
-	err = t.rps.SavePatch(ctx, objID, p)
+	err = t.rps.SetPatch(ctx, objID, p)
 	if err != nil {
 		return 0, err
 	}
@@ -97,13 +97,13 @@ func (t *TrackerService) Restore(ctx context.Context, objID string, revision pat
 
 	// build the chain of patches
 	for {
-		// first we need to find the base snapshot
-		// meaning either the current revision is already a snapshot
-		// or we need to find the previous snapshot
-		snapshot, err := t.rps.GetSnapshot(ctx, objID, currentRevision)
-		if err == nil {
-			// we have now found some base snapshot so we can use the chain (which might be empty if base == revision)
-			// to reconstruct the object state at revision
+		snapshot, p, err := t.rps.Get(ctx, objID, currentRevision)
+		if err != nil {
+			return nil, err
+		}
+
+		if snapshot != nil {
+			// we have found the base snapshot, so we can use the chain to reconstruct the object state
 			state := snapshot.Object
 			for i := len(patchChain) - 1; i >= 0; i-- {
 				currentPatch := patchChain[i]
@@ -126,17 +126,17 @@ func (t *TrackerService) Restore(ctx context.Context, objID string, revision pat
 				Object: state,
 			}, nil
 		}
-		if !errors.Is(err, store.ErrNotFound) { // TODO(future): maybe optimize this using !=
-			// the error is not related to building the chain
-			return nil, err
-		}
-		p, err := t.rps.GetPatch(ctx, objID, currentRevision)
-		if err != nil {
-			return nil, fmt.Errorf("broken chain at %s: %w", currentRevision, err)
-		}
-		patchChain = append(patchChain, p)
 
-		currentRevision = p.PreviousID
+		if p != nil {
+			patchChain = append(patchChain, p)
+			currentRevision = p.PreviousID
+
+			continue // find the next patch / snapshot
+		}
+
+		// if we reach here, it means we have no more patches or snapshots
+		// but we have not found the base snapshot
+		return nil, fmt.Errorf("no base snapshot found for revision %d", revision)
 	}
 }
 
@@ -144,14 +144,20 @@ func (t *TrackerService) patchDistance(ctx context.Context, obj string, from pat
 	n := 0
 	cur := from
 	for {
-		if _, err := t.rps.GetSnapshot(ctx, obj, cur); err == nil {
-			return n, nil
-		}
-		p, err := t.rps.GetPatch(ctx, obj, cur)
+		snapshot, p, err := t.rps.Get(ctx, obj, cur)
 		if err != nil {
 			return 0, err
 		}
-		n++
-		cur = p.PreviousID
+		if snapshot != nil {
+			return n, nil
+		}
+		if p != nil {
+			n++
+			cur = p.PreviousID
+			continue
+		}
+		// if we reach here, it means we have no more patches or snapshots
+		// but we have not found the base snapshot
+		return 0, fmt.Errorf("no base snapshot found for revision %d", from)
 	}
 }

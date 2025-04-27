@@ -1,10 +1,10 @@
 package service_test
 
 import (
-	"crypto/rand"
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/loog-project/loog/internal/service"
@@ -54,7 +54,8 @@ func benchCommit(b *testing.B, snapshotEvery uint64) {
 	// make this object large
 	m := map[string]any{}
 	for i := 0; i < 500; i++ {
-		m[rand.Text()] = rand.Text()
+		v := strings.Repeat(string(rune(i+65)), 26)
+		m[v] = v
 	}
 
 	// base object – simple unstructured with metadata.name mutated each loop.

@@ -1,7 +1,6 @@
 package bbolt
 
 import (
-	"errors"
 	"fmt"
 	"sync"
 
@@ -10,34 +9,17 @@ import (
 	"go.etcd.io/bbolt"
 )
 
+const (
+	TypeSnapshot byte = 1 << iota
+	TypePatch
+)
+
 var (
 	bucketSnapshots = []byte("snapshots")   // <obj>|rev  -> RevisionSnapshot
 	bucketChunks    = []byte("patchChunks") // <obj>|chunkID -> []rawPatch
 	bucketIndex     = []byte("index")       // <obj>|rev  -> indexEntry
 	bucketLatest    = []byte("latest")      // <obj>      -> uint64(latestRev)
 )
-
-var (
-	errIndexEntryMissing  = errors.New("index entry missing")
-	errRevisionIsSnapshot = errors.New("revision is a snapshot")
-	errPatchChunkMissing  = errors.New("patch chunk missing")
-)
-
-const chunkSize = 64 // patches per chunk value
-
-// ------------------------- index entry ---------------------------------------
-
-type indexEntry struct {
-	Snap   bool   `msgpack:"s"`
-	Chunk  uint64 `msgpack:"c"`
-	Offset uint16 `msgpack:"o"`
-}
-
-type rawPatch struct {
-	Data []byte `msgpack:"d"`
-}
-
-// ------------------------- Store ---------------------------------------------
 
 // ObjectMeta is stored in the `metadata` bucket.
 type ObjectMeta struct {
@@ -49,11 +31,8 @@ type Store struct {
 	db    *bbolt.DB
 	codec store.Codec
 
-	head  map[string]uint64 // hot cache: objectID -> latest rev
-	mutex sync.RWMutex
-
-	counterMu sync.RWMutex
-	counter   map[string]uint64
+	nextRevisionCounterMutex sync.RWMutex
+	nextRevisionCounter      map[string]uint64
 }
 
 var _ store.ResourcePatchStore = (*Store)(nil)
@@ -84,10 +63,9 @@ func New(path string, codec store.Codec) (*Store, error) {
 		return nil, fmt.Errorf("failed to create default buckets: %w", err)
 	}
 	return &Store{
-		db:      db,
-		codec:   codec,
-		head:    make(map[string]uint64),
-		counter: make(map[string]uint64),
+		db:                  db,
+		codec:               codec,
+		nextRevisionCounter: make(map[string]uint64),
 	}, nil
 }
 
