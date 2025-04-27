@@ -1,0 +1,92 @@
+package bbolt
+
+import (
+	"encoding/binary"
+
+	"github.com/loog-project/loog/internal/patch"
+	"go.etcd.io/bbolt"
+)
+
+func keyObjectRevision(objectUID string, id patch.RevisionID) []byte {
+	buf := make([]byte, len(objectUID)+1+8)
+	copy(buf, objectUID)
+	buf[len(objectUID)] = '|'
+	binary.BigEndian.PutUint64(buf[len(objectUID)+1:], uint64(id))
+	return buf
+}
+
+func keyObjectChunk(objectUID string, chunkID uint64) []byte {
+	buf := make([]byte, len(objectUID)+1+8)
+	copy(buf, objectUID)
+	buf[len(objectUID)] = '|'
+	binary.BigEndian.PutUint64(buf[len(objectUID)+1:], chunkID)
+	return buf
+}
+
+// claimNextRevision atomically increments the counter in bLatest *and*
+// updates the in-memory cache. It returns the newly assigned revision number.
+func (s *Store) claimNextRevision(tx *bbolt.Tx, objectID string) (patch.RevisionID, error) {
+	latest := tx.Bucket(bucketLatest)
+
+	var next uint64
+	if raw := latest.Get([]byte(objectID)); raw != nil {
+		next = binary.BigEndian.Uint64(raw)
+	}
+	revisionNumber := patch.RevisionID(next)
+	next++
+
+	buf := make([]byte, 8)
+	binary.BigEndian.PutUint64(buf, next)
+	if err := latest.Put([]byte(objectID), buf); err != nil {
+		return 0, err
+	}
+
+	s.counterMu.Lock()
+	s.counter[objectID] = next
+	s.counterMu.Unlock()
+
+	return revisionNumber, nil
+}
+
+// putChunk updates (or creates) the patch chunk for objectID/chunkID and
+// returns the encoded offset that SavePatch must store in the index bucket.
+func (s *Store) putChunk(
+	tx *bbolt.Tx,
+	objectID string,
+	chunkID uint64,
+	offset uint16,
+	patchBytes []byte,
+) error {
+	cKey := keyObjectChunk(objectID, chunkID)
+
+	var chunk []rawPatch
+	if v := tx.Bucket(bucketChunks).Get(cKey); v != nil {
+		if err := s.codec.Unmarshal(v, &chunk); err != nil {
+			return err
+		}
+	} else {
+		chunk = make([]rawPatch, chunkSize)
+	}
+	chunk[offset] = rawPatch{Data: patchBytes}
+
+	enc, err := s.codec.Marshal(chunk)
+	if err != nil {
+		return err
+	}
+	return tx.Bucket(bucketChunks).Put(cKey, enc)
+}
+
+// setLatest updates the latest revision for the given object in the database and
+func (s *Store) setLatest(tx *bbolt.Tx, obj string, rev uint64) error {
+	buf := make([]byte, 8)
+	binary.BigEndian.PutUint64(buf, rev)
+	if err := tx.Bucket(bucketLatest).Put([]byte(obj), buf); err != nil {
+		return err
+	}
+
+	s.mutex.Lock()
+	s.head[obj] = rev
+	s.mutex.Unlock()
+
+	return nil
+}
