@@ -27,7 +27,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	ts := service.NewTrackerService(rps, 2)
+	ts := service.NewTrackerService(rps, 2, true)
 
 	data := &unstructured.Unstructured{
 		Object: make(map[string]interface{}),

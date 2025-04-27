@@ -35,6 +35,7 @@ func main() {
 		flagDataDir       string
 		flagSyncWrites    bool
 		flagSnapshotEvery uint64
+		flagNoCache       bool
 	)
 	flag.StringVar(&flagFilterExpr, "filter-expr", "All()", "Expression to filter the resource to watch")
 	flag.BoolVar(&flagVerbose, "verbose", false, "Enable verbose output")
@@ -45,6 +46,7 @@ func main() {
 	flag.StringVar(&flagDataDir, "out", "output.bb", "File to store the object revisions")
 	flag.BoolVar(&flagSyncWrites, "sync-writes", true, "Enable sync writes for the database")
 	flag.Uint64Var(&flagSnapshotEvery, "snapshot-every", 3, "Number of patches to store before taking a snapshot")
+	flag.BoolVar(&flagNoCache, "no-cache", false, "Disable cache for the tracker service")
 
 	if home := homedir.HomeDir(); home != "" {
 		flag.StringVar(&flagKubeconfig, "kubeconfig", filepath.Join(home, ".kube", "config"), "Path to the kubeconfig file")
@@ -91,7 +93,7 @@ func main() {
 		_ = rps.Close()
 	}(rps)
 
-	svc := service.NewTrackerService(rps, flagSnapshotEvery)
+	svc := service.NewTrackerService(rps, flagSnapshotEvery, !flagNoCache)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
