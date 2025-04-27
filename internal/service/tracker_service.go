@@ -2,12 +2,11 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 
-	"github.com/loog-project/loog/internal/patch"
 	"github.com/loog-project/loog/internal/store"
+	"github.com/loog-project/loog/pkg/diffmap"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -22,7 +21,7 @@ type TrackerService struct {
 // NewTrackerService creates a new TrackerService instance.
 func NewTrackerService(rps store.ResourcePatchStore, snapshotEvery uint64) *TrackerService {
 	if snapshotEvery == 0 {
-		snapshotEvery = 10
+		snapshotEvery = 8
 	}
 	return &TrackerService{
 		rps:           rps,
@@ -34,15 +33,15 @@ func NewTrackerService(rps store.ResourcePatchStore, snapshotEvery uint64) *Trac
 func (t *TrackerService) Commit(
 	ctx context.Context,
 	objID string,
-	obj *unstructured.Unstructured,
-) (patch.RevisionID, error) {
+	newObject *unstructured.Unstructured,
+) (store.RevisionID, error) {
 	latest, err := t.rps.GetLatestRevision(ctx, objID)
 	if err != nil {
 		if !errors.Is(err, store.ErrNotFound) {
 			return 0, err
 		}
 
-		snapshot := patch.RevisionSnapshot{Object: obj.Object}
+		snapshot := store.Snapshot{Object: newObject.Object}
 		if err := t.rps.SetSnapshot(ctx, objID, &snapshot); err != nil {
 			return 0, err
 		}
@@ -57,9 +56,9 @@ func (t *TrackerService) Commit(
 
 	// check if it's time for a full snapshot
 	if uint64(chain) >= t.snapshotEvery-1 {
-		snapshot := patch.RevisionSnapshot{
+		snapshot := store.Snapshot{
 			PreviousID: latest,
-			Object:     obj.Object,
+			Object:     newObject.Object,
 		}
 		err = t.rps.SetSnapshot(ctx, objID, &snapshot)
 		if err != nil {
@@ -74,14 +73,9 @@ func (t *TrackerService) Commit(
 		return 0, err
 	}
 
-	operations, err := patch.Diff(base.Object, obj.Object)
-	if err != nil {
-		return 0, err
-	}
-
-	p := &patch.RevisionPatch{
+	p := &store.Patch{
 		PreviousID: latest,
-		Operations: operations,
+		Patch:      diffmap.Diff(base.Object, newObject.Object),
 	}
 	err = t.rps.SetPatch(ctx, objID, p)
 	if err != nil {
@@ -91,8 +85,8 @@ func (t *TrackerService) Commit(
 }
 
 // Restore brings back the object state at *rev*.
-func (t *TrackerService) Restore(ctx context.Context, objID string, revision patch.RevisionID) (*patch.RevisionSnapshot, error) {
-	var patchChain []*patch.RevisionPatch
+func (t *TrackerService) Restore(ctx context.Context, objID string, revision store.RevisionID) (*store.Snapshot, error) {
+	var patchChain []*store.Patch
 	currentRevision := revision
 
 	// build the chain of patches
@@ -107,21 +101,9 @@ func (t *TrackerService) Restore(ctx context.Context, objID string, revision pat
 			state := snapshot.Object
 			for i := len(patchChain) - 1; i >= 0; i-- {
 				currentPatch := patchChain[i]
-
-				newData, err := patch.ApplyOperations(state, currentPatch.Operations)
-				if err != nil {
-					return nil, fmt.Errorf("failed to apply operations: %w", err)
-				}
-
-				// newData is the state at currentPatch.ID
-				// we need to unmarshal it back to the original object type so in the next iteration
-				// we can apply the next patch
-				err = json.Unmarshal(newData, &state)
-				if err != nil {
-					return nil, fmt.Errorf("failed to unmarshal new data: %w", err)
-				}
+				diffmap.Apply(state, currentPatch.Patch)
 			}
-			return &patch.RevisionSnapshot{
+			return &store.Snapshot{
 				ID:     revision,
 				Object: state,
 			}, nil
@@ -140,7 +122,7 @@ func (t *TrackerService) Restore(ctx context.Context, objID string, revision pat
 	}
 }
 
-func (t *TrackerService) patchDistance(ctx context.Context, obj string, from patch.RevisionID) (int, error) {
+func (t *TrackerService) patchDistance(ctx context.Context, obj string, from store.RevisionID) (int, error) {
 	n := 0
 	cur := from
 	for {

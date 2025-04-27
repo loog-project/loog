@@ -3,11 +3,11 @@ package bbolt
 import (
 	"encoding/binary"
 
-	"github.com/loog-project/loog/internal/patch"
+	"github.com/loog-project/loog/internal/store"
 	"go.etcd.io/bbolt"
 )
 
-func keyObjectRevision(objectUID string, id patch.RevisionID) []byte {
+func keyObjectRevision(objectUID string, id store.RevisionID) []byte {
 	buf := make([]byte, len(objectUID)+1+8)
 	copy(buf, objectUID)
 	buf[len(objectUID)] = '|'
@@ -17,14 +17,14 @@ func keyObjectRevision(objectUID string, id patch.RevisionID) []byte {
 
 // claimNextRevision atomically increments the nextRevisionCounter in bucketLatest *and*
 // updates the in-memory cache. It returns the newly assigned revision number.
-func (s *Store) claimNextRevision(tx *bbolt.Tx, objectID string) (patch.RevisionID, error) {
+func (s *Store) claimNextRevision(tx *bbolt.Tx, objectID string) (store.RevisionID, error) {
 	latest := tx.Bucket(bucketLatest)
 
 	var next uint64
 	if raw := latest.Get([]byte(objectID)); raw != nil {
 		next = binary.BigEndian.Uint64(raw)
 	}
-	revisionNumber := patch.RevisionID(next)
+	revisionNumber := store.RevisionID(next)
 	next++
 
 	buf := make([]byte, 8)
@@ -41,7 +41,7 @@ func (s *Store) claimNextRevision(tx *bbolt.Tx, objectID string) (patch.Revision
 }
 
 // setLatest updates the latest revision for the given object in the database.
-func (s *Store) setLatest(tx *bbolt.Tx, obj string, revisionID patch.RevisionID) error {
+func (s *Store) setLatest(tx *bbolt.Tx, obj string, revisionID store.RevisionID) error {
 	buf := make([]byte, 8)
 	binary.BigEndian.PutUint64(buf, uint64(revisionID))
 	if err := tx.Bucket(bucketLatest).Put([]byte(obj), buf); err != nil {

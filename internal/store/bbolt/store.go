@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/loog-project/loog/internal/patch"
 	"github.com/loog-project/loog/internal/store"
 	"go.etcd.io/bbolt"
 )
@@ -15,17 +14,9 @@ const (
 )
 
 var (
-	bucketSnapshots = []byte("snapshots")   // <obj>|rev  -> RevisionSnapshot
-	bucketChunks    = []byte("patchChunks") // <obj>|chunkID -> []rawPatch
-	bucketIndex     = []byte("index")       // <obj>|rev  -> indexEntry
-	bucketLatest    = []byte("latest")      // <obj>      -> uint64(latestRev)
+	bucketSnapshots = []byte("snapshots") // <obj>|rev  -> RevisionSnapshot
+	bucketLatest    = []byte("latest")    // <obj>      -> uint64(latestRev)
 )
-
-// ObjectMeta is stored in the `metadata` bucket.
-type ObjectMeta struct {
-	LatestRevision patch.RevisionID `msgpack:"latest_id"`
-	LatestGen      int64            `msgpack:"latest_gen"`
-}
 
 type Store struct {
 	db    *bbolt.DB
@@ -51,7 +42,7 @@ func New(path string, codec store.Codec) (*Store, error) {
 		return nil, err
 	}
 	err = db.Update(func(tx *bbolt.Tx) error {
-		for _, b := range [][]byte{bucketSnapshots, bucketChunks, bucketIndex, bucketLatest} {
+		for _, b := range [][]byte{bucketSnapshots, bucketLatest} {
 			if _, e := tx.CreateBucketIfNotExists(b); e != nil {
 				return e
 			}

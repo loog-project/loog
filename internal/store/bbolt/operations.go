@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/binary"
 
-	"github.com/loog-project/loog/internal/patch"
 	"github.com/loog-project/loog/internal/store"
 	"go.etcd.io/bbolt"
 )
@@ -12,8 +11,8 @@ import (
 func (s *Store) Get(
 	_ context.Context,
 	uid string,
-	revisionID patch.RevisionID,
-) (snapshot *patch.RevisionSnapshot, patch *patch.RevisionPatch, err error) {
+	revisionID store.RevisionID,
+) (snapshot *store.Snapshot, patch *store.Patch, err error) {
 	err = s.db.View(func(tx *bbolt.Tx) error {
 		key := keyObjectRevision(uid, revisionID)
 		v := tx.Bucket(bucketSnapshots).Get(key)
@@ -32,7 +31,7 @@ func (s *Store) Get(
 	return
 }
 
-func (s *Store) SetSnapshot(_ context.Context, uid string, snapshot *patch.RevisionSnapshot) error {
+func (s *Store) SetSnapshot(_ context.Context, uid string, snapshot *store.Snapshot) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		revisionID, err := s.claimNextRevision(tx, uid)
 		if err != nil {
@@ -54,7 +53,7 @@ func (s *Store) SetSnapshot(_ context.Context, uid string, snapshot *patch.Revis
 	})
 }
 
-func (s *Store) SetPatch(_ context.Context, uid string, patch *patch.RevisionPatch) error {
+func (s *Store) SetPatch(_ context.Context, uid string, patch *store.Patch) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		revisionID, err := s.claimNextRevision(tx, uid)
 		if err != nil {
@@ -80,12 +79,12 @@ func (s *Store) SetPatch(_ context.Context, uid string, patch *patch.RevisionPat
 func (s *Store) GetLatestRevision(
 	_ context.Context,
 	objectID string,
-) (patch.RevisionID, error) {
+) (store.RevisionID, error) {
 	// check cache first
 	s.nextRevisionCounterMutex.RLock()
 	if next, ok := s.nextRevisionCounter[objectID]; ok {
 		s.nextRevisionCounterMutex.RUnlock()
-		return patch.RevisionID(next - 1), nil
+		return store.RevisionID(next - 1), nil
 	}
 	s.nextRevisionCounterMutex.RUnlock()
 
@@ -106,5 +105,5 @@ func (s *Store) GetLatestRevision(
 	s.nextRevisionCounter[objectID] = next
 	s.nextRevisionCounterMutex.Unlock()
 
-	return patch.RevisionID(next - 1), nil
+	return store.RevisionID(next - 1), nil
 }
