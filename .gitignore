@@ -1,2 +1,5 @@
 /.idea
 /dump.json
+.DS_Store
+*.bb
+*.zip
