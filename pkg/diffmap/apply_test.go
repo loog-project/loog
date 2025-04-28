@@ -1,6 +1,7 @@
 package diffmap_test
 
 import (
+	"maps"
 	"reflect"
 	"testing"
 
@@ -13,7 +14,9 @@ func TestApplyRoundTrip(t *testing.T) {
 
 	// Diff then apply, expect to arrive at b.
 	chg := diffmap.Diff(a, b)
-	dst := copyMap(a)
+
+	dst := make(map[string]any)
+	maps.Copy(dst, a)
 	diffmap.Apply(dst, chg)
 
 	if !reflect.DeepEqual(dst, b) {
@@ -26,7 +29,8 @@ func BenchmarkApply_Small(b *testing.B) {
 	bb := map[string]any{"a": 1, "b": map[string]any{"c": true}}
 	chg := diffmap.Diff(a, bb)
 	for i := 0; i < b.N; i++ {
-		dst := copyMap(a)
+		dst := make(map[string]any)
+		maps.Copy(dst, a)
 		diffmap.Apply(dst, chg)
 	}
 }
@@ -35,16 +39,8 @@ func BenchmarkApply_1k(b *testing.B) {
 	a, bb := genMaps(1000)
 	chg := diffmap.Diff(a, bb)
 	for i := 0; i < b.N; i++ {
-		dst := copyMap(a)
+		var dst map[string]any
+		maps.Copy(dst, a)
 		diffmap.Apply(dst, chg)
 	}
-}
-
-// helper: fast shallow copy.
-func copyMap(src map[string]any) map[string]any {
-	dst := make(map[string]any, len(src))
-	for k, v := range src {
-		dst[k] = v
-	}
-	return dst
 }

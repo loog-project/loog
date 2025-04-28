@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -128,7 +129,10 @@ func (t *TrackerService) Commit(
 		if err != nil {
 			return 0, err
 		}
-		ts.obj = copyMap(newObject.Object)
+		if ts.obj == nil {
+			ts.obj = make(diffmap.DiffMap)
+		}
+		maps.Copy(ts.obj, newObject.Object)
 		ts.rev = snapshot.ID
 		return snapshot.ID, nil
 	}
@@ -142,7 +146,10 @@ func (t *TrackerService) Commit(
 	if err != nil {
 		return 0, err
 	}
-	ts.obj = copyMap(newObject.Object)
+	if ts.obj == nil {
+		ts.obj = make(diffmap.DiffMap)
+	}
+	maps.Copy(ts.obj, newObject.Object)
 	ts.rev = p.ID
 
 	return p.ID, nil
@@ -186,14 +193,6 @@ func (t *TrackerService) Restore(ctx context.Context, objID string, revision sto
 		// but we have not found the base snapshot
 		return nil, fmt.Errorf("no base snapshot found for revision %d", revision)
 	}
-}
-
-func copyMap(src map[string]any) map[string]any {
-	dst := make(map[string]any, len(src))
-	for k, v := range src {
-		dst[k] = v
-	}
-	return dst
 }
 
 func (t *TrackerService) lockJanitor() {
