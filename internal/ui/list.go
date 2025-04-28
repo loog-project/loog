@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -20,8 +21,9 @@ import (
 )
 
 const (
-	arrowDown  = "▾"
-	arrowRight = "▸"
+	arrowDown      = "▾"
+	arrowRight     = "▸"
+	pageScrollSkip = 5
 
 	whereRevisionBanner = `
          .-"-.      
@@ -171,6 +173,8 @@ func (lv *ListView) KeyMap() string {
 
 			// left-only shortcuts
 			AddIf(!lv.focusRight, "↑↓", "move").
+			AddIf(!lv.focusRight, "pgup", "scroll up").
+			AddIf(!lv.focusRight, "pgdn", "scroll down").
 			AddIf(!lv.focusRight, "←→", "collapse").
 			AddIf(!lv.focusRight, "⏎", "toggle").
 
@@ -188,7 +192,7 @@ func (lv *ListView) handleKey(k tea.KeyMsg) bool {
 	case "tab":
 		lv.focusRight = !lv.focusRight
 	case "p":
-		lv.renderMode = (lv.renderMode + 1) % 4
+		lv.renderMode = (lv.renderMode + 1) % _modeMax
 	case "h":
 		lv.highlight = !lv.highlight
 	default:
@@ -211,6 +215,16 @@ func (lv *ListView) navigateLeft(k tea.KeyMsg) {
 	case "down", "j":
 		if lv.cursor < lv.totalLines()-1 {
 			lv.cursor++
+			lv.keepVisible()
+		}
+	case "pgup":
+		if lv.cursor > 0 {
+			lv.cursor = int(math.Max(0, float64(lv.cursor-pageScrollSkip)))
+			lv.keepVisible()
+		}
+	case "pgdown":
+		if lv.cursor < lv.totalLines()-1 {
+			lv.cursor = int(math.Min(float64(lv.totalLines()-1), float64(lv.cursor+pageScrollSkip)))
 			lv.keepVisible()
 		}
 	case "left":
