@@ -113,7 +113,7 @@ func NewListView(trackingService *service.TrackerService, rps store.ResourcePatc
 		right: viewport.New(5, 5), // will be overwritten by SetSize
 
 		kinds:     make(map[string]*kindEntry),
-		highlight: true,
+		highlight: false, // highlight is disabled by default
 	}
 	return &list
 }
