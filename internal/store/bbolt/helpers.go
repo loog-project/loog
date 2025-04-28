@@ -3,11 +3,11 @@ package bbolt
 import (
 	"encoding/binary"
 
-	"github.com/loog-project/loog/internal/patch"
+	"github.com/loog-project/loog/internal/store"
 	"go.etcd.io/bbolt"
 )
 
-func keyObjectRevision(objectUID string, id patch.RevisionID) []byte {
+func keyObjectRevision(objectUID string, id store.RevisionID) []byte {
 	buf := make([]byte, len(objectUID)+1+8)
 	copy(buf, objectUID)
 	buf[len(objectUID)] = '|'
@@ -15,24 +15,16 @@ func keyObjectRevision(objectUID string, id patch.RevisionID) []byte {
 	return buf
 }
 
-func keyObjectChunk(objectUID string, chunkID uint64) []byte {
-	buf := make([]byte, len(objectUID)+1+8)
-	copy(buf, objectUID)
-	buf[len(objectUID)] = '|'
-	binary.BigEndian.PutUint64(buf[len(objectUID)+1:], chunkID)
-	return buf
-}
-
-// claimNextRevision atomically increments the counter in bLatest *and*
+// claimNextRevision atomically increments the nextRevisionCounter in bucketLatest *and*
 // updates the in-memory cache. It returns the newly assigned revision number.
-func (s *Store) claimNextRevision(tx *bbolt.Tx, objectID string) (patch.RevisionID, error) {
+func (s *Store) claimNextRevision(tx *bbolt.Tx, objectID string) (store.RevisionID, error) {
 	latest := tx.Bucket(bucketLatest)
 
 	var next uint64
 	if raw := latest.Get([]byte(objectID)); raw != nil {
 		next = binary.BigEndian.Uint64(raw)
 	}
-	revisionNumber := patch.RevisionID(next)
+	revisionNumber := store.RevisionID(next)
 	next++
 
 	buf := make([]byte, 8)
@@ -41,52 +33,19 @@ func (s *Store) claimNextRevision(tx *bbolt.Tx, objectID string) (patch.Revision
 		return 0, err
 	}
 
-	s.counterMu.Lock()
-	s.counter[objectID] = next
-	s.counterMu.Unlock()
+	s.nextRevisionCounterMutex.Lock()
+	s.nextRevisionCounter[objectID] = next
+	s.nextRevisionCounterMutex.Unlock()
 
 	return revisionNumber, nil
 }
 
-// putChunk updates (or creates) the patch chunk for objectID/chunkID and
-// returns the encoded offset that SavePatch must store in the index bucket.
-func (s *Store) putChunk(
-	tx *bbolt.Tx,
-	objectID string,
-	chunkID uint64,
-	offset uint16,
-	patchBytes []byte,
-) error {
-	cKey := keyObjectChunk(objectID, chunkID)
-
-	var chunk []rawPatch
-	if v := tx.Bucket(bucketChunks).Get(cKey); v != nil {
-		if err := s.codec.Unmarshal(v, &chunk); err != nil {
-			return err
-		}
-	} else {
-		chunk = make([]rawPatch, chunkSize)
-	}
-	chunk[offset] = rawPatch{Data: patchBytes}
-
-	enc, err := s.codec.Marshal(chunk)
-	if err != nil {
-		return err
-	}
-	return tx.Bucket(bucketChunks).Put(cKey, enc)
-}
-
-// setLatest updates the latest revision for the given object in the database and
-func (s *Store) setLatest(tx *bbolt.Tx, obj string, rev uint64) error {
+// setLatest updates the latest revision for the given object in the database.
+func (s *Store) setLatest(tx *bbolt.Tx, obj string, revisionID store.RevisionID) error {
 	buf := make([]byte, 8)
-	binary.BigEndian.PutUint64(buf, rev)
+	binary.BigEndian.PutUint64(buf, uint64(revisionID))
 	if err := tx.Bucket(bucketLatest).Put([]byte(obj), buf); err != nil {
 		return err
 	}
-
-	s.mutex.Lock()
-	s.head[obj] = rev
-	s.mutex.Unlock()
-
 	return nil
 }

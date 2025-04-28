@@ -3,19 +3,20 @@ package store
 import (
 	"context"
 	"errors"
-
-	"github.com/loog-project/loog/internal/patch"
 )
 
-var ErrNotFound = errors.New("not found")
+var (
+	ErrNotFound        = errors.New("not found")
+	ErrInvalidRevision = errors.New("invalid revision")
+)
 
+// ResourcePatchStore is an interface for storing and retrieving resource patches and snapshots.
 type ResourcePatchStore interface {
-	SaveSnapshot(ctx context.Context, objectID string, snap *patch.RevisionSnapshot) error
-	SavePatch(ctx context.Context, objectID string, p *patch.RevisionPatch) error
+	Get(ctx context.Context, objectID string, revID RevisionID) (*Snapshot, *Patch, error)
 
-	GetSnapshot(ctx context.Context, objectID string, revID patch.RevisionID) (*patch.RevisionSnapshot, error)
-	GetPatch(ctx context.Context, objectID string, revID patch.RevisionID) (*patch.RevisionPatch, error)
+	SetSnapshot(ctx context.Context, objectID string, snap *Snapshot) error
+	SetPatch(ctx context.Context, objectID string, p *Patch) error
 
-	GetLatestRevision(ctx context.Context, objectID string) (patch.RevisionID, error)
+	GetLatestRevision(ctx context.Context, objectID string) (RevisionID, error)
 	Close() error
 }

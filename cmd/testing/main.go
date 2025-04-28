@@ -23,11 +23,11 @@ func Must2[T any](v T, err error) T {
 func main() {
 	ctx := context.TODO()
 
-	rps, err := bboltStore.New("test.bb", nil)
+	rps, err := bboltStore.New("test.bb", nil, true)
 	if err != nil {
 		panic(err)
 	}
-	ts := service.NewTrackerService(rps, 2)
+	ts := service.NewTrackerService(rps, 2, true)
 
 	data := &unstructured.Unstructured{
 		Object: make(map[string]interface{}),
