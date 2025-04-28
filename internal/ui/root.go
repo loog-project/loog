@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -9,6 +10,8 @@ import (
 	"github.com/loog-project/loog/internal/store"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
+
+var _, _ = PushView, PopView
 
 // View is the interface that all views must implement.
 type View interface {
@@ -81,7 +84,6 @@ func (w *Size) SetSize(width, height int) {
 
 type Root struct {
 	Size
-	EventChan <-chan tea.Msg
 
 	ViewStack []View
 
@@ -89,9 +91,8 @@ type Root struct {
 	AlertErr   error
 }
 
-func NewRoot(eventChan <-chan tea.Msg, first View) *Root {
+func NewRoot(first View) *Root {
 	root := &Root{
-		EventChan: eventChan,
 		ViewStack: []View{first},
 	}
 	return root
@@ -103,23 +104,12 @@ func tick() tea.Cmd {
 	})
 }
 
-func (r Root) nextEvent() tea.Cmd {
-	return func() tea.Msg {
-		return <-r.EventChan
-	}
-}
-
 func (r Root) Init() tea.Cmd {
-	return tea.Batch(tick(), r.nextEvent())
+	return tea.Batch(tick())
 }
 
 func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmds := make([]tea.Cmd, 0)
-
-	// should we wait for the next event?
-	if ofeq, ok := msg.(EventQueueOriginator); ok && ofeq.OriginatesFromEventQueue() {
-		cmds = append(cmds, r.nextEvent())
-	}
 
 	switch v := msg.(type) {
 	case pushViewMsg:
@@ -167,7 +157,16 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// also track the size in the root model so we can use it in the view
 		r.SetSize(width, height)
 
-		// still propagate the message as a view might need raw access to the window size
+	// still propagate the message as a view might need raw access to the window size
+
+	case tea.KeyMsg:
+		if v.String() == "esc" {
+			if r.AlertErr != nil {
+				r.AlertErr = nil
+				r.AlertTitle = ""
+				return r, tea.Batch(cmds...)
+			}
+		}
 	}
 
 	// propagate the message to the top view
@@ -190,24 +189,35 @@ func (r Root) View() string {
 	ui := r.ViewStack[len(r.ViewStack)-1].View()
 	help := r.ViewStack[len(r.ViewStack)-1].KeyMap()
 
+	breadcrumbStack := make([]string, 0, len(r.ViewStack))
+	for _, view := range r.ViewStack {
+		breadcrumbStack = append(breadcrumbStack, view.Breadcrumb())
+	}
+
 	// place error box on top
 	if r.AlertErr != nil {
-		ui = lipgloss.PlaceVertical(5, lipgloss.Center, renderAlert(
-			StyleHot.Render(r.AlertErr.Error())+"\n\n"+r.AlertTitle),
-		)
+		w, h := r.Width-2, r.Height-1
+		ui = lipgloss.NewStyle().
+			Border(lipgloss.DoubleBorder()).
+			BorderForeground(lipgloss.Color("#ff5f5f")).
+			Width(w).
+			Height(h).
+			Render(lipgloss.PlaceVertical(h, lipgloss.Center,
+				lipgloss.PlaceHorizontal(w, lipgloss.Center,
+					fmt.Sprintf("%s\n\n%s\n(%s)",
+						StyleDim.Render("AN ERROR OCCURRED:"),
+						StyleError.Render(r.AlertErr.Error()),
+						r.AlertTitle))))
 		help = "[esc] to dismiss"
+
+		breadcrumbStack = append(breadcrumbStack, "<error>")
 	}
 
-	// build breadcrumb
-	var bob strings.Builder
-	for i, view := range r.ViewStack {
-		if i != 0 {
-			bob.WriteString(" > ")
-		}
-		bob.WriteString(view.Breadcrumb())
-	}
+	bar := fmt.Sprintf("%s | %s",
+		BarBreadcrumbs.Render(strings.Join(breadcrumbStack, " » ")),
+		StyleDim.Render(help))
 
-	return ui + "\n" + bob.String() + " | " + StyleDim.Render(help)
+	return ui + "\n" + bar
 }
 
 func PushView(view View) tea.Cmd {
@@ -227,11 +237,16 @@ func PopView() tea.Cmd {
 	}
 }
 
-// NewAlertCommand creates a command that pushes an alert message to the root model.
-func NewAlertCommand(title string, err error) tea.Msg {
+func NewAlert(title string, err error) tea.Msg {
 	return alertMsg{
 		Title: title,
 		Err:   err,
+	}
+}
+
+func PushAlert(title string, err error) tea.Cmd {
+	return func() tea.Msg {
+		return NewAlert(title, err)
 	}
 }
 
@@ -251,9 +266,3 @@ func NewCommitCommand(
 		Patch:    patch,
 	}
 }
-
-var renderAlert = lipgloss.NewStyle().
-	Border(lipgloss.RoundedBorder()).
-	BorderForeground(lipgloss.Color("#ff5f5f")).
-	Padding(1, 2).
-	Render

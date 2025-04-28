@@ -94,23 +94,24 @@ func main() {
 		}
 	}
 
-	eventChan := make(chan tea.Msg, 256)
-	go runCollector(ctx, mux, trackerService, rps, eventChan, prog)
+	root := ui.NewRoot(ui.NewListView(trackerService, rps))
+	program := tea.NewProgram(root)
+
+	go runCollector(ctx, program, mux, trackerService, rps, prog)
 
 	// TODO(future): load database on startup
 
-	root := ui.NewRoot(eventChan, ui.NewListView(trackerService, rps))
-	if _, err := tea.NewProgram(root).Run(); err != nil {
+	if _, err := program.Run(); err != nil {
 		log.Fatal(err)
 	}
 }
 
 func runCollector(
 	ctx context.Context,
+	p *tea.Program,
 	mux *watch.DynamicMux,
 	trackerService *service.TrackerService,
 	rps store.ResourcePatchStore,
-	eventChan chan<- tea.Msg,
 	program *vm.Program,
 ) {
 	for {
@@ -127,7 +128,7 @@ func runCollector(
 			// make sure we want to track this object
 			pass, err := expr.Run(program, util.EventEntryEnv{Event: ev, Object: obj})
 			if err != nil {
-				eventChan <- ui.NewAlertCommand("when executing filter expression", err)
+				p.Send(ui.NewAlert("when executing filter expression", err))
 				continue
 			}
 			if !pass.(bool) {
@@ -138,18 +139,18 @@ func runCollector(
 			obj.SetManagedFields(nil)
 			rev, err := trackerService.Commit(ctx, string(obj.GetUID()), obj)
 			if err != nil {
-				eventChan <- ui.NewAlertCommand("when committing to tracker service", err)
+				p.Send(ui.NewAlert("when committing to tracker service", err))
 				continue
 			}
 
 			// read
 			snapshot, patch, err := rps.Get(ctx, string(obj.GetUID()), rev)
 			if err != nil {
-				eventChan <- ui.NewAlertCommand("when reading tracked object from store", err)
+				p.Send(ui.NewAlert("when reading tracked object from store", err))
 				continue
 			}
 
-			eventChan <- ui.NewCommitCommand(time.Now(), obj, rev, snapshot, patch)
+			p.Send(ui.NewCommitCommand(time.Now(), obj, rev, snapshot, patch))
 		}
 	}
 }

@@ -84,7 +84,6 @@ type kindEntry struct {
 
 type ListView struct {
 	Size
-	eventChan chan<- tea.Msg
 
 	trackerService *service.TrackerService
 	rps            store.ResourcePatchStore
@@ -138,15 +137,19 @@ func (lv *ListView) Update(msg tea.Msg) (View, tea.Cmd) {
 		// only re-render fade; handled in View()
 
 	case tea.KeyMsg:
-		if !lv.handleKey(v) {
-			return lv, tea.Quit
+		if cmd := lv.handleKey(v); cmd != nil {
+			return lv, cmd
 		}
 
 	case tea.MouseMsg: /* ignore */
 	}
 
-	lv.renderLeft()
-	lv.renderRight()
+	if cmd := lv.renderLeft(); cmd != nil {
+		return lv, cmd
+	}
+	if cmd := lv.renderRight(); cmd != nil {
+		return lv, cmd
+	}
 
 	return lv, nil
 }
@@ -159,36 +162,31 @@ func (lv *ListView) View() string {
 }
 
 func (lv *ListView) KeyMap() string {
-	return fmt.Sprintf("[mode: %s] [HL: %s] %s",
+	return fmt.Sprintf("[mode: %s] %s",
 		StyleCur.Render(lv.renderMode.String()),
-		util.Ternary(lv.highlight,
-			StyleCur.Render("enabled"),
-			StyleDim.Render("disabled")),
 		NewShortcuts().
 			// general shortcuts
-			Add("TAB", "focus").
-			Add("p", "change format").
-			Add("h", util.Ternary(lv.highlight, "disable", "enable")+" highlight").
 			Add("q", "quit").
+			Add("⇥", "focus").
+			Add("p", "patch").
+			Add("h", "highlight "+util.Ternary(lv.highlight, "off", "on")).
 
 			// left-only shortcuts
-			AddIf(!lv.focusRight, "↑↓", "move").
-			AddIf(!lv.focusRight, "pgup", "scroll up").
-			AddIf(!lv.focusRight, "pgdn", "scroll down").
-			AddIf(!lv.focusRight, "←→", "collapse").
+			AddIf(!lv.focusRight, "↑/↓/pgup/pgdn", "scroll").
+			AddIf(!lv.focusRight, "←/→", "collapse").
 			AddIf(!lv.focusRight, "⏎", "toggle").
 
 			// right-only shortcuts
-			AddIf(lv.focusRight, "↑↓←→", "move").
+			AddIf(lv.focusRight, "↑/↓/←/→", "move").
 			Render())
 }
 
 /* ---------- listView helpers ---------- */
 
-func (lv *ListView) handleKey(k tea.KeyMsg) bool {
+func (lv *ListView) handleKey(k tea.KeyMsg) tea.Cmd {
 	switch k.String() {
 	case "q", "ctrl+c":
-		return false // bubble up
+		return tea.Quit
 	case "tab":
 		lv.focusRight = !lv.focusRight
 	case "p":
@@ -197,15 +195,15 @@ func (lv *ListView) handleKey(k tea.KeyMsg) bool {
 		lv.highlight = !lv.highlight
 	default:
 		if lv.focusRight {
-			lv.scrollRight(k)
+			return lv.scrollRight(k)
 		} else {
-			lv.navigateLeft(k)
+			return lv.navigateLeft(k)
 		}
 	}
-	return true
+	return nil
 }
 
-func (lv *ListView) navigateLeft(k tea.KeyMsg) {
+func (lv *ListView) navigateLeft(k tea.KeyMsg) tea.Cmd {
 	switch k.String() {
 	case "up", "k":
 		if lv.cursor > 0 {
@@ -232,6 +230,7 @@ func (lv *ListView) navigateLeft(k tea.KeyMsg) {
 	case "right", "enter", " ":
 		lv.toggle(true)
 	}
+	return nil
 }
 
 func (lv *ListView) keepVisible() {
@@ -243,13 +242,14 @@ func (lv *ListView) keepVisible() {
 	}
 }
 
-func (lv *ListView) scrollRight(k tea.KeyMsg) {
+func (lv *ListView) scrollRight(k tea.KeyMsg) tea.Cmd {
 	switch k.String() {
 	case "up", "k":
 		lv.right.ScrollUp(1)
 	case "down", "j":
 		lv.right.ScrollDown(1)
 	}
+	return nil
 }
 
 /* ingest new commit */
@@ -321,7 +321,7 @@ func (lv *ListView) totalLines() int {
 }
 
 /* render left pane */
-func (lv *ListView) renderLeft() {
+func (lv *ListView) renderLeft() tea.Cmd {
 	var b strings.Builder
 	now := time.Now()
 	line := 0
@@ -390,28 +390,27 @@ func (lv *ListView) renderLeft() {
 		}
 	}
 	lv.left.SetContent(b.String())
+	return nil
 }
 
-/* render right pane */
-func (lv *ListView) renderRight() {
+// TODO: only re-render if the revision changes
+func (lv *ListView) renderRight() tea.Cmd {
 	rev := lv.currentSelection()
 	if rev == nil {
 		lv.right.SetContent(StyleDim.Render(whereRevisionBanner))
-		return
+		return nil
 	}
 
 	uid := string(rev.msg.Object.GetUID())
 	curSnap, err := lv.trackerService.Restore(context.Background(), uid, rev.msg.Revision)
 	if err != nil {
 		// that's fatal :/
-		lv.eventChan <- NewAlertCommand("when restoring snapshot", err)
-		lv.right.SetContent(StyleDim.Render(cannotShowRevisionBanner))
-		return
+		return PushAlert("when restoring snapshot", err)
 	}
 
 	prevSnap, err := lv.trackerService.Restore(context.Background(), uid, rev.msg.Revision-1)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		lv.eventChan <- NewAlertCommand("when restoring previous snapshot", err)
+		return PushAlert("when restoring previous snapshot", err)
 		// but we can still show the current one
 	}
 
@@ -466,14 +465,16 @@ func (lv *ListView) renderRight() {
 
 	if asStr != "" {
 		lv.right.SetContent(asStr)
-		return
+		return nil
 	}
 	j, err := json.MarshalIndent(asJSON, "", "  ")
 	if err != nil {
-		lv.right.SetContent(StyleDim.Render("error marshalling: " + err.Error()))
-		return
+		lv.right.SetContent(cannotShowRevisionBanner + "\n\n" +
+			StyleDim.Render("error marshalling: "+err.Error()))
+		return nil
 	}
 	lv.right.SetContent(string(j))
+	return nil
 }
 
 /* current selection */

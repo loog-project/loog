@@ -9,6 +9,10 @@ var (
 		Foreground(lipgloss.Color("#666")) // 😈
 	StyleHot = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#ff8700"))
+	StyleError = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#ff0000")).
+			Bold(true)
+
 	StyleDim = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#777"))
 	StyleRev = lipgloss.NewStyle().
@@ -21,4 +25,9 @@ var (
 	BorderIdle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("#777"))
+
+	BarBreadcrumbs = lipgloss.NewStyle().
+			Padding(0, 1).
+			Background(lipgloss.Color("33")).
+			Foreground(lipgloss.Color("0"))
 )
