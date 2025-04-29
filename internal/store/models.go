@@ -9,7 +9,7 @@ import (
 type RevisionID uint64
 
 func (id RevisionID) String() string {
-	return fmt.Sprintf("%016x", uint64(id))
+	return fmt.Sprintf("%04x", uint64(id))
 }
 
 type Patch struct {
