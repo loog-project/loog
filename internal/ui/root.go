@@ -7,15 +7,16 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/loog-project/loog/internal/store"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-var _, _ = PushView, PopView
+type Baser interface {
+	SetSize(width, height int)
+	SetTheme(theme Theme)
+}
 
 // View is the interface that all views must implement.
 type View interface {
-	Sizer
+	Baser
 
 	Update(tea.Msg) (View, tea.Cmd)
 	View() string
@@ -23,79 +24,26 @@ type View interface {
 	Breadcrumb() string
 }
 
-type Sizer interface {
-	SetSize(width, height int)
-}
-
-type Size struct {
-	Width  int
-	Height int
-}
-
-type EventQueueOriginator interface {
-	// OriginatesFromEventQueue returns true if the message originates from the event queue.
-	// This is used to determine if the message should be requeued.
-	OriginatesFromEventQueue() bool
-}
-
 /// Root Model
 
-type tickMsg struct {
-}
-
-type alertMsg struct {
-	Title string
-	Err   error
-}
-
-// OriginatesFromEventQueue returns indicates that the message should be requeued
-func (a alertMsg) OriginatesFromEventQueue() bool {
-	return true
-}
-
-type commitMsg struct {
-	Time     time.Time
-	Object   *unstructured.Unstructured
-	Revision store.RevisionID
-
-	// it's either a snapshot OR a patch,
-	// one of those must be nil, the other must be set
-	Snapshot *store.Snapshot
-	Patch    *store.Patch
-}
-
-func (c commitMsg) OriginatesFromEventQueue() bool {
-	return true
-}
-
-type pushViewMsg struct {
-	View View
-	Pop  bool
-}
-
-func (p pushViewMsg) OriginatesFromEventQueue() bool {
-	return true
-}
-
-func (w *Size) SetSize(width, height int) {
-	w.Width = width
-	w.Height = height
-}
-
 type Root struct {
-	Size
+	Width, Height int
+	Theme         Theme
 
-	ViewStack []View
+	ViewStack    []View
+	ShuttingDown bool
 
 	AlertTitle string
 	AlertErr   error
 }
 
-func NewRoot(first View) *Root {
-	root := &Root{
-		ViewStack: []View{first},
+func NewRoot(theme Theme, first View) *Root {
+	r := &Root{
+		Theme: theme,
 	}
-	return root
+	r.applyTo(first)
+	r.ViewStack = []View{first}
+	return r
 }
 
 func tick() tea.Cmd {
@@ -108,24 +56,28 @@ func (r Root) Init() tea.Cmd {
 	return tea.Batch(tick())
 }
 
+func (r Root) applyTo(v View) View {
+	v.SetSize(r.Width, r.Height)
+	v.SetTheme(r.Theme)
+	return v
+}
+
 func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmds := make([]tea.Cmd, 0)
 
 	switch v := msg.(type) {
 	case pushViewMsg:
-		// push view message:
-		if v.Pop {
+		switch v.pushType {
+		case push:
+			r.ViewStack = append(r.ViewStack, r.applyTo(v.view))
+		case replace:
+			r.ViewStack[len(r.ViewStack)-1] = r.applyTo(v.view)
+		case pop:
 			if len(r.ViewStack) <= 1 {
 				// can't pop the root view
 				return r, nil
 			}
-
 			r.ViewStack = r.ViewStack[:len(r.ViewStack)-1]
-		} else {
-			// set the size of the new view
-			v.View.SetSize(r.Width, r.Height)
-
-			r.ViewStack = append(r.ViewStack, v.View)
 		}
 		return r, tea.Batch(cmds...)
 
@@ -138,29 +90,28 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return r, tea.Batch(cmds...)
 
 	case tickMsg:
-		// tick message:
-		// used to trigger a tick event
-
 		cmds = append(cmds, tick())
 
 	case tea.WindowSizeMsg:
 		// window size message:
 		// used to resize the views
 
-		width, height := v.Width, v.Height-2 // -2 for the status bar
+		r.Width = v.Width
+		r.Height = v.Height - 2
 
 		// propagate the size to all views
 		for i := range r.ViewStack {
-			r.ViewStack[i].SetSize(width, height)
+			r.ViewStack[i].SetSize(r.Width, r.Height)
 		}
 
-		// also track the size in the root model so we can use it in the view
-		r.SetSize(width, height)
-
-	// still propagate the message as a view might need raw access to the window size
-
 	case tea.KeyMsg:
-		if v.String() == "esc" {
+		switch v.String() {
+		case "ctrl+c", "q":
+			// TODO(future): remove `q` from here
+			r.ShuttingDown = true
+			return r, tea.Quit
+		case "esc":
+			// TODO(future): alert should be its own view
 			if r.AlertErr != nil {
 				r.AlertErr = nil
 				r.AlertTitle = ""
@@ -182,8 +133,12 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (r Root) View() string {
-	if r.Size.Height == 0 && r.Size.Width == 0 {
+	if r.Height == 0 && r.Width == 0 {
 		return "" // no size yet
+	}
+	if r.ShuttingDown {
+		// this makes sure the whole screen won't show in the terminal after quitting
+		return r.Theme.MutedTextStyle.Render("Bye!")
 	}
 
 	ui := r.ViewStack[len(r.ViewStack)-1].View()
@@ -197,72 +152,23 @@ func (r Root) View() string {
 	// place error box on top
 	if r.AlertErr != nil {
 		w, h := r.Width-2, r.Height-1
-		ui = lipgloss.NewStyle().
-			Border(lipgloss.DoubleBorder()).
-			BorderForeground(lipgloss.Color("#ff5f5f")).
-			Width(w).
-			Height(h).
-			Render(lipgloss.PlaceVertical(h, lipgloss.Center,
-				lipgloss.PlaceHorizontal(w, lipgloss.Center,
-					fmt.Sprintf("%s\n\n%s\n(%s)",
-						StyleDim.Render("AN ERROR OCCURRED:"),
-						StyleError.Render(r.AlertErr.Error()),
-						r.AlertTitle))))
+
+		ui = lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, r.Theme.AlertContainerStyle.Render(
+			fmt.Sprintf("%s\n\n%s\n(%s)",
+				r.Theme.MutedTextStyle.Render("AN ERROR OCCURRED:"),
+				r.Theme.ErrorTextStyle.Render(r.AlertErr.Error()),
+				r.AlertTitle,
+			),
+		))
+
 		help = "[esc] to dismiss"
 
 		breadcrumbStack = append(breadcrumbStack, "<error>")
 	}
 
 	bar := fmt.Sprintf("%s | %s",
-		BarBreadcrumbs.Render(strings.Join(breadcrumbStack, " » ")),
-		StyleDim.Render(help))
+		r.Theme.BreadcrumbBarStyle.Render(strings.Join(breadcrumbStack, " » ")),
+		r.Theme.MutedTextStyle.Render(help))
 
 	return ui + "\n" + bar
-}
-
-func PushView(view View) tea.Cmd {
-	return func() tea.Msg {
-		return pushViewMsg{
-			View: view,
-			Pop:  false,
-		}
-	}
-}
-
-func PopView() tea.Cmd {
-	return func() tea.Msg {
-		return pushViewMsg{
-			Pop: true,
-		}
-	}
-}
-
-func NewAlert(title string, err error) tea.Msg {
-	return alertMsg{
-		Title: title,
-		Err:   err,
-	}
-}
-
-func PushAlert(title string, err error) tea.Cmd {
-	return func() tea.Msg {
-		return NewAlert(title, err)
-	}
-}
-
-// NewCommitCommand creates a command that pushes a commit message to the root model.
-func NewCommitCommand(
-	received time.Time,
-	obj *unstructured.Unstructured,
-	rev store.RevisionID,
-	snapshot *store.Snapshot,
-	patch *store.Patch,
-) tea.Msg {
-	return commitMsg{
-		Time:     received,
-		Object:   obj,
-		Revision: rev,
-		Snapshot: snapshot,
-		Patch:    patch,
-	}
 }

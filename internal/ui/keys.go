@@ -35,15 +35,15 @@ func (s *Shortcuts) AddIf(b bool, sc, label string) *Shortcuts {
 	return s
 }
 
-func (s *Shortcuts) Render() string {
+func (s *Shortcuts) Render(theme Theme) string {
 	var bob strings.Builder
 	for i, sc := range *s {
 		if i != 0 {
-			bob.WriteString(StyleDim.Render(", "))
+			bob.WriteString(theme.MutedTextStyle.Render(", "))
 		}
 		bob.WriteString(sc.shortcut)
 		bob.WriteString(" ")
-		bob.WriteString(StyleDim.Render(sc.label))
+		bob.WriteString(theme.MutedTextStyle.Render(sc.label))
 	}
 	return bob.String()
 }

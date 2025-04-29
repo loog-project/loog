@@ -94,7 +94,7 @@ func main() {
 		}
 	}
 
-	root := ui.NewRoot(ui.NewListView(trackerService, rps))
+	root := ui.NewRoot(ui.DarkTheme, ui.NewListView(trackerService, rps))
 	program := tea.NewProgram(root)
 
 	go runCollector(ctx, program, mux, trackerService, rps, prog)

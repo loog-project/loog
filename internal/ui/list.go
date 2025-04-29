@@ -15,7 +15,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/loog-project/loog/internal/service"
 	"github.com/loog-project/loog/internal/store"
-	"github.com/loog-project/loog/internal/util"
 	"github.com/loog-project/loog/pkg/diffmap"
 	"github.com/loog-project/loog/pkg/diffpreview"
 )
@@ -83,7 +82,7 @@ type kindEntry struct {
 }
 
 type ListView struct {
-	Size
+	Base
 
 	trackerService *service.TrackerService
 	rps            store.ResourcePatchStore
@@ -123,8 +122,11 @@ func (lv *ListView) Breadcrumb() string {
 	return "list"
 }
 
+// SetSize sets the size of the left and right panes.
+// It is overridden from the Base struct to be able to set the size of the left and right panes
+// based on the current mode (fullscreen or not).
 func (lv *ListView) SetSize(width, height int) {
-	lv.Size.SetSize(width, height)
+	lv.Base.SetSize(width, height)
 
 	if lv.fullscreen {
 		lv.right.Width = width
@@ -165,21 +167,23 @@ func (lv *ListView) View() string {
 	if lv.fullscreen {
 		return lv.right.View()
 	}
-	leftBox := util.Ternary(lv.focusRight, BorderIdle, BorderActive).Render(lv.left.View())
-	rightBox := util.Ternary(lv.focusRight, BorderActive, BorderIdle).Render(lv.right.View())
+	leftBox := ternary(lv.focusRight, lv.Theme.BorderIdleContainerStyle, lv.Theme.BorderActiveContainerStyle).
+		Render(lv.left.View())
+	rightBox := ternary(lv.focusRight, lv.Theme.BorderActiveContainerStyle, lv.Theme.BorderIdleContainerStyle).
+		Render(lv.right.View())
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftBox, rightBox)
 }
 
 func (lv *ListView) KeyMap() string {
 	return fmt.Sprintf("[mode: %s] %s",
-		StyleCur.Render(lv.renderMode.String()),
+		lv.Theme.PrimaryTextStyle.Render(lv.renderMode.String()),
 		NewShortcuts().
 			// general shortcuts
 			Add("q", "quit").
 			Add("⇥", "focus").
 			Add("p", "patch").
-			Add("h", "highlight "+util.Ternary(lv.highlight, "off", "on")).
+			Add("h", "highlight "+ternary(lv.highlight, "off", "on")).
 
 			// left-only shortcuts
 			AddIf(!lv.focusRight, "↑/↓/pgup/pgdn", "scroll").
@@ -189,7 +193,7 @@ func (lv *ListView) KeyMap() string {
 			// right-only shortcuts
 			AddIf(lv.focusRight, "↑/↓/←/→", "move").
 			AddIf(lv.focusRight, "f", "fullscreen").
-			Render())
+			Render(lv.Theme))
 }
 
 /* ---------- listView helpers ---------- */
@@ -347,9 +351,9 @@ func (lv *ListView) renderLeft() tea.Cmd {
 		isExpanded := kindEntryInfo.open
 
 		_, _ = fmt.Fprintf(&b, "%s %s %s\n",
-			util.Ternary(isSelected, StyleCur.Render(arrowRight), " "),
-			util.Ternary(isExpanded, arrowDown, arrowRight),
-			StyleKind.Render(kind),
+			ternary(isSelected, lv.Theme.ListCurrentArrowTextStyle.Render(arrowRight), " "),
+			ternary(isExpanded, arrowDown, arrowRight),
+			lv.Theme.ListKindNameTextStyle.Render(kind),
 		)
 
 		line++
@@ -364,9 +368,9 @@ func (lv *ListView) renderLeft() tea.Cmd {
 			isExpanded := resourceEntry.open
 
 			// orange blink if recently seen
-			style := StyleDim
+			style := lv.Theme.MutedTextStyle
 			if now.Sub(resourceEntry.lastSeen) < 3*time.Second {
-				style = StyleHot
+				style = lv.Theme.ListActivityTextStyle
 			}
 
 			ns, name, _ := strings.Cut(res, "::")
@@ -378,9 +382,9 @@ func (lv *ListView) renderLeft() tea.Cmd {
 				elapsedTime(now.Sub(resourceEntry.lastSeen)))
 
 			_, _ = fmt.Fprintf(&b, "%s   %s %-32s %s\n",
-				util.Ternary(isSelected, StyleCur.Render(arrowRight), " "),
-				util.Ternary(isExpanded, arrowDown, arrowRight),
-				style.Render(StyleNS.Render(ns)+"/"+name), style.Render(info))
+				ternary(isSelected, lv.Theme.ListCurrentArrowTextStyle.Render(arrowRight), " "),
+				ternary(isExpanded, arrowDown, arrowRight),
+				style.Render(lv.Theme.ListNamespaceTextStyle.Render(ns)+"/"+name), style.Render(info))
 			line++
 
 			if resourceEntry.open {
@@ -393,11 +397,12 @@ func (lv *ListView) renderLeft() tea.Cmd {
 					}
 
 					_, _ = fmt.Fprintf(&b, "       • %s%s%s [%s] %s\n",
-						util.Ternary(isSelected, StyleCur.Render("["), " "),
-						util.Ternary(isSelected, StyleCur, StyleRev).Render(rv.id.String()),
-						util.Ternary(isSelected, StyleCur.Render("]"), " "),
-						StyleDim.Render(revisionKind),
-						StyleDim.Render(elapsedTime(now.Sub(rv.msg.Time))))
+						ternary(isSelected, lv.Theme.ListCurrentArrowTextStyle.Render("["), " "),
+						ternary(isSelected, lv.Theme.ListCurrentArrowTextStyle, lv.Theme.ListRevisionTextStyle).
+							Render(rv.id.String()),
+						ternary(isSelected, lv.Theme.ListCurrentArrowTextStyle.Render("]"), " "),
+						lv.Theme.MutedTextStyle.Render(revisionKind),
+						lv.Theme.MutedTextStyle.Render(elapsedTime(now.Sub(rv.msg.Time))))
 					line++
 				}
 			}
@@ -411,7 +416,7 @@ func (lv *ListView) renderLeft() tea.Cmd {
 func (lv *ListView) renderRight() tea.Cmd {
 	rev := lv.currentSelection()
 	if rev == nil {
-		lv.right.SetContent(StyleDim.Render(whereRevisionBanner))
+		lv.right.SetContent(lv.Theme.MutedTextStyle.Render(whereRevisionBanner))
 		return nil
 	}
 
@@ -457,7 +462,7 @@ func (lv *ListView) renderRight() tea.Cmd {
 		if diff != nil {
 			asJSON = diff
 		} else {
-			asStr = StyleDim.Render("no difference between versions")
+			asStr = lv.Theme.MutedTextStyle.Render("no difference between versions")
 		}
 
 	case modeShowPatchPretty:
@@ -469,7 +474,7 @@ func (lv *ListView) renderRight() tea.Cmd {
 				EnableBackgroundHighlight: lv.highlight,
 			})
 		} else {
-			asStr = StyleDim.Render("no difference between versions")
+			asStr = lv.Theme.MutedTextStyle.Render("no difference between versions")
 		}
 
 	default:
@@ -484,7 +489,7 @@ func (lv *ListView) renderRight() tea.Cmd {
 	j, err := json.MarshalIndent(asJSON, "", "  ")
 	if err != nil {
 		lv.right.SetContent(cannotShowRevisionBanner + "\n\n" +
-			StyleDim.Render("error marshalling: "+err.Error()))
+			lv.Theme.ErrorTextStyle.Render("error marshalling: "+err.Error()))
 		return nil
 	}
 	lv.right.SetContent(string(j))
