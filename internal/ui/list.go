@@ -20,9 +20,11 @@ import (
 )
 
 const (
-	arrowDown      = "▾"
-	arrowRight     = "▸"
+	arrowDown  = "▾"
+	arrowRight = "▸"
+
 	pageScrollSkip = 5
+	sizeSkip       = 2
 
 	whereRevisionBanner = `
          .-"-.      
@@ -88,6 +90,7 @@ type ListView struct {
 	rps            store.ResourcePatchStore
 
 	left, right viewport.Model
+	leftExtra   int
 
 	// tree data
 	kinds map[string]*kindEntry
@@ -108,8 +111,9 @@ func NewListView(trackingService *service.TrackerService, rps store.ResourcePatc
 		trackerService: trackingService,
 		rps:            rps,
 
-		left:  viewport.New(5, 5), // will be overwritten by SetSize
-		right: viewport.New(5, 5), // will be overwritten by SetSize
+		left:      viewport.New(5, 5), // will be overwritten by SetSize
+		right:     viewport.New(5, 5), // will be overwritten by SetSize
+		leftExtra: 0,
 
 		kinds:      make(map[string]*kindEntry),
 		highlight:  false, // highlight is disabled by default
@@ -122,19 +126,25 @@ func (lv *ListView) Breadcrumb() string {
 	return "list"
 }
 
+func (lv *ListView) calculateViewportSizes() {
+	if lv.fullscreen {
+		lv.right.Width = lv.Width
+		lv.right.Height = lv.Height + 1 // no status bar
+	} else {
+		leftWidth := (lv.Width/2 + lv.leftExtra) - 2
+		lv.left.Width, lv.left.Height = leftWidth, lv.Height-1
+
+		rightWidth := lv.Width - leftWidth - 4
+		lv.right.Width, lv.right.Height = rightWidth, lv.Height-1
+	}
+}
+
 // SetSize sets the size of the left and right panes.
 // It is overridden from the Base struct to be able to set the size of the left and right panes
 // based on the current mode (fullscreen or not).
 func (lv *ListView) SetSize(width, height int) {
 	lv.Base.SetSize(width, height)
-
-	if lv.fullscreen {
-		lv.right.Width = width
-		lv.right.Height = height + 1
-	} else {
-		lv.left.Width, lv.left.Height = width/2-2, height-1
-		lv.right.Width, lv.right.Height = width-(width/2-2)-4, height-1
-	}
+	lv.calculateViewportSizes()
 }
 
 func (lv *ListView) Update(msg tea.Msg) (View, tea.Cmd) {
@@ -211,9 +221,21 @@ func (lv *ListView) handleKey(k tea.KeyMsg) tea.Cmd {
 	case "f":
 		lv.fullscreen = !lv.fullscreen
 		lv.SetSize(lv.Width, lv.Height)
+	case "+":
+		maxExtra := (lv.Width / 2) - 8
+		if lv.leftExtra < maxExtra {
+			lv.leftExtra = int(math.Min(float64(lv.leftExtra+sizeSkip), float64(maxExtra)))
+			lv.calculateViewportSizes()
+		}
+	case "-":
+		minExtra := -(lv.Width / 2) + 8
+		if lv.leftExtra > minExtra {
+			lv.leftExtra = int(math.Max(float64(lv.leftExtra-sizeSkip), float64(minExtra)))
+			lv.calculateViewportSizes()
+		}
 	default:
 		if lv.focusRight {
-			return lv.scrollRight(k)
+			return scrollViewport(k, &lv.right)
 		} else {
 			return lv.navigateLeft(k)
 		}
@@ -245,7 +267,7 @@ func (lv *ListView) navigateLeft(k tea.KeyMsg) tea.Cmd {
 		}
 	case "left":
 		lv.toggle(false)
-	case "right", "enter", " ":
+	case "right", "enter", "l", " ":
 		lv.toggle(true)
 	}
 	return nil
@@ -260,12 +282,20 @@ func (lv *ListView) keepVisible() {
 	}
 }
 
-func (lv *ListView) scrollRight(k tea.KeyMsg) tea.Cmd {
+func scrollViewport(k tea.KeyMsg, vp *viewport.Model) tea.Cmd {
 	switch k.String() {
 	case "up", "k":
-		lv.right.ScrollUp(1)
+		vp.ScrollUp(1)
 	case "down", "j":
-		lv.right.ScrollDown(1)
+		vp.ScrollDown(1)
+	case "pgup":
+		vp.PageUp()
+	case "pgdown":
+		vp.PageDown()
+	case "left":
+		vp.ScrollLeft(1)
+	case "right":
+		vp.ScrollRight(1)
 	}
 	return nil
 }
