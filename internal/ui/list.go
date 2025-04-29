@@ -98,6 +98,7 @@ type ListView struct {
 	cursor     int
 	focusRight bool
 	renderMode renderMode
+	fullscreen bool
 	highlight  bool
 }
 
@@ -111,8 +112,9 @@ func NewListView(trackingService *service.TrackerService, rps store.ResourcePatc
 		left:  viewport.New(5, 5), // will be overwritten by SetSize
 		right: viewport.New(5, 5), // will be overwritten by SetSize
 
-		kinds:     make(map[string]*kindEntry),
-		highlight: false, // highlight is disabled by default
+		kinds:      make(map[string]*kindEntry),
+		highlight:  false, // highlight is disabled by default
+		fullscreen: false, // fullscreen is disabled by default
 	}
 	return &list
 }
@@ -124,8 +126,13 @@ func (lv *ListView) Breadcrumb() string {
 func (lv *ListView) SetSize(width, height int) {
 	lv.Size.SetSize(width, height)
 
-	lv.left.Width, lv.left.Height = width/2-2, height-1
-	lv.right.Width, lv.right.Height = width-(width/2-2)-4, height-1
+	if lv.fullscreen {
+		lv.right.Width = width
+		lv.right.Height = height + 1
+	} else {
+		lv.left.Width, lv.left.Height = width/2-2, height-1
+		lv.right.Width, lv.right.Height = width-(width/2-2)-4, height-1
+	}
 }
 
 func (lv *ListView) Update(msg tea.Msg) (View, tea.Cmd) {
@@ -155,6 +162,9 @@ func (lv *ListView) Update(msg tea.Msg) (View, tea.Cmd) {
 }
 
 func (lv *ListView) View() string {
+	if lv.fullscreen {
+		return lv.right.View()
+	}
 	leftBox := util.Ternary(lv.focusRight, BorderIdle, BorderActive).Render(lv.left.View())
 	rightBox := util.Ternary(lv.focusRight, BorderActive, BorderIdle).Render(lv.right.View())
 
@@ -178,6 +188,7 @@ func (lv *ListView) KeyMap() string {
 
 			// right-only shortcuts
 			AddIf(lv.focusRight, "↑/↓/←/→", "move").
+			AddIf(lv.focusRight, "f", "fullscreen").
 			Render())
 }
 
@@ -193,6 +204,9 @@ func (lv *ListView) handleKey(k tea.KeyMsg) tea.Cmd {
 		lv.renderMode = (lv.renderMode + 1) % _modeMax
 	case "h":
 		lv.highlight = !lv.highlight
+	case "f":
+		lv.fullscreen = !lv.fullscreen
+		lv.SetSize(lv.Width, lv.Height)
 	default:
 		if lv.focusRight {
 			return lv.scrollRight(k)
@@ -355,7 +369,7 @@ func (lv *ListView) renderLeft() tea.Cmd {
 				style = StyleHot
 			}
 
-			ns, name, _ := strings.Cut(res, "/")
+			ns, name, _ := strings.Cut(res, "::")
 			if len(ns) > 12 {
 				ns = "..." + ns[len(ns)-11:]
 			}
