@@ -302,9 +302,9 @@ func scrollViewport(k tea.KeyMsg, vp *viewport.Model) tea.Cmd {
 
 /* ingest new commit */
 func (lv *ListView) ingest(c commitMsg) {
-	kind := c.Object.GetKind()
-	res := fmt.Sprintf("%s::%s", c.Object.GetNamespace(), c.Object.GetName())
-	uid := string(c.Object.GetUID())
+	kind := c.Kind
+	res := fmt.Sprintf("%s::%s", c.Namespace, c.Name)
+	uid := c.UID
 	rev := c.Revision
 
 	ke := lv.kinds[kind]
@@ -320,7 +320,11 @@ func (lv *ListView) ingest(c commitMsg) {
 		ke.res[res] = re
 	}
 	re.revs = append(re.revs, revInfo{id: rev, msg: c})
-	re.lastSeen = c.Time
+	if c.Snapshot != nil {
+		re.lastSeen = c.Snapshot.Time
+	} else {
+		re.lastSeen = c.Patch.Time
+	}
 }
 
 /* tree toggles */
@@ -422,8 +426,10 @@ func (lv *ListView) renderLeft() tea.Cmd {
 					isSelected := lv.cursor == line
 
 					revisionKind := "snap"
+					revTime := rv.msg.Snapshot.Time
 					if rv.msg.Patch != nil {
 						revisionKind = "patch"
+						revTime = rv.msg.Patch.Time
 					}
 
 					_, _ = fmt.Fprintf(&b, "       • %s%s%s [%s] %s\n",
@@ -432,7 +438,7 @@ func (lv *ListView) renderLeft() tea.Cmd {
 							Render(rv.id.String()),
 						ternary(isSelected, lv.Theme.ListCurrentArrowTextStyle.Render("]"), " "),
 						lv.Theme.MutedTextStyle.Render(revisionKind),
-						lv.Theme.MutedTextStyle.Render(elapsedTime(now.Sub(rv.msg.Time))))
+						lv.Theme.MutedTextStyle.Render(elapsedTime(now.Sub(revTime))))
 					line++
 				}
 			}
@@ -450,7 +456,7 @@ func (lv *ListView) renderRight() tea.Cmd {
 		return nil
 	}
 
-	uid := string(rev.msg.Object.GetUID())
+	uid := rev.msg.UID
 	curSnap, err := lv.trackerService.Restore(context.Background(), uid, rev.msg.Revision)
 	if err != nil {
 		// that's fatal :/

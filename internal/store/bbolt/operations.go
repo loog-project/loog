@@ -3,7 +3,6 @@ package bbolt
 import (
 	"context"
 	"encoding/binary"
-
 	"github.com/loog-project/loog/internal/store"
 	"go.etcd.io/bbolt"
 )
@@ -19,14 +18,8 @@ func (s *Store) Get(
 		if v == nil {
 			return store.ErrNotFound
 		}
-		switch v[0] {
-		case TypePatch:
-			return s.codec.Unmarshal(v[1:], &patch)
-		case TypeSnapshot:
-			return s.codec.Unmarshal(v[1:], &snapshot)
-		default:
-			return store.ErrInvalidRevision
-		}
+		snapshot, patch, err = s.parsePatchOrSnapshot(v)
+		return err
 	})
 	return
 }
@@ -106,4 +99,28 @@ func (s *Store) GetLatestRevision(
 	s.nextRevisionCounterMutex.Unlock()
 
 	return store.RevisionID(next - 1), nil
+}
+
+func (s *Store) WalkObjectRevisions(yield func(string, store.RevisionID, *store.Snapshot, *store.Patch) bool) error {
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketSnapshots)
+
+		c := b.Cursor()
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			uid, revisionID := splitObjectRevisionKey(k)
+			if uid == "" {
+				continue
+			}
+
+			snapshot, patch, err := s.parsePatchOrSnapshot(v)
+			if err != nil {
+				return err
+			}
+			if !yield(uid, revisionID, snapshot, patch) {
+				return nil
+			}
+		}
+		return nil
+	})
+	return err
 }

@@ -1,11 +1,8 @@
 package ui
 
 import (
-	"time"
-
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/loog-project/loog/internal/store"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 type Base struct {
@@ -44,9 +41,11 @@ type alertMsg struct {
 }
 
 type commitMsg struct {
-	Time     time.Time
-	Object   *unstructured.Unstructured
+	//Object   *unstructured.Unstructured
 	Revision store.RevisionID
+
+	// Object Meta
+	UID, Kind, Name, Namespace string
 
 	// it's either a snapshot OR a patch,
 	// one of those must be nil, the other must be set
@@ -78,18 +77,19 @@ func PushAlert(title string, err error) tea.Cmd {
 
 // NewCommitCommand creates a command that pushes a commit message to the root model.
 func NewCommitCommand(
-	received time.Time,
-	obj *unstructured.Unstructured,
+	uid, kind, name, namespace string,
 	rev store.RevisionID,
 	snapshot *store.Snapshot,
 	patch *store.Patch,
 ) tea.Msg {
 	return commitMsg{
-		Time:     received,
-		Object:   obj,
-		Revision: rev,
-		Snapshot: snapshot,
-		Patch:    patch,
+		Revision:  rev,
+		UID:       uid,
+		Kind:      kind,
+		Name:      name,
+		Namespace: namespace,
+		Snapshot:  snapshot,
+		Patch:     patch,
 	}
 }
 

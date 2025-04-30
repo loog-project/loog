@@ -95,7 +95,7 @@ func (t *TrackerService) Commit(
 				return 0, err
 			}
 
-			snapshot := store.Snapshot{Object: newObject.Object}
+			snapshot := store.Snapshot{Object: newObject.Object, Time: time.Now()}
 			if err := t.rps.SetSnapshot(ctx, objID, &snapshot); err != nil {
 				return 0, err
 			}
@@ -124,6 +124,7 @@ func (t *TrackerService) Commit(
 		snapshot := store.Snapshot{
 			PreviousID: ts.rev,
 			Object:     newObject.Object,
+			Time:       time.Now(),
 		}
 		err := t.rps.SetSnapshot(ctx, objID, &snapshot)
 		if err != nil {
@@ -141,6 +142,7 @@ func (t *TrackerService) Commit(
 	p := &store.Patch{
 		PreviousID: ts.rev,
 		Patch:      diff,
+		Time:       time.Now(),
 	}
 	err := t.rps.SetPatch(ctx, objID, p)
 	if err != nil {
@@ -179,6 +181,7 @@ func (t *TrackerService) Restore(ctx context.Context, objID string, revision sto
 			return &store.Snapshot{
 				ID:     revision,
 				Object: state,
+				Time:   snapshot.Time,
 			}, nil
 		}
 

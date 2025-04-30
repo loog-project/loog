@@ -3,12 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"log"
-	"os"
-	"os/signal"
-	"path/filepath"
-	"time"
-
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/vm"
@@ -23,6 +17,10 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
+	"log"
+	"os"
+	"os/signal"
+	"path/filepath"
 )
 
 var (
@@ -114,6 +112,39 @@ func runCollector(
 	rps store.ResourcePatchStore,
 	program *vm.Program,
 ) {
+	err := rps.WalkObjectRevisions(func(
+		objectUID string,
+		revisionID store.RevisionID,
+		snapshot *store.Snapshot,
+		patch *store.Patch,
+	) bool {
+		// restore from trackerService
+		snapshot, err := trackerService.Restore(ctx, objectUID, revisionID)
+		if err != nil {
+			p.Send(ui.NewAlert("when restoring object from tracker service", err))
+			return false
+		}
+		u := &unstructured.Unstructured{Object: snapshot.Object}
+		if snapshot.Time.IsZero() {
+			panic("snapshot time is zero")
+		}
+
+		p.Send(ui.NewCommitCommand(
+			string(u.GetUID()),
+			u.GetKind(),
+			u.GetName(),
+			u.GetNamespace(),
+			revisionID,
+			snapshot,
+			patch,
+		))
+		return true
+	})
+	if err != nil {
+		p.Send(ui.NewAlert("when walking object revisions", err))
+		return
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -150,7 +181,15 @@ func runCollector(
 				continue
 			}
 
-			p.Send(ui.NewCommitCommand(time.Now(), obj, rev, snapshot, patch))
+			p.Send(ui.NewCommitCommand(
+				string(obj.GetUID()),
+				obj.GetKind(),
+				obj.GetName(),
+				obj.GetNamespace(),
+				rev,
+				snapshot,
+				patch,
+			))
 		}
 	}
 }
