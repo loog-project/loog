@@ -1,0 +1,37 @@
+plugins:
+  loog-run-selected:
+    shortCut: Shift-L
+    confirm: false
+    scopes:
+      - all
+    description: "👀: Run Selected"
+    command: bash
+    background: false
+    args:
+      - -c
+      - >
+        loogtui
+        -resource
+        $RESOURCE_GROUP/$RESOURCE_VERSION/$RESOURCE_NAME
+        -out
+        /tmp/output.loog
+        -filter-expr
+        'Namespaced("$NAMESPACE", "$NAME")'
+  loog-run-namespace:
+    shortCut: Ctrl-L
+    confirm: true
+    scopes:
+      - all
+    description: "👀: Run Namespace"
+    command: bash
+    background: false
+    args:
+      - -c
+      - >
+        loogtui
+        -resource
+        $RESOURCE_GROUP/$RESOURCE_VERSION/$RESOURCE_NAME
+        -out
+        /tmp/output.loog
+        -filter-expr
+        'Namespace("$NAMESPACE")'
