@@ -12,13 +12,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/vm"
+	"github.com/loog-project/loog/internal/dynamicmux"
 	"github.com/loog-project/loog/internal/service"
 	"github.com/loog-project/loog/internal/store"
 	bboltStore "github.com/loog-project/loog/internal/store/bbolt"
 	"github.com/loog-project/loog/internal/ui"
 	"github.com/loog-project/loog/internal/util"
-	"github.com/loog-project/loog/internal/watch"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/tools/clientcmd"
@@ -54,12 +53,14 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
+	log.Println("Compiling filter expression...")
 	prog, err := expr.Compile(flagFilterExpression, expr.Env(util.EventEntryEnv{}), expr.AsBool())
 	if err != nil {
 		log.Fatal("Cannot compile filter expression:", err)
 		return
 	}
 
+	log.Println("Creating store...")
 	rps, err := bboltStore.New(flagOutFile, nil, !flagNotDurable)
 	if err != nil {
 		log.Fatal("Cannot create store:", err)
@@ -67,6 +68,7 @@ func main() {
 	}
 	trackerService := service.NewTrackerService(rps, flagSnapshotEvery, !flagNoCache)
 
+	log.Println("Creating dynamic client...")
 	cfg, err := clientcmd.BuildConfigFromFlags("", flagKubeconfig)
 	if err != nil {
 		log.Fatal("Cannot load kubeconfig:", err)
@@ -78,9 +80,15 @@ func main() {
 		log.Fatal("Cannot create dynamic client:", err)
 		return
 	}
-	mux := watch.New(ctx, dyn, v1.ListOptions{})
+
+	mux, err := dynamicmux.New(ctx, dyn)
+	if err != nil {
+		log.Fatal("Cannot create dynamic mux:", err)
+		return
+	}
 	defer mux.Stop()
 
+	log.Println("Starting dynamic mux...")
 	// add default resources from -resource flags
 	for _, r := range flagResources {
 		gvr, err := util.ParseGroupVersionResource(r)
@@ -94,13 +102,18 @@ func main() {
 		}
 	}
 
-	root := ui.NewRoot(ui.DarkTheme, ui.NewListView(trackerService, rps))
+	log.Println("Building UI...")
+	uiLogger := ui.NewUILogger()
+	root := ui.NewRoot(ui.DarkTheme, uiLogger, ui.NewListView(trackerService, rps))
 	program := tea.NewProgram(root)
+	uiLogger.Attach(program)
 
-	go runCollector(ctx, program, mux, trackerService, rps, prog)
+	log.Println("Starting dynamic watches...")
+	go runCollector(ctx, program, mux, trackerService, rps, prog, uiLogger)
 
 	// TODO(future): load database on startup
 
+	log.Println("Starting UI...")
 	if _, err := program.Run(); err != nil {
 		log.Fatal(err)
 	}
@@ -109,17 +122,19 @@ func main() {
 func runCollector(
 	ctx context.Context,
 	p *tea.Program,
-	mux *watch.DynamicMux,
+	mux *dynamicmux.Mux,
 	trackerService *service.TrackerService,
 	rps store.ResourcePatchStore,
 	program *vm.Program,
+	logSink *ui.UILogger,
 ) {
 	for {
 		select {
 		case <-ctx.Done():
+			logSink.Infof("collector", "stopping")
 			log.Println("Stopping collector...")
 			return
-		case ev := <-mux.ResultChan():
+		case ev := <-mux.Events():
 			obj, ok := ev.Object.(*unstructured.Unstructured)
 			if !ok {
 				continue
@@ -128,7 +143,7 @@ func runCollector(
 			// make sure we want to track this object
 			pass, err := expr.Run(program, util.EventEntryEnv{Event: ev, Object: obj})
 			if err != nil {
-				p.Send(ui.NewAlert("when executing filter expression", err))
+				logSink.Errorf("collector", "when executing filter expression: %s", err)
 				continue
 			}
 			if !pass.(bool) {
@@ -139,14 +154,14 @@ func runCollector(
 			obj.SetManagedFields(nil)
 			rev, err := trackerService.Commit(ctx, string(obj.GetUID()), obj)
 			if err != nil {
-				p.Send(ui.NewAlert("when committing to tracker service", err))
+				logSink.Errorf("collector", "when committing to tracker service: %s", err)
 				continue
 			}
 
 			// read
 			snapshot, patch, err := rps.Get(ctx, string(obj.GetUID()), rev)
 			if err != nil {
-				p.Send(ui.NewAlert("when reading tracked object from store", err))
+				logSink.Errorf("collector", "when reading tracked object from store: %s", err)
 				continue
 			}
 

@@ -33,13 +33,16 @@ type Root struct {
 	ViewStack    []View
 	ShuttingDown bool
 
+	Logger *UILogger
+
 	AlertTitle string
 	AlertErr   error
 }
 
-func NewRoot(theme Theme, first View) *Root {
+func NewRoot(theme Theme, logger *UILogger, first View) *Root {
 	r := &Root{
-		Theme: theme,
+		Theme:  theme,
+		Logger: logger,
 	}
 	r.applyTo(first)
 	r.ViewStack = []View{first}
@@ -48,7 +51,7 @@ func NewRoot(theme Theme, first View) *Root {
 
 func tick() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
-		return tickMsg{}
+		return TickMsg{}
 	})
 }
 
@@ -68,11 +71,11 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch v := msg.(type) {
 	case pushViewMsg:
 		switch v.pushType {
-		case push:
+		case Push:
 			r.ViewStack = append(r.ViewStack, r.applyTo(v.view))
-		case replace:
+		case Replace:
 			r.ViewStack[len(r.ViewStack)-1] = r.applyTo(v.view)
-		case pop:
+		case Pop:
 			if len(r.ViewStack) <= 1 {
 				// can't pop the root view
 				return r, nil
@@ -89,7 +92,7 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		r.AlertErr = v.Err
 		return r, tea.Batch(cmds...)
 
-	case tickMsg:
+	case TickMsg:
 		cmds = append(cmds, tick())
 
 	case tea.WindowSizeMsg:
@@ -110,6 +113,8 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// TODO(future): remove `q` from here
 			r.ShuttingDown = true
 			return r, tea.Quit
+		case "L":
+			return r, PushChangeView(Push, NewLogView(r.Logger))
 		case "esc":
 			// TODO(future): alert should be its own view
 			if r.AlertErr != nil {

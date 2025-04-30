@@ -70,7 +70,7 @@ func (r renderMode) String() string {
 
 type revInfo struct {
 	id  store.RevisionID
-	msg commitMsg
+	msg CommitMsg
 }
 type resEntry struct {
 	uid      string
@@ -149,10 +149,10 @@ func (lv *ListView) SetSize(width, height int) {
 
 func (lv *ListView) Update(msg tea.Msg) (View, tea.Cmd) {
 	switch v := msg.(type) {
-	case commitMsg:
+	case CommitMsg:
 		lv.ingest(v)
 
-	case tickMsg:
+	case TickMsg:
 		// only re-render fade; handled in View()
 
 	case tea.KeyMsg:
@@ -235,7 +235,7 @@ func (lv *ListView) handleKey(k tea.KeyMsg) tea.Cmd {
 		}
 	default:
 		if lv.focusRight {
-			return scrollViewport(k, &lv.right)
+			return ScrollViewport(k, &lv.right)
 		} else {
 			return lv.navigateLeft(k)
 		}
@@ -282,26 +282,8 @@ func (lv *ListView) keepVisible() {
 	}
 }
 
-func scrollViewport(k tea.KeyMsg, vp *viewport.Model) tea.Cmd {
-	switch k.String() {
-	case "up", "k":
-		vp.ScrollUp(1)
-	case "down", "j":
-		vp.ScrollDown(1)
-	case "pgup":
-		vp.PageUp()
-	case "pgdown":
-		vp.PageDown()
-	case "left":
-		vp.ScrollLeft(1)
-	case "right":
-		vp.ScrollRight(1)
-	}
-	return nil
-}
-
 /* ingest new commit */
-func (lv *ListView) ingest(c commitMsg) {
+func (lv *ListView) ingest(c CommitMsg) {
 	kind := c.Object.GetKind()
 	res := fmt.Sprintf("%s::%s", c.Object.GetNamespace(), c.Object.GetName())
 	uid := string(c.Object.GetUID())
@@ -557,10 +539,6 @@ func (lv *ListView) currentSelection() *revInfo {
 	return nil
 }
 
-/*=====================================================================*/
-/*                       8. helpers / UI bits                          */
-/*=====================================================================*/
-
 func elapsedTime(d time.Duration) string {
 	if d < time.Second {
 		return "now"
@@ -575,4 +553,13 @@ func sortedKeys[K ~string, V any](m map[K]V) []K {
 	}
 	slices.Sort(ks)
 	return ks
+}
+
+// ternary is a generic function that returns one of two values based on a boolean condition.
+// it should be used for rendering purposes only.
+func ternary[T any](cond bool, a, b T) T {
+	if cond {
+		return a
+	}
+	return b
 }

@@ -3,6 +3,7 @@ package ui
 import (
 	"time"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/loog-project/loog/internal/store"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -26,9 +27,9 @@ func (b *Base) SetTheme(theme Theme) {
 type pushType uint
 
 const (
-	push pushType = iota
-	pop
-	replace
+	Push pushType = iota
+	Pop
+	Replace
 )
 
 type pushViewMsg struct {
@@ -36,14 +37,14 @@ type pushViewMsg struct {
 	pushType pushType
 }
 
-type tickMsg struct{}
+type TickMsg struct{}
 
 type alertMsg struct {
 	Title string
 	Err   error
 }
 
-type commitMsg struct {
+type CommitMsg struct {
 	Time     time.Time
 	Object   *unstructured.Unstructured
 	Revision store.RevisionID
@@ -84,7 +85,7 @@ func NewCommitCommand(
 	snapshot *store.Snapshot,
 	patch *store.Patch,
 ) tea.Msg {
-	return commitMsg{
+	return CommitMsg{
 		Time:     received,
 		Object:   obj,
 		Revision: rev,
@@ -93,11 +94,20 @@ func NewCommitCommand(
 	}
 }
 
-// ternary is a generic function that returns one of two values based on a boolean condition.
-// it should be used for rendering purposes only.
-func ternary[T any](cond bool, a, b T) T {
-	if cond {
-		return a
+func ScrollViewport(k tea.KeyMsg, vp *viewport.Model) tea.Cmd {
+	switch k.String() {
+	case "up", "k":
+		vp.ScrollUp(1)
+	case "down", "j":
+		vp.ScrollDown(1)
+	case "pgup":
+		vp.PageUp()
+	case "pgdown":
+		vp.PageDown()
+	case "left":
+		vp.ScrollLeft(1)
+	case "right":
+		vp.ScrollRight(1)
 	}
-	return b
+	return nil
 }

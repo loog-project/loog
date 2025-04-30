@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -79,6 +80,7 @@ func (m *DynamicMux) Add(gvr schema.GroupVersionResource) error {
 	}
 	m.watchers[gvr] = watcher
 
+	start := time.Now()
 	go func(w watch.Interface) {
 		for {
 			select {
@@ -87,6 +89,7 @@ func (m *DynamicMux) Add(gvr schema.GroupVersionResource) error {
 				return
 			case ev, ok := <-w.ResultChan():
 				if !ok {
+					panic("watcher closed unexpectedly for " + gvr.String() + " after " + time.Since(start).String())
 					return
 				}
 				m.eventChan <- ev
