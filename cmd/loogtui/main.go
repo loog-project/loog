@@ -57,8 +57,9 @@ func main() {
 			log.Fatal("Cannot create temp file:", err)
 			return
 		}
+		defer file.Close()
+		defer os.Remove(file.Name())
 		flagOutFile = file.Name()
-		log.Println("Using temp file:", flagOutFile)
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
