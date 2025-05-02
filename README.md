@@ -1,8 +1,9 @@
-# loog
+![banner](./assets/banner.png)
 
-> A small program that records every change made to one or more Kubernetes resources and lets you browse those revisions.
+_LOOG_ is a small program that records every change made to one or more Kubernetes resources and lets you browse those revisions.
 
-![demo](assets/demo.mp4)
+https://github.com/user-attachments/assets/7013fe8b-fbe3-42a9-96c7-9a2fad8fabf5
+
 
 ---
 
@@ -17,19 +18,26 @@ go install github.com/loog-project/loog/cmd/loog@latest
 ## Usage
 
 ```text
-loog [flags]
-```
+$ loog [flags]
 
-| Flag               | Description                                                                                                           | Default                 |
-|--------------------|-----------------------------------------------------------------------------------------------------------------------|-------------------------|
-| `-kubeconfig`      | Path to the kube‑config file used for in‑cluster or remote access                                                     | `$HOME/.kube/config`    |
-| `-resource`        | Fully qualified resource to watch (`<group>/<version>/<resource>`). Repeat for multiple resources.                    | none (add at least one) |
-| `-out`             | Path of the bolt‑DB file that stores snapshots and patches. If empty, a temporary file is created and deleted on exit | ‘’                      |
-| `-not-durable`     | Disable `fsync` after every write (faster, but crashes may corrupt the DB)                                            | `false`                 |
-| `-no-cache`        | Skip the in‑memory hot cache                                                                                          | `false`                 |
-| `-snapshot-every`  | Store a full snapshot after *N* patches                                                                               | `8`                     |
-| `-filter-expr`     | \[expr‑lang] filter executed for every incoming event                                                                 | `All()`                 |
-| `-non-interactive` | Do not start the TUI; collect and persist only                                                                        | `false`                 |
+Usage of loog:
+  -filter-expr string
+        expr filter (default "All()")
+  -kubeconfig string
+         (default "/Users/I550629/.kube/config")
+  -no-cache
+        if set to true, the store won't cache the data
+  -non-interactive
+        set to true to disable the UI
+  -not-durable
+        if set to true, the store won't fsync every commit
+  -out string
+        dump output file
+  -resource value
+        <group>/<version>/<resource> (repeatable)
+  -snapshot-every uint
+        patches until snapshot (default 8)
+```
 
 Example: watch Deployments and ConfigMaps, keep data in `state.loog`, show the UI.
 
