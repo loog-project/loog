@@ -240,3 +240,10 @@ func (t *TrackerService) objLock(uid string) *lockWrap {
 	t.commitLockMutex.Unlock()
 	return mu
 }
+
+func (t *TrackerService) WarmCache(uid string, snapshot *store.Snapshot) {
+	if t.cache == nil {
+		return
+	}
+	t.cache.set(uid, &trackerState{obj: snapshot.Object, rev: snapshot.ID})
+}

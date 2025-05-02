@@ -12,12 +12,14 @@ import (
 	"github.com/loog-project/loog/internal/ui"
 	"github.com/loog-project/loog/internal/util"
 	"github.com/loog-project/loog/internal/watch"
+	"github.com/loog-project/loog/pkg/diffmap"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
 	"log"
+	"maps"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -112,32 +114,7 @@ func runCollector(
 	rps store.ResourcePatchStore,
 	program *vm.Program,
 ) {
-	err := rps.WalkObjectRevisions(func(
-		objectUID string,
-		revisionID store.RevisionID,
-		snapshot *store.Snapshot,
-		patch *store.Patch,
-	) bool {
-		// restore from trackerService
-		snapshot, err := trackerService.Restore(ctx, objectUID, revisionID)
-		if err != nil {
-			p.Send(ui.NewAlert("when restoring object from tracker service", err))
-			return false
-		}
-		u := &unstructured.Unstructured{Object: snapshot.Object}
-
-		p.Send(ui.NewCommitCommand(
-			string(u.GetUID()),
-			u.GetKind(),
-			u.GetName(),
-			u.GetNamespace(),
-			revisionID,
-			snapshot,
-			patch,
-		))
-		return true
-	})
-	if err != nil {
+	if err := loadHistoryFromDB(rps, trackerService, p); err != nil {
 		p.Send(ui.NewAlert("when walking object revisions", err))
 		return
 	}
@@ -189,4 +166,49 @@ func runCollector(
 			))
 		}
 	}
+}
+
+func loadHistoryFromDB(rps store.ResourcePatchStore, trackerService *service.TrackerService, p *tea.Program) error {
+	objectRevisionState := map[string]*store.Snapshot{}
+	err := rps.WalkObjectRevisions(func(
+		objectUID string,
+		revisionID store.RevisionID,
+		snapshot *store.Snapshot,
+		patch *store.Patch,
+	) bool {
+		var current *store.Snapshot
+		if snapshot != nil {
+			// full snapshot: start anew
+			diffMap := make(diffmap.DiffMap)
+			maps.Copy(diffMap, snapshot.Object)
+			current = &store.Snapshot{
+				ID:     revisionID,
+				Object: diffMap,
+				Time:   snapshot.Time,
+			}
+		} else {
+			// patch: apply on top of last state
+			base := make(diffmap.DiffMap)
+			maps.Copy(base, objectRevisionState[objectUID].Object)
+			diffmap.Apply(base, patch.Patch)
+			current = &store.Snapshot{
+				ID:     revisionID,
+				Object: base,
+				Time:   patch.Time,
+			}
+		}
+		objectRevisionState[objectUID] = current
+		trackerService.WarmCache(objectUID, current)
+		p.Send(ui.NewCommitCommand(
+			objectUID,
+			current.Object["kind"].(string),
+			current.Object["metadata"].(map[string]any)["name"].(string),
+			current.Object["metadata"].(map[string]any)["namespace"].(string),
+			revisionID,
+			current,
+			patch,
+		))
+		return true
+	})
+	return err
 }
