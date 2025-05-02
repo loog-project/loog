@@ -200,11 +200,12 @@ func loadHistoryFromDB(rps store.ResourcePatchStore, trackerService *service.Tra
 		}
 		objectRevisionState[objectUID] = current
 		trackerService.WarmCache(objectUID, current)
+		unstructuredObj := &unstructured.Unstructured{Object: current.Object}
 		p.Send(ui.NewCommitCommand(
 			objectUID,
-			current.Object["kind"].(string),
-			current.Object["metadata"].(map[string]any)["name"].(string),
-			current.Object["metadata"].(map[string]any)["namespace"].(string),
+			unstructuredObj.GetKind(),
+			unstructuredObj.GetName(),
+			unstructuredObj.GetNamespace(),
 			revisionID,
 			current,
 			patch,
