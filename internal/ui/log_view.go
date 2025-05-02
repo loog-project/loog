@@ -46,6 +46,9 @@ func NewLogView(logger *UILogger) *LogView {
 func (lv *LogView) SetSize(width int, height int) {
 	lv.viewport.Width = width - 2
 	lv.viewport.Height = height - 3
+
+	// TODO(future): we should implement an init function instead of mis-using the SetSize function
+	lv.logger.peekUnread(true)
 }
 
 func (lv *LogView) Breadcrumb() string {

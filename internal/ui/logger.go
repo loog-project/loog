@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -15,6 +16,21 @@ type Logger interface {
 	Infof(source, format string, args ...any)
 	Warningf(source, format string, args ...any)
 	Errorf(source, format string, args ...any)
+}
+
+// StdLogger is a simple logger that writes to the standard output using the [log] package.
+type StdLogger struct{}
+
+func (l StdLogger) Infof(source, format string, args ...any) {
+	log.Printf("[INFO] %s: %s", source, fmt.Sprintf(format, args...))
+}
+
+func (l StdLogger) Warningf(source, format string, args ...any) {
+	log.Printf("[WARNING] %s: %s", source, fmt.Sprintf(format, args...))
+}
+
+func (l StdLogger) Errorf(source, format string, args ...any) {
+	log.Printf("[ERROR] %s: %s", source, fmt.Sprintf(format, args...))
 }
 
 type LogLevel uint8
@@ -91,7 +107,7 @@ func (l *UILogger) Errorf(source, format string, args ...any) {
 	l.send(LogLevelError, source, fmt.Sprintf(format, args...))
 }
 
-func (l *UILogger) popUnread() (info, warn, errors int) {
+func (l *UILogger) peekUnread(pop bool) (info, warn, errors int) {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
@@ -99,11 +115,12 @@ func (l *UILogger) popUnread() (info, warn, errors int) {
 	warn = l.unreadPerLevel[LogLevelWarning]
 	errors = l.unreadPerLevel[LogLevelError]
 
-	l.unreadPerLevel[LogLevelInfo] = 0
-	l.unreadPerLevel[LogLevelWarning] = 0
-	l.unreadPerLevel[LogLevelError] = 0
-
-	l.globalUnread = 0
+	if pop {
+		l.unreadPerLevel[LogLevelInfo] = 0
+		l.unreadPerLevel[LogLevelWarning] = 0
+		l.unreadPerLevel[LogLevelError] = 0
+		l.globalUnread = 0
+	}
 
 	return info, warn, errors
 }

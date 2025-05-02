@@ -34,9 +34,6 @@ type Root struct {
 	ShuttingDown bool
 
 	Logger *UILogger
-
-	AlertTitle string
-	AlertErr   error
 }
 
 func NewRoot(theme Theme, logger *UILogger, first View) *Root {
@@ -65,6 +62,15 @@ func (r Root) applyTo(v View) View {
 	return v
 }
 
+// isViewOpen checks if the view of type T is open in the stack.
+func isViewOpen[T View](r Root) bool {
+	if len(r.ViewStack) == 0 {
+		return false
+	}
+	_, isOpen := r.ViewStack[len(r.ViewStack)-1].(T)
+	return isOpen
+}
+
 func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmds := make([]tea.Cmd, 0)
 
@@ -82,15 +88,18 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			r.ViewStack = r.ViewStack[:len(r.ViewStack)-1]
 		}
-		return r, tea.Batch(cmds...)
+		return r, nil
 
 	case alertMsg:
-		// alert message:
-		// displays an error message in the center of the screen
-
-		r.AlertTitle = v.Title
-		r.AlertErr = v.Err
-		return r, tea.Batch(cmds...)
+		pt := Push
+		if isViewOpen[*AlertView](r) {
+			pt = Replace
+		}
+		view := &AlertView{
+			Title: v.Title,
+			Err:   v.Err,
+		}
+		return r, PushChangeView(pt, view)
 
 	case TickMsg:
 		cmds = append(cmds, tick())
@@ -100,7 +109,7 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// used to resize the views
 
 		r.Width = v.Width
-		r.Height = v.Height - 2
+		r.Height = v.Height - 1 // -1 for the status bar
 
 		// propagate the size to all views
 		for i := range r.ViewStack {
@@ -110,18 +119,16 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch v.String() {
 		case "ctrl+c", "q":
-			// TODO(future): remove `q` from here
+			// TODO(future): remove `q` from here as views should handle it
 			r.ShuttingDown = true
 			return r, tea.Quit
 		case "L":
-			return r, PushChangeView(Push, NewLogView(r.Logger))
-		case "esc":
-			// TODO(future): alert should be its own view
-			if r.AlertErr != nil {
-				r.AlertErr = nil
-				r.AlertTitle = ""
-				return r, tea.Batch(cmds...)
+			if isViewOpen[*LogView](r) {
+				return r, PushChangeView(Pop, nil)
 			}
+			return r, PushChangeView(Push, NewLogView(r.Logger))
+		case "E":
+			return r, PushAlert("Test", fmt.Errorf("This is a test!"))
 		}
 	}
 
@@ -135,6 +142,33 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return r, tea.Batch(cmds...)
+}
+
+func (r Root) renderBar(breadcrumbs string, help string) string {
+	breadcrumbsRender := r.Theme.BreadcrumbBarStyle.Render(breadcrumbs)
+
+	var logRender string
+	if r.Logger != nil {
+		info, warn, err := r.Logger.peekUnread(false)
+
+		if info+warn+err > 0 {
+			// TODO(future): nicer format
+			logRender = r.Theme.LoggerBarStyle.Render(fmt.Sprintf("🔔(%di|%dw|%de)",
+				info, warn, err))
+		} else {
+			logRender = ""
+		}
+	}
+
+	helpRender := r.Theme.HelpBarStyle.
+		Width(r.Width - lipgloss.Width(breadcrumbsRender) - lipgloss.Width(logRender)).
+		Render(help)
+
+	return lipgloss.JoinHorizontal(lipgloss.Top,
+		helpRender,
+		breadcrumbsRender,
+		logRender,
+	)
 }
 
 func (r Root) View() string {
@@ -153,27 +187,12 @@ func (r Root) View() string {
 	for _, view := range r.ViewStack {
 		breadcrumbStack = append(breadcrumbStack, view.Breadcrumb())
 	}
-
-	// place error box on top
-	if r.AlertErr != nil {
-		w, h := r.Width-2, r.Height-1
-
-		ui = lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, r.Theme.AlertContainerStyle.Render(
-			fmt.Sprintf("%s\n\n%s\n(%s)",
-				r.Theme.MutedTextStyle.Render("AN ERROR OCCURRED:"),
-				r.Theme.ErrorTextStyle.Render(r.AlertErr.Error()),
-				r.AlertTitle,
-			),
-		))
-
-		help = "[esc] to dismiss"
-
-		breadcrumbStack = append(breadcrumbStack, "<error>")
-	}
+	breadcrumbs := strings.Join(breadcrumbStack, " ⟩ ")
 
 	bar := fmt.Sprintf("%s | %s",
-		r.Theme.BreadcrumbBarStyle.Render(strings.Join(breadcrumbStack, " » ")),
+		r.Theme.BreadcrumbBarStyle.Render(breadcrumbs),
 		r.Theme.MutedTextStyle.Render(help))
+	_ = bar
 
-	return ui + "\n" + bar
+	return ui + "\n" + r.renderBar(breadcrumbs, help) // + bar
 }

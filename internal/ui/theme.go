@@ -2,12 +2,10 @@ package ui
 
 import "github.com/charmbracelet/lipgloss"
 
-// Some predefined colors
-
 var (
 	ColorRed         = lipgloss.Color("1")
 	ColorBlack       = lipgloss.Color("0")
-	ColorWhite       = lipgloss.Color("7")
+	ColorWhite       = lipgloss.Color("255")
 	ColorBrightBlue  = lipgloss.Color("33")
 	ColorLightGray   = lipgloss.Color("243")
 	ColorGray        = lipgloss.Color("238")
@@ -16,21 +14,24 @@ var (
 )
 
 type Theme struct {
-	ListKindNameTextStyle     lipgloss.Style // StyleKind
-	ListNamespaceTextStyle    lipgloss.Style // StyleNS
-	ListActivityTextStyle     lipgloss.Style // StyleHot
-	ListRevisionTextStyle     lipgloss.Style // StyleRev
-	ListCurrentArrowTextStyle lipgloss.Style // StyleCur
+	ListKindNameTextStyle     lipgloss.Style
+	ListNamespaceTextStyle    lipgloss.Style
+	ListActivityTextStyle     lipgloss.Style
+	ListRevisionTextStyle     lipgloss.Style
+	ListCurrentArrowTextStyle lipgloss.Style
 
-	AlertContainerStyle        lipgloss.Style // StyleError
-	BorderActiveContainerStyle lipgloss.Style // BorderActive
-	BorderIdleContainerStyle   lipgloss.Style // BorderIdle
+	AlertDialogContainerStyle lipgloss.Style
 
-	MutedTextStyle   lipgloss.Style // StyleDim
-	ErrorTextStyle   lipgloss.Style // StyleError
-	PrimaryTextStyle lipgloss.Style // StyleDim
+	BorderActiveContainerStyle lipgloss.Style
+	BorderIdleContainerStyle   lipgloss.Style
 
-	BreadcrumbBarStyle lipgloss.Style // BarBreadcrumbs
+	MutedTextStyle   lipgloss.Style
+	ErrorTextStyle   lipgloss.Style
+	PrimaryTextStyle lipgloss.Style
+
+	BreadcrumbBarStyle lipgloss.Style
+	LoggerBarStyle     lipgloss.Style
+	HelpBarStyle       lipgloss.Style
 }
 
 var DarkTheme = Theme{
@@ -47,10 +48,11 @@ var DarkTheme = Theme{
 	ListCurrentArrowTextStyle: lipgloss.NewStyle().
 		Foreground(ColorBrightBlue),
 
-	AlertContainerStyle: lipgloss.NewStyle().
-		Border(lipgloss.DoubleBorder()).
+	AlertDialogContainerStyle: lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ColorRed).
-		Padding(4, 4),
+		Padding(1, 2),
+
 	BorderActiveContainerStyle: lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ColorBrightBlue),
@@ -70,4 +72,12 @@ var DarkTheme = Theme{
 		Padding(0, 1).
 		Background(ColorBrightBlue).
 		Foreground(ColorWhite),
+
+	LoggerBarStyle: lipgloss.NewStyle().
+		Padding(0, 1).
+		Background(ColorOrange).
+		Foreground(ColorWhite),
+
+	HelpBarStyle: lipgloss.NewStyle().
+		Padding(0, 1),
 }

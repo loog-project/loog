@@ -129,13 +129,13 @@ func (lv *ListView) Breadcrumb() string {
 func (lv *ListView) calculateViewportSizes() {
 	if lv.fullscreen {
 		lv.right.Width = lv.Width
-		lv.right.Height = lv.Height + 1 // no status bar
+		lv.right.Height = lv.Height
 	} else {
-		leftWidth := (lv.Width/2 + lv.leftExtra) - 2
-		lv.left.Width, lv.left.Height = leftWidth, lv.Height-1
+		leftWidth := (lv.Width/2 + lv.leftExtra) - 2           // 2 for border right and left
+		lv.left.Width, lv.left.Height = leftWidth, lv.Height-2 // -2 for viewport border
 
-		rightWidth := lv.Width - leftWidth - 4
-		lv.right.Width, lv.right.Height = rightWidth, lv.Height-1
+		rightWidth := lv.Width - leftWidth - 4                    // 4 for border right and left
+		lv.right.Width, lv.right.Height = rightWidth, lv.Height-2 // -2 for viewport border
 	}
 }
 
@@ -205,8 +205,6 @@ func (lv *ListView) KeyMap() string {
 			AddIf(lv.focusRight, "f", "fullscreen").
 			Render(lv.Theme))
 }
-
-/* ---------- listView helpers ---------- */
 
 func (lv *ListView) handleKey(k tea.KeyMsg) tea.Cmd {
 	switch k.String() {
@@ -282,7 +280,6 @@ func (lv *ListView) keepVisible() {
 	}
 }
 
-/* ingest new commit */
 func (lv *ListView) ingest(c CommitMsg) {
 	kind := c.Object.GetKind()
 	res := fmt.Sprintf("%s::%s", c.Object.GetNamespace(), c.Object.GetName())
@@ -305,7 +302,6 @@ func (lv *ListView) ingest(c CommitMsg) {
 	re.lastSeen = c.Time
 }
 
-/* tree toggles */
 func (lv *ListView) toggle(exp bool) {
 	line := 0
 	for _, k := range lv.order {
@@ -350,7 +346,6 @@ func (lv *ListView) totalLines() int {
 	return n
 }
 
-/* render left pane */
 func (lv *ListView) renderLeft() tea.Cmd {
 	var b strings.Builder
 	now := time.Now()
@@ -508,7 +503,6 @@ func (lv *ListView) renderRight() tea.Cmd {
 	return nil
 }
 
-/* current selection */
 func (lv *ListView) currentSelection() *revInfo {
 	line := 0
 	for _, k := range lv.order {

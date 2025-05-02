@@ -32,6 +32,7 @@ var (
 	flagNoCache          bool
 	flagSnapshotEvery    uint64
 	flagFilterExpression string
+	flagNonInteractive   bool
 )
 
 func init() {
@@ -40,6 +41,7 @@ func init() {
 	flag.BoolVar(&flagNoCache, "no-cache", false, "if set to true, the store won't cache the data")
 	flag.Uint64Var(&flagSnapshotEvery, "snapshot-every", 8, "patches until snapshot")
 	flag.StringVar(&flagFilterExpression, "filter-expr", "All()", "expr filter")
+	flag.BoolVar(&flagNonInteractive, "non-interactive", false, "set to true to disable the UI")
 	flag.Var(&flagResources, "resource", "<group>/<version>/<resource> (repeatable)")
 	if h := homedir.HomeDir(); h != "" {
 		flag.StringVar(&flagKubeconfig, "kubeconfig", filepath.Join(h, ".kube", "config"), "")
@@ -102,20 +104,35 @@ func main() {
 		}
 	}
 
-	log.Println("Building UI...")
-	uiLogger := ui.NewUILogger()
-	root := ui.NewRoot(ui.DarkTheme, uiLogger, ui.NewListView(trackerService, rps))
-	program := tea.NewProgram(root)
-	uiLogger.Attach(program)
+	var program *tea.Program
+	var uiLogger ui.Logger
+
+	if flagNonInteractive {
+		log.Println("Running in non-interactive mode...")
+		uiLogger = ui.StdLogger{}
+	} else {
+		log.Println("Building UI...")
+		logger := ui.NewUILogger()
+		root := ui.NewRoot(ui.DarkTheme, logger, ui.NewListView(trackerService, rps))
+		program = tea.NewProgram(root)
+		logger.Attach(program)
+
+		uiLogger = logger
+	}
 
 	log.Println("Starting dynamic watches...")
 	go runCollector(ctx, program, mux, trackerService, rps, prog, uiLogger)
 
 	// TODO(future): load database on startup
 
-	log.Println("Starting UI...")
-	if _, err := program.Run(); err != nil {
-		log.Fatal(err)
+	if !flagNonInteractive {
+		log.Println("Starting UI...")
+		if _, err := program.Run(); err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		log.Println("Running in non-interactive mode, press Ctrl+C to exit...")
+		<-ctx.Done()
 	}
 }
 
@@ -126,7 +143,7 @@ func runCollector(
 	trackerService *service.TrackerService,
 	rps store.ResourcePatchStore,
 	program *vm.Program,
-	logSink *ui.UILogger,
+	logSink ui.Logger,
 ) {
 	for {
 		select {
@@ -150,11 +167,20 @@ func runCollector(
 				continue
 			}
 
+			logSink.Infof("collector", "%s: %s/%s/%s",
+				ev.Type,
+				obj.GetNamespace(), obj.GetName(), obj.GetKind())
+
 			// empty managed fields as they only clutter and we in 99/100 cases don't need them
 			obj.SetManagedFields(nil)
 			rev, err := trackerService.Commit(ctx, string(obj.GetUID()), obj)
 			if err != nil {
 				logSink.Errorf("collector", "when committing to tracker service: %s", err)
+				continue
+			}
+
+			if p == nil {
+				// we're running in non-interactive mode, so we don't need to send the commit command
 				continue
 			}
 
