@@ -48,7 +48,7 @@ func NewRoot(theme Theme, logger *UILogger, first View) *Root {
 
 func tick() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
-		return TickMsg{}
+		return tickMsg{}
 	})
 }
 
@@ -101,7 +101,7 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return r, PushChangeView(pt, view)
 
-	case TickMsg:
+	case tickMsg:
 		cmds = append(cmds, tick())
 
 	case tea.WindowSizeMsg:

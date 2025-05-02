@@ -12,6 +12,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/vm"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/homedir"
+
 	"github.com/loog-project/loog/internal/dynamicmux"
 	"github.com/loog-project/loog/internal/service"
 	"github.com/loog-project/loog/internal/store"
@@ -19,10 +24,6 @@ import (
 	"github.com/loog-project/loog/internal/ui"
 	"github.com/loog-project/loog/internal/util"
 	"github.com/loog-project/loog/pkg/diffmap"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/util/homedir"
 )
 
 var (
@@ -60,8 +61,10 @@ func main() {
 			return
 		}
 		defer func() {
-			file.Close()
-			os.Remove(file.Name())
+			_ = file.Close()
+			if removeErr := os.Remove(file.Name()); removeErr != nil {
+				log.Println("Cannot remove temp file:", removeErr)
+			}
 		}()
 		flagOutFile = file.Name()
 	}

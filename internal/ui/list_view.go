@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
 	"github.com/loog-project/loog/internal/service"
 	"github.com/loog-project/loog/internal/store"
 	"github.com/loog-project/loog/pkg/diffmap"
@@ -402,11 +403,16 @@ func (lv *ListView) renderLeft() tea.Cmd {
 				for _, rv := range resourceEntry.revs {
 					isSelected := lv.cursor == line
 
-					revisionKind := "snap"
-					revTime := rv.msg.Snapshot.Time
+					var (
+						revTime time.Time
+						revKind string
+					)
 					if rv.msg.Patch != nil {
-						revisionKind = "patch"
+						revKind = "patch"
 						revTime = rv.msg.Patch.Time
+					} else {
+						revKind = "snapshot"
+						revTime = rv.msg.Snapshot.Time
 					}
 
 					_, _ = fmt.Fprintf(&b, "       • %s%s%s [%s] %s\n",
@@ -414,7 +420,7 @@ func (lv *ListView) renderLeft() tea.Cmd {
 						ternary(isSelected, lv.Theme.ListCurrentArrowTextStyle, lv.Theme.ListRevisionTextStyle).
 							Render(rv.id.String()),
 						ternary(isSelected, lv.Theme.ListCurrentArrowTextStyle.Render("]"), " "),
-						lv.Theme.MutedTextStyle.Render(revisionKind),
+						lv.Theme.MutedTextStyle.Render(revKind),
 						lv.Theme.MutedTextStyle.Render(elapsedTime(now.Sub(revTime))))
 					line++
 				}
