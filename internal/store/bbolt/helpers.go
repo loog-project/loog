@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 
-	"github.com/loog-project/loog/internal/store"
 	"go.etcd.io/bbolt"
+
+	"github.com/loog-project/loog/internal/store"
 )
 
 func keyObjectRevision(objectUID string, id store.RevisionID) []byte {

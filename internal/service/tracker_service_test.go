@@ -11,10 +11,11 @@ import (
 	"sync"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
 	"github.com/loog-project/loog/internal/service"
 	bboltStore "github.com/loog-project/loog/internal/store/bbolt"
 	"github.com/loog-project/loog/pkg/diffmap"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 // == Tests =================================================================

@@ -50,10 +50,10 @@ func init() {
 	} else {
 		flag.StringVar(&flagKubeconfig, "kubeconfig", "", "")
 	}
+	flag.Parse()
 }
 
 func main() {
-	flag.Parse()
 	if flagOutFile == "" {
 		file, err := os.CreateTemp("", "loog-output-*.loog")
 		if err != nil {

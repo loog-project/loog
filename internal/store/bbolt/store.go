@@ -5,8 +5,9 @@ import (
 	"log"
 	"sync"
 
-	"github.com/loog-project/loog/internal/store"
 	"go.etcd.io/bbolt"
+
+	"github.com/loog-project/loog/internal/store"
 )
 
 const (
