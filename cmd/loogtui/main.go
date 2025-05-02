@@ -4,10 +4,10 @@ import (
 	"context"
 	"flag"
 	"log"
+	"maps"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/expr-lang/expr"
@@ -18,6 +18,7 @@ import (
 	"github.com/loog-project/loog/internal/ui"
 	"github.com/loog-project/loog/internal/util"
 	"github.com/loog-project/loog/internal/watch"
+	"github.com/loog-project/loog/pkg/diffmap"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
@@ -126,6 +127,11 @@ func runCollector(
 	rps store.ResourcePatchStore,
 	program *vm.Program,
 ) {
+	if err := loadHistoryFromDB(rps, trackerService, p); err != nil {
+		p.Send(ui.NewAlert("when walking object revisions", err))
+		return
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -162,7 +168,61 @@ func runCollector(
 				continue
 			}
 
-			p.Send(ui.NewCommitCommand(time.Now(), obj, rev, snapshot, patch))
+			p.Send(ui.NewCommitCommand(
+				string(obj.GetUID()),
+				obj.GetKind(),
+				obj.GetName(),
+				obj.GetNamespace(),
+				rev,
+				snapshot,
+				patch,
+			))
 		}
 	}
+}
+
+func loadHistoryFromDB(rps store.ResourcePatchStore, trackerService *service.TrackerService, p *tea.Program) error {
+	objectRevisionState := map[string]*store.Snapshot{}
+	err := rps.WalkObjectRevisions(func(
+		objectUID string,
+		revisionID store.RevisionID,
+		snapshot *store.Snapshot,
+		patch *store.Patch,
+	) bool {
+		var current *store.Snapshot
+		if snapshot != nil {
+			// full snapshot: start anew
+			diffMap := make(diffmap.DiffMap)
+			maps.Copy(diffMap, snapshot.Object)
+			current = &store.Snapshot{
+				ID:     revisionID,
+				Object: diffMap,
+				Time:   snapshot.Time,
+			}
+		} else {
+			// patch: apply on top of last state
+			base := make(diffmap.DiffMap)
+			maps.Copy(base, objectRevisionState[objectUID].Object)
+			diffmap.Apply(base, patch.Patch)
+			current = &store.Snapshot{
+				ID:     revisionID,
+				Object: base,
+				Time:   patch.Time,
+			}
+		}
+		objectRevisionState[objectUID] = current
+		trackerService.WarmCache(objectUID, current)
+		unstructuredObj := &unstructured.Unstructured{Object: current.Object}
+		p.Send(ui.NewCommitCommand(
+			objectUID,
+			unstructuredObj.GetKind(),
+			unstructuredObj.GetName(),
+			unstructuredObj.GetNamespace(),
+			revisionID,
+			current,
+			patch,
+		))
+		return true
+	})
+	return err
 }
