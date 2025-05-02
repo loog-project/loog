@@ -9,9 +9,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
 	"github.com/loog-project/loog/internal/store"
 	"github.com/loog-project/loog/pkg/diffmap"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 const lockTTL = 60 * time.Second

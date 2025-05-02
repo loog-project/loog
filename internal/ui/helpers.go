@@ -1,7 +1,9 @@
 package ui
 
 import (
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/loog-project/loog/internal/store"
 )
 
@@ -23,9 +25,9 @@ func (b *Base) SetTheme(theme Theme) {
 type pushType uint
 
 const (
-	push pushType = iota
-	pop
-	replace
+	Push pushType = iota
+	Pop
+	Replace
 )
 
 type pushViewMsg struct {
@@ -93,11 +95,20 @@ func NewCommitCommand(
 	}
 }
 
-// ternary is a generic function that returns one of two values based on a boolean condition.
-// it should be used for rendering purposes only.
-func ternary[T any](cond bool, a, b T) T {
-	if cond {
-		return a
+func ScrollViewport(k tea.KeyMsg, vp *viewport.Model) tea.Cmd {
+	switch k.String() {
+	case "up", "k":
+		vp.ScrollUp(1)
+	case "down", "j":
+		vp.ScrollDown(1)
+	case "pgup":
+		vp.PageUp()
+	case "pgdown":
+		vp.PageDown()
+	case "left":
+		vp.ScrollLeft(1)
+	case "right":
+		vp.ScrollRight(1)
 	}
-	return b
+	return nil
 }

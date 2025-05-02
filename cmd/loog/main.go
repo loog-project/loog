@@ -12,18 +12,18 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/vm"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/homedir"
+
+	"github.com/loog-project/loog/internal/dynamicmux"
 	"github.com/loog-project/loog/internal/service"
 	"github.com/loog-project/loog/internal/store"
 	bboltStore "github.com/loog-project/loog/internal/store/bbolt"
 	"github.com/loog-project/loog/internal/ui"
 	"github.com/loog-project/loog/internal/util"
-	"github.com/loog-project/loog/internal/watch"
 	"github.com/loog-project/loog/pkg/diffmap"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/util/homedir"
 )
 
 var (
@@ -34,6 +34,7 @@ var (
 	flagNoCache          bool
 	flagSnapshotEvery    uint64
 	flagFilterExpression string
+	flagNonInteractive   bool
 )
 
 func init() {
@@ -42,16 +43,17 @@ func init() {
 	flag.BoolVar(&flagNoCache, "no-cache", false, "if set to true, the store won't cache the data")
 	flag.Uint64Var(&flagSnapshotEvery, "snapshot-every", 8, "patches until snapshot")
 	flag.StringVar(&flagFilterExpression, "filter-expr", "All()", "expr filter")
+	flag.BoolVar(&flagNonInteractive, "non-interactive", false, "set to true to disable the UI")
 	flag.Var(&flagResources, "resource", "<group>/<version>/<resource> (repeatable)")
 	if h := homedir.HomeDir(); h != "" {
 		flag.StringVar(&flagKubeconfig, "kubeconfig", filepath.Join(h, ".kube", "config"), "")
 	} else {
 		flag.StringVar(&flagKubeconfig, "kubeconfig", "", "")
 	}
+	flag.Parse()
 }
 
 func main() {
-	flag.Parse()
 	if flagOutFile == "" {
 		file, err := os.CreateTemp("", "loog-output-*.loog")
 		if err != nil {
@@ -59,20 +61,24 @@ func main() {
 			return
 		}
 		defer func() {
-			file.Close()
-			os.Remove(file.Name())
+			_ = file.Close()
+			if removeErr := os.Remove(file.Name()); removeErr != nil {
+				log.Println("Cannot remove temp file:", removeErr)
+			}
 		}()
 		flagOutFile = file.Name()
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
+	log.Println("Compiling filter expression...")
 	prog, err := expr.Compile(flagFilterExpression, expr.Env(util.EventEntryEnv{}), expr.AsBool())
 	if err != nil {
 		log.Fatal("Cannot compile filter expression:", err)
 		return
 	}
 
+	log.Println("Creating store...")
 	rps, err := bboltStore.New(flagOutFile, nil, !flagNotDurable)
 	if err != nil {
 		log.Fatal("Cannot create store:", err)
@@ -80,6 +86,7 @@ func main() {
 	}
 	trackerService := service.NewTrackerService(rps, flagSnapshotEvery, !flagNoCache)
 
+	log.Println("Creating dynamic client...")
 	cfg, err := clientcmd.BuildConfigFromFlags("", flagKubeconfig)
 	if err != nil {
 		log.Fatal("Cannot load kubeconfig:", err)
@@ -91,9 +98,15 @@ func main() {
 		log.Fatal("Cannot create dynamic client:", err)
 		return
 	}
-	mux := watch.New(ctx, dyn, v1.ListOptions{})
+
+	mux, err := dynamicmux.New(ctx, dyn)
+	if err != nil {
+		log.Fatal("Cannot create dynamic mux:", err)
+		return
+	}
 	defer mux.Stop()
 
+	log.Println("Starting dynamic mux...")
 	// add default resources from -resource flags
 	for _, r := range flagResources {
 		gvr, err := util.ParseGroupVersionResource(r)
@@ -107,25 +120,46 @@ func main() {
 		}
 	}
 
-	root := ui.NewRoot(ui.DarkTheme, ui.NewListView(trackerService, rps))
-	program := tea.NewProgram(root)
+	var program *tea.Program
+	var uiLogger ui.Logger
 
-	go runCollector(ctx, program, mux, trackerService, rps, prog)
+	if flagNonInteractive {
+		log.Println("Running in non-interactive mode...")
+		uiLogger = ui.StdLogger{}
+	} else {
+		log.Println("Building UI...")
+		logger := ui.NewUILogger()
+		root := ui.NewRoot(ui.DarkTheme, logger, ui.NewListView(trackerService, rps))
+		program = tea.NewProgram(root)
+		logger.Attach(program)
+
+		uiLogger = logger
+	}
+
+	log.Println("Starting dynamic watches...")
+	go runCollector(ctx, program, mux, trackerService, rps, prog, uiLogger)
 
 	// TODO(future): load database on startup
 
-	if _, err := program.Run(); err != nil {
-		log.Fatal(err)
+	if !flagNonInteractive {
+		log.Println("Starting UI...")
+		if _, err := program.Run(); err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		log.Println("Running in non-interactive mode, press Ctrl+C to exit...")
+		<-ctx.Done()
 	}
 }
 
 func runCollector(
 	ctx context.Context,
 	p *tea.Program,
-	mux *watch.DynamicMux,
+	mux *dynamicmux.Mux,
 	trackerService *service.TrackerService,
 	rps store.ResourcePatchStore,
 	program *vm.Program,
+	logSink ui.Logger,
 ) {
 	if err := loadHistoryFromDB(rps, trackerService, p); err != nil {
 		p.Send(ui.NewAlert("when walking object revisions", err))
@@ -135,9 +169,10 @@ func runCollector(
 	for {
 		select {
 		case <-ctx.Done():
+			logSink.Infof("collector", "stopping")
 			log.Println("Stopping collector...")
 			return
-		case ev := <-mux.ResultChan():
+		case ev := <-mux.Events():
 			obj, ok := ev.Object.(*unstructured.Unstructured)
 			if !ok {
 				continue
@@ -146,25 +181,34 @@ func runCollector(
 			// make sure we want to track this object
 			pass, err := expr.Run(program, util.EventEntryEnv{Event: ev, Object: obj})
 			if err != nil {
-				p.Send(ui.NewAlert("when executing filter expression", err))
+				logSink.Errorf("collector", "when executing filter expression: %s", err)
 				continue
 			}
 			if !pass.(bool) {
 				continue
 			}
 
+			logSink.Infof("collector", "%s: %s/%s/%s",
+				ev.Type,
+				obj.GetNamespace(), obj.GetName(), obj.GetKind())
+
 			// empty managed fields as they only clutter and we in 99/100 cases don't need them
 			obj.SetManagedFields(nil)
 			rev, err := trackerService.Commit(ctx, string(obj.GetUID()), obj)
 			if err != nil {
-				p.Send(ui.NewAlert("when committing to tracker service", err))
+				logSink.Errorf("collector", "when committing to tracker service: %s", err)
+				continue
+			}
+
+			if p == nil {
+				// we're running in non-interactive mode, so we don't need to send the commit command
 				continue
 			}
 
 			// read
 			snapshot, patch, err := rps.Get(ctx, string(obj.GetUID()), rev)
 			if err != nil {
-				p.Send(ui.NewAlert("when reading tracked object from store", err))
+				logSink.Errorf("collector", "when reading tracked object from store: %s", err)
 				continue
 			}
 

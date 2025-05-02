@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
 	"github.com/loog-project/loog/internal/service"
 	"github.com/loog-project/loog/internal/store"
 	"github.com/loog-project/loog/pkg/diffmap"
@@ -129,13 +130,13 @@ func (lv *ListView) Breadcrumb() string {
 func (lv *ListView) calculateViewportSizes() {
 	if lv.fullscreen {
 		lv.right.Width = lv.Width
-		lv.right.Height = lv.Height + 1 // no status bar
+		lv.right.Height = lv.Height
 	} else {
-		leftWidth := (lv.Width/2 + lv.leftExtra) - 2
-		lv.left.Width, lv.left.Height = leftWidth, lv.Height-1
+		leftWidth := (lv.Width/2 + lv.leftExtra) - 2           // 2 for border right and left
+		lv.left.Width, lv.left.Height = leftWidth, lv.Height-2 // -2 for viewport border
 
-		rightWidth := lv.Width - leftWidth - 4
-		lv.right.Width, lv.right.Height = rightWidth, lv.Height-1
+		rightWidth := lv.Width - leftWidth - 4                    // 4 for border right and left
+		lv.right.Width, lv.right.Height = rightWidth, lv.Height-2 // -2 for viewport border
 	}
 }
 
@@ -206,8 +207,6 @@ func (lv *ListView) KeyMap() string {
 			Render(lv.Theme))
 }
 
-/* ---------- listView helpers ---------- */
-
 func (lv *ListView) handleKey(k tea.KeyMsg) tea.Cmd {
 	switch k.String() {
 	case "q", "ctrl+c":
@@ -235,7 +234,7 @@ func (lv *ListView) handleKey(k tea.KeyMsg) tea.Cmd {
 		}
 	default:
 		if lv.focusRight {
-			return scrollViewport(k, &lv.right)
+			return ScrollViewport(k, &lv.right)
 		} else {
 			return lv.navigateLeft(k)
 		}
@@ -282,25 +281,6 @@ func (lv *ListView) keepVisible() {
 	}
 }
 
-func scrollViewport(k tea.KeyMsg, vp *viewport.Model) tea.Cmd {
-	switch k.String() {
-	case "up", "k":
-		vp.ScrollUp(1)
-	case "down", "j":
-		vp.ScrollDown(1)
-	case "pgup":
-		vp.PageUp()
-	case "pgdown":
-		vp.PageDown()
-	case "left":
-		vp.ScrollLeft(1)
-	case "right":
-		vp.ScrollRight(1)
-	}
-	return nil
-}
-
-/* ingest new commit */
 func (lv *ListView) ingest(c commitMsg) {
 	kind := c.Kind
 	res := fmt.Sprintf("%s::%s", c.Namespace, c.Name)
@@ -327,7 +307,6 @@ func (lv *ListView) ingest(c commitMsg) {
 	}
 }
 
-/* tree toggles */
 func (lv *ListView) toggle(exp bool) {
 	line := 0
 	for _, k := range lv.order {
@@ -372,7 +351,6 @@ func (lv *ListView) totalLines() int {
 	return n
 }
 
-/* render left pane */
 func (lv *ListView) renderLeft() tea.Cmd {
 	var b strings.Builder
 	now := time.Now()
@@ -425,11 +403,16 @@ func (lv *ListView) renderLeft() tea.Cmd {
 				for _, rv := range resourceEntry.revs {
 					isSelected := lv.cursor == line
 
-					revisionKind := "snap"
-					revTime := rv.msg.Snapshot.Time
+					var (
+						revTime time.Time
+						revKind string
+					)
 					if rv.msg.Patch != nil {
-						revisionKind = "patch"
+						revKind = "patch"
 						revTime = rv.msg.Patch.Time
+					} else {
+						revKind = "snapshot"
+						revTime = rv.msg.Snapshot.Time
 					}
 
 					_, _ = fmt.Fprintf(&b, "       • %s%s%s [%s] %s\n",
@@ -437,7 +420,7 @@ func (lv *ListView) renderLeft() tea.Cmd {
 						ternary(isSelected, lv.Theme.ListCurrentArrowTextStyle, lv.Theme.ListRevisionTextStyle).
 							Render(rv.id.String()),
 						ternary(isSelected, lv.Theme.ListCurrentArrowTextStyle.Render("]"), " "),
-						lv.Theme.MutedTextStyle.Render(revisionKind),
+						lv.Theme.MutedTextStyle.Render(revKind),
 						lv.Theme.MutedTextStyle.Render(elapsedTime(now.Sub(revTime))))
 					line++
 				}
@@ -532,7 +515,6 @@ func (lv *ListView) renderRight() tea.Cmd {
 	return nil
 }
 
-/* current selection */
 func (lv *ListView) currentSelection() *revInfo {
 	line := 0
 	for _, k := range lv.order {
@@ -563,10 +545,6 @@ func (lv *ListView) currentSelection() *revInfo {
 	return nil
 }
 
-/*=====================================================================*/
-/*                       8. helpers / UI bits                          */
-/*=====================================================================*/
-
 func elapsedTime(d time.Duration) string {
 	if d < time.Second {
 		return "now"
@@ -581,4 +559,13 @@ func sortedKeys[K ~string, V any](m map[K]V) []K {
 	}
 	slices.Sort(ks)
 	return ks
+}
+
+// ternary is a generic function that returns one of two values based on a boolean condition.
+// it should be used for rendering purposes only.
+func ternary[T any](cond bool, a, b T) T {
+	if cond {
+		return a
+	}
+	return b
 }
