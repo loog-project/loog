@@ -3,6 +3,12 @@ package main
 import (
 	"context"
 	"flag"
+	"log"
+	"maps"
+	"os"
+	"os/signal"
+	"path/filepath"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/expr-lang/expr"
 	"github.com/expr-lang/expr/vm"
@@ -18,11 +24,6 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
-	"log"
-	"maps"
-	"os"
-	"os/signal"
-	"path/filepath"
 )
 
 var (
