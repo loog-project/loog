@@ -95,7 +95,7 @@ func (t *TrackerService) Commit(
 				return 0, err
 			}
 
-			snapshot := store.Snapshot{Object: newObject.Object}
+			snapshot := newSnapshot(newObject, 0)
 			if err := t.rps.SetSnapshot(ctx, objID, &snapshot); err != nil {
 				return 0, err
 			}
@@ -121,10 +121,7 @@ func (t *TrackerService) Commit(
 	patchesSince := uint64(ts.rev) % t.snapshotEvery
 	if patchesSince == t.snapshotEvery-1 {
 		// we are at the end of a snapshot period, so we should create a new snapshot
-		snapshot := store.Snapshot{
-			PreviousID: ts.rev,
-			Object:     newObject.Object,
-		}
+		snapshot := newSnapshot(newObject, ts.rev)
 		err := t.rps.SetSnapshot(ctx, objID, &snapshot)
 		if err != nil {
 			return 0, err
@@ -138,11 +135,8 @@ func (t *TrackerService) Commit(
 	}
 
 	diff := diffmap.Diff(ts.obj, newObject.Object)
-	p := &store.Patch{
-		PreviousID: ts.rev,
-		Patch:      diff,
-	}
-	err := t.rps.SetPatch(ctx, objID, p)
+	p := newPatch(ts.rev, diff)
+	err := t.rps.SetPatch(ctx, objID, &p)
 	if err != nil {
 		return 0, err
 	}
@@ -153,6 +147,19 @@ func (t *TrackerService) Commit(
 	ts.rev = p.ID
 
 	return p.ID, nil
+}
+
+func newPatch(previousID store.RevisionID, diff diffmap.DiffMap) store.Patch {
+	return store.Patch{
+		PreviousID: previousID,
+		Patch:      diff,
+		Time:       time.Now(),
+	}
+}
+
+func newSnapshot(newObject *unstructured.Unstructured, previousID store.RevisionID) store.Snapshot {
+	snapshot := store.Snapshot{PreviousID: previousID, Object: newObject.Object, Time: time.Now()}
+	return snapshot
 }
 
 // Restore brings back the object state at *rev*.
@@ -179,6 +186,7 @@ func (t *TrackerService) Restore(ctx context.Context, objID string, revision sto
 			return &store.Snapshot{
 				ID:     revision,
 				Object: state,
+				Time:   snapshot.Time,
 			}, nil
 		}
 
@@ -231,4 +239,11 @@ func (t *TrackerService) objLock(uid string) *lockWrap {
 	}
 	t.commitLockMutex.Unlock()
 	return mu
+}
+
+func (t *TrackerService) WarmCache(uid string, snapshot *store.Snapshot) {
+	if t.cache == nil {
+		return
+	}
+	t.cache.set(uid, &trackerState{obj: snapshot.Object, rev: snapshot.ID})
 }

@@ -4,10 +4,10 @@ import (
 	"context"
 	"flag"
 	"log"
+	"maps"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/expr-lang/expr"
@@ -18,6 +18,7 @@ import (
 	bboltStore "github.com/loog-project/loog/internal/store/bbolt"
 	"github.com/loog-project/loog/internal/ui"
 	"github.com/loog-project/loog/internal/util"
+	"github.com/loog-project/loog/pkg/diffmap"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/tools/clientcmd"
@@ -36,7 +37,7 @@ var (
 )
 
 func init() {
-	flag.StringVar(&flagOutFile, "out", "output.loog", "dump output file")
+	flag.StringVar(&flagOutFile, "out", "", "dump output file")
 	flag.BoolVar(&flagNotDurable, "not-durable", false, "if set to true, the store won't fsync every commit")
 	flag.BoolVar(&flagNoCache, "no-cache", false, "if set to true, the store won't cache the data")
 	flag.Uint64Var(&flagSnapshotEvery, "snapshot-every", 8, "patches until snapshot")
@@ -52,6 +53,18 @@ func init() {
 
 func main() {
 	flag.Parse()
+	if flagOutFile == "" {
+		file, err := os.CreateTemp("", "loog-output-*.loog")
+		if err != nil {
+			log.Fatal("Cannot create temp file:", err)
+			return
+		}
+		defer func() {
+			file.Close()
+			os.Remove(file.Name())
+		}()
+		flagOutFile = file.Name()
+	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
@@ -145,6 +158,11 @@ func runCollector(
 	program *vm.Program,
 	logSink ui.Logger,
 ) {
+	if err := loadHistoryFromDB(rps, trackerService, p); err != nil {
+		p.Send(ui.NewAlert("when walking object revisions", err))
+		return
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -191,7 +209,61 @@ func runCollector(
 				continue
 			}
 
-			p.Send(ui.NewCommitCommand(time.Now(), obj, rev, snapshot, patch))
+			p.Send(ui.NewCommitCommand(
+				string(obj.GetUID()),
+				obj.GetKind(),
+				obj.GetName(),
+				obj.GetNamespace(),
+				rev,
+				snapshot,
+				patch,
+			))
 		}
 	}
+}
+
+func loadHistoryFromDB(rps store.ResourcePatchStore, trackerService *service.TrackerService, p *tea.Program) error {
+	objectRevisionState := map[string]*store.Snapshot{}
+	err := rps.WalkObjectRevisions(func(
+		objectUID string,
+		revisionID store.RevisionID,
+		snapshot *store.Snapshot,
+		patch *store.Patch,
+	) bool {
+		var current *store.Snapshot
+		if snapshot != nil {
+			// full snapshot: start anew
+			diffMap := make(diffmap.DiffMap)
+			maps.Copy(diffMap, snapshot.Object)
+			current = &store.Snapshot{
+				ID:     revisionID,
+				Object: diffMap,
+				Time:   snapshot.Time,
+			}
+		} else {
+			// patch: apply on top of last state
+			base := make(diffmap.DiffMap)
+			maps.Copy(base, objectRevisionState[objectUID].Object)
+			diffmap.Apply(base, patch.Patch)
+			current = &store.Snapshot{
+				ID:     revisionID,
+				Object: base,
+				Time:   patch.Time,
+			}
+		}
+		objectRevisionState[objectUID] = current
+		trackerService.WarmCache(objectUID, current)
+		unstructuredObj := &unstructured.Unstructured{Object: current.Object}
+		p.Send(ui.NewCommitCommand(
+			objectUID,
+			unstructuredObj.GetKind(),
+			unstructuredObj.GetName(),
+			unstructuredObj.GetNamespace(),
+			revisionID,
+			current,
+			patch,
+		))
+		return true
+	})
+	return err
 }

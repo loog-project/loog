@@ -18,5 +18,6 @@ type ResourcePatchStore interface {
 	SetPatch(ctx context.Context, objectID string, p *Patch) error
 
 	GetLatestRevision(ctx context.Context, objectID string) (RevisionID, error)
+	WalkObjectRevisions(yield func(string, RevisionID, *Snapshot, *Patch) bool) error
 	Close() error
 }
