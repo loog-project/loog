@@ -57,8 +57,10 @@ func main() {
 			log.Fatal("Cannot create temp file:", err)
 			return
 		}
-		defer file.Close()
-		defer os.Remove(file.Name())
+		defer func() {
+			file.Close()
+			os.Remove(file.Name())
+		}()
 		flagOutFile = file.Name()
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
