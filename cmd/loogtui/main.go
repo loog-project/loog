@@ -125,9 +125,6 @@ func runCollector(
 			return false
 		}
 		u := &unstructured.Unstructured{Object: snapshot.Object}
-		if snapshot.Time.IsZero() {
-			panic("snapshot time is zero")
-		}
 
 		p.Send(ui.NewCommitCommand(
 			string(u.GetUID()),
