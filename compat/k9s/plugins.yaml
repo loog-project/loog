@@ -13,8 +13,6 @@ plugins:
         loogtui
         -resource
         $RESOURCE_GROUP/$RESOURCE_VERSION/$RESOURCE_NAME
-        -out
-        /tmp/output.loog
         -filter-expr
         'Namespaced("$NAMESPACE", "$NAME")'
   loog-run-namespace:
@@ -31,7 +29,5 @@ plugins:
         loogtui
         -resource
         $RESOURCE_GROUP/$RESOURCE_VERSION/$RESOURCE_NAME
-        -out
-        /tmp/output.loog
         -filter-expr
         'Namespace("$NAMESPACE")'

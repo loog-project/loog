@@ -36,7 +36,7 @@ var (
 )
 
 func init() {
-	flag.StringVar(&flagOutFile, "out", "output.loog", "dump output file")
+	flag.StringVar(&flagOutFile, "out", "", "dump output file")
 	flag.BoolVar(&flagNotDurable, "not-durable", false, "if set to true, the store won't fsync every commit")
 	flag.BoolVar(&flagNoCache, "no-cache", false, "if set to true, the store won't cache the data")
 	flag.Uint64Var(&flagSnapshotEvery, "snapshot-every", 8, "patches until snapshot")
@@ -51,6 +51,18 @@ func init() {
 
 func main() {
 	flag.Parse()
+	if flagOutFile == "" {
+		file, err := os.CreateTemp("", "loog-output-*.loog")
+		if err != nil {
+			log.Fatal("Cannot create temp file:", err)
+			return
+		}
+		defer func() {
+			file.Close()
+			os.Remove(file.Name())
+		}()
+		flagOutFile = file.Name()
+	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
