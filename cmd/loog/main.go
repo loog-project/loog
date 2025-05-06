@@ -22,6 +22,10 @@ import (
 	"github.com/loog-project/loog/internal/store"
 	bboltStore "github.com/loog-project/loog/internal/store/bbolt"
 	"github.com/loog-project/loog/internal/ui"
+	"github.com/loog-project/loog/internal/ui/core"
+	"github.com/loog-project/loog/internal/ui/layouts"
+	"github.com/loog-project/loog/internal/ui/theme"
+	"github.com/loog-project/loog/internal/ui/views"
 	"github.com/loog-project/loog/internal/util"
 	"github.com/loog-project/loog/pkg/diffmap"
 )
@@ -129,8 +133,18 @@ func main() {
 	} else {
 		log.Println("Building UI...")
 		logger := ui.NewUILogger()
-		root := ui.NewRoot(ui.DarkTheme, logger, ui.NewListView(trackerService, rps))
-		program = tea.NewProgram(root)
+
+		selectView := views.NewSelectorView()
+
+		root := layouts.NewHorizontalSplitLayout(
+			layouts.NewBorderedLayout(selectView, theme.DarkTheme.BorderIdleContainerStyle),
+			layouts.NewBorderedLayout(views.NewDebugView(), theme.DarkTheme.BorderIdleContainerStyle),
+			0.5)
+
+		app := core.NewApp(root, theme.DarkTheme)
+
+		//root := ui.NewRoot(ui.DarkTheme, logger, ui.NewListView(trackerService, rps))
+		program = tea.NewProgram(app)
 		logger.Attach(program)
 
 		uiLogger = logger
