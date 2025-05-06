@@ -1,8 +1,12 @@
 package ui
 
 import (
+	"math"
+	"time"
+
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/dustin/go-humanize"
 
 	"github.com/loog-project/loog/internal/store"
 )
@@ -111,4 +115,24 @@ func ScrollViewport(k tea.KeyMsg, vp *viewport.Model) tea.Cmd {
 		vp.ScrollRight(1)
 	}
 	return nil
+}
+
+var CustomHumanizeMagnitudes = []humanize.RelTimeMagnitude{
+	{time.Second, "initial", time.Second},
+	{2 * time.Second, "1 second %s", 1},
+	{time.Minute, "%d seconds %s", time.Second},
+	{2 * time.Minute, "1 minute %s", 1},
+	{time.Hour, "%d minutes %s", time.Minute},
+	{2 * time.Hour, "1 hour %s", 1},
+	{humanize.Day, "%d hours %s", time.Hour},
+	{2 * humanize.Day, "1 day %s", 1},
+	{humanize.Week, "%d days %s", humanize.Day},
+	{2 * humanize.Week, "1 week %s", 1},
+	{humanize.Month, "%d weeks %s", humanize.Week},
+	{2 * humanize.Month, "1 month %s", 1},
+	{humanize.Year, "%d months %s", humanize.Month},
+	{18 * humanize.Month, "1 year %s", 1},
+	{2 * humanize.Year, "2 years %s", 1},
+	{humanize.LongTime, "%d years %s", humanize.Year},
+	{math.MaxInt64, "a long while %s", 1},
 }

@@ -18,6 +18,8 @@ import (
 	"github.com/loog-project/loog/internal/store"
 	"github.com/loog-project/loog/pkg/diffmap"
 	"github.com/loog-project/loog/pkg/diffpreview"
+
+	"github.com/dustin/go-humanize"
 )
 
 const (
@@ -391,7 +393,7 @@ func (lv *ListView) renderLeft() tea.Cmd {
 			}
 			info := fmt.Sprintf("[%d] %s",
 				len(resourceEntry.revs),
-				elapsedTime(now.Sub(resourceEntry.lastSeen)))
+				humanize.Time(resourceEntry.lastSeen))
 
 			_, _ = fmt.Fprintf(&b, "%s   %s %-32s %s\n",
 				ternary(isSelected, lv.Theme.ListCurrentArrowTextStyle.Render(arrowRight), " "),
@@ -400,7 +402,7 @@ func (lv *ListView) renderLeft() tea.Cmd {
 			line++
 
 			if resourceEntry.open {
-				for _, rv := range resourceEntry.revs {
+				for i, rv := range resourceEntry.revs {
 					isSelected := lv.cursor == line
 
 					var (
@@ -415,13 +417,24 @@ func (lv *ListView) renderLeft() tea.Cmd {
 						revTime = rv.msg.Snapshot.Time
 					}
 
+					prev := resourceEntry.revs[max(i-1, 0)]
+					prevRevTime := ternary(prev.msg.Patch != nil, prev.msg.Patch.Time, prev.msg.Snapshot.Time)
+					if prev.msg.Patch != nil {
+						prevRevTime = prev.msg.Patch.Time
+					} else {
+						prevRevTime = prev.msg.Snapshot.Time
+					}
+					isInitialRev := i == 0
+
+					prevRevDuration := humanize.CustomRelTime(revTime, prevRevTime, "earlier", "later", CustomHumanizeMagnitudes)
+
 					_, _ = fmt.Fprintf(&b, "       • %s%s%s [%s] %s\n",
 						ternary(isSelected, lv.Theme.ListCurrentArrowTextStyle.Render("["), " "),
 						ternary(isSelected, lv.Theme.ListCurrentArrowTextStyle, lv.Theme.ListRevisionTextStyle).
 							Render(rv.id.String()),
 						ternary(isSelected, lv.Theme.ListCurrentArrowTextStyle.Render("]"), " "),
 						lv.Theme.MutedTextStyle.Render(revKind),
-						lv.Theme.MutedTextStyle.Render(elapsedTime(now.Sub(revTime))))
+						lv.Theme.MutedTextStyle.Italic(isInitialRev).Render(prevRevDuration)+lv.Theme.MutedTextStyle.Render(fmt.Sprintf(" (%s)", humanize.Time(revTime))))
 					line++
 				}
 			}
@@ -543,13 +556,6 @@ func (lv *ListView) currentSelection() *revInfo {
 		}
 	}
 	return nil
-}
-
-func elapsedTime(d time.Duration) string {
-	if d < time.Second {
-		return "now"
-	}
-	return fmt.Sprintf("%ds", int(d.Seconds()))
 }
 
 func sortedKeys[K ~string, V any](m map[K]V) []K {
