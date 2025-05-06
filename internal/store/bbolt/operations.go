@@ -3,8 +3,10 @@ package bbolt
 import (
 	"context"
 	"encoding/binary"
-	"github.com/loog-project/loog/internal/store"
+
 	"go.etcd.io/bbolt"
+
+	"github.com/loog-project/loog/internal/store"
 )
 
 func (s *Store) Get(
