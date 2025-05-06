@@ -14,13 +14,12 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/dustin/go-humanize"
 
 	"github.com/loog-project/loog/internal/service"
 	"github.com/loog-project/loog/internal/store"
 	"github.com/loog-project/loog/pkg/diffmap"
 	"github.com/loog-project/loog/pkg/diffpreview"
-
-	"github.com/dustin/go-humanize"
 )
 
 const (
