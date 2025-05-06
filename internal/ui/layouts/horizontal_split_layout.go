@@ -16,7 +16,8 @@ type HorizontalSplitLayout struct {
 	// fraction element (0, 1), for example 0.4 means 40% of the screen will be used by the left view
 	fraction float64
 
-	isFocused bool
+	leftFocused  bool
+	rightFocused bool
 }
 
 var _ Layout = (*HorizontalSplitLayout)(nil)
@@ -38,17 +39,6 @@ func (l *HorizontalSplitLayout) Init() tea.Cmd {
 
 func (l *HorizontalSplitLayout) Update(msg tea.Msg) (core.View, tea.Cmd) {
 	var commands []tea.Cmd
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if l.isFocused {
-			switch msg.String() {
-			case "+":
-				l.Increase()
-			case "-":
-				l.Decrease()
-			}
-		}
-	}
 	if newView, cmd := l.left.Update(msg); newView != nil {
 		l.left, commands = newView, append(commands, cmd)
 	}
@@ -59,11 +49,14 @@ func (l *HorizontalSplitLayout) Update(msg tea.Msg) (core.View, tea.Cmd) {
 }
 
 func (l *HorizontalSplitLayout) View() string {
-	return lipgloss.JoinHorizontal(lipgloss.Top, l.left.View(), l.right.View())
-}
+	leftWidth := int(float64(l.width) * l.fraction)
 
-func (l *HorizontalSplitLayout) Focus() {
-	l.isFocused = true
+	// if the left view is empty, just return right view
+	if leftWidth == 0 {
+		return l.right.View()
+	}
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, l.left.View(), l.right.View())
 }
 
 /// Dispatchers

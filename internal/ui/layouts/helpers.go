@@ -10,6 +10,7 @@ type Layout interface {
 	core.View
 	core.Sizeable
 	core.Themeable
+	// core.Focusable
 }
 
 // dispatchTheme dispatches the theme to all views

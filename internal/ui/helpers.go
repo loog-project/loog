@@ -5,6 +5,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/loog-project/loog/internal/store"
+	"github.com/loog-project/loog/internal/ui/bus"
 )
 
 type Base struct {
@@ -84,7 +85,7 @@ func NewCommitCommand(
 	snapshot *store.Snapshot,
 	patch *store.Patch,
 ) tea.Msg {
-	return commitMsg{
+	return bus.CommitMessage{
 		Revision:  rev,
 		UID:       uid,
 		Kind:      kind,
