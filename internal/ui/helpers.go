@@ -1,36 +1,10 @@
 package ui
 
 import (
-	"math"
-	"time"
-
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/dustin/go-humanize"
 	"github.com/loog-project/loog/internal/store"
 )
-
-// CustomHumanizeMagnitudes is a custom set of humanize time formats.
-// It is used to display `initial` instead of `now`
-var CustomHumanizeMagnitudes = []humanize.RelTimeMagnitude{
-	{D: time.Second, Format: "initial", DivBy: time.Second},
-	{D: 2 * time.Second, Format: "1 second %s", DivBy: 1},
-	{D: time.Minute, Format: "%d seconds %s", DivBy: time.Second},
-	{D: 2 * time.Minute, Format: "1 minute %s", DivBy: 1},
-	{D: time.Hour, Format: "%d minutes %s", DivBy: time.Minute},
-	{D: 2 * time.Hour, Format: "1 hour %s", DivBy: 1},
-	{D: humanize.Day, Format: "%d hours %s", DivBy: time.Hour},
-	{D: 2 * humanize.Day, Format: "1 day %s", DivBy: 1},
-	{D: humanize.Week, Format: "%d days %s", DivBy: humanize.Day},
-	{D: 2 * humanize.Week, Format: "1 week %s", DivBy: 1},
-	{D: humanize.Month, Format: "%d weeks %s", DivBy: humanize.Week},
-	{D: 2 * humanize.Month, Format: "1 month %s", DivBy: 1},
-	{D: humanize.Year, Format: "%d months %s", DivBy: humanize.Month},
-	{D: 18 * humanize.Month, Format: "1 year %s", DivBy: 1},
-	{D: 2 * humanize.Year, Format: "2 years %s", DivBy: 1},
-	{D: humanize.LongTime, Format: "%d years %s", DivBy: humanize.Year},
-	{D: math.MaxInt64, Format: "a long while %s", DivBy: 1},
-}
 
 type Base struct {
 	Width  int

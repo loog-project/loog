@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -391,50 +392,48 @@ func (lv *ListView) renderLeft() tea.Cmd {
 			if len(ns) > 12 {
 				ns = "..." + ns[len(ns)-11:]
 			}
-			info := fmt.Sprintf("[%d] %s",
-				len(resourceEntry.revs),
-				humanize.Time(resourceEntry.lastSeen))
+			info := fmt.Sprintf("%s revs | %s",
+				lv.Theme.ListRevisionTextStyle.Render(strconv.Itoa(len(resourceEntry.revs))),
+				lv.Theme.MutedTextStyle.Render(humanize.Time(resourceEntry.lastSeen)))
 
 			_, _ = fmt.Fprintf(&b, "%s   %s %-32s %s\n",
 				ternary(isSelected, lv.Theme.ListCurrentArrowTextStyle.Render(arrowRight), " "),
 				ternary(isExpanded, arrowDown, arrowRight),
-				style.Render(lv.Theme.ListNamespaceTextStyle.Render(ns)+"/"+name), style.Render(info))
+				style.Render(lv.Theme.ListNamespaceTextStyle.Render(ns)+"/"+name), info)
 			line++
 
 			if resourceEntry.open {
 				for i, rv := range resourceEntry.revs {
 					isSelected := lv.cursor == line
 
-					var (
-						revTime time.Time
-						revKind string
-					)
+					var revKind string
 					if rv.msg.Patch != nil {
 						revKind = "patch"
-						revTime = rv.msg.Patch.Time
 					} else {
 						revKind = "snapshot"
-						revTime = rv.msg.Snapshot.Time
 					}
+					revTime := getTime(rv.msg.Patch, rv.msg.Snapshot)
 
-					prev := resourceEntry.revs[max(i-1, 0)]
-					prevRevTime := ternary(prev.msg.Patch != nil, prev.msg.Patch.Time, prev.msg.Snapshot.Time)
-					if prev.msg.Patch != nil {
-						prevRevTime = prev.msg.Patch.Time
-					} else {
-						prevRevTime = prev.msg.Snapshot.Time
-					}
 					isInitialRev := i == 0
+					relTimeStr := ""
+					if !isInitialRev {
+						prev := resourceEntry.revs[i-1]
+						prevTime := getTime(prev.msg.Patch, prev.msg.Snapshot)
 
-					prevRevDuration := humanize.CustomRelTime(revTime, prevRevTime, "earlier", "later", CustomHumanizeMagnitudes)
+						sub := revTime.Sub(prevTime).Truncate(time.Second)
+						relTimeStr = fmt.Sprintf(" +%s", sub)
+					}
 
-					_, _ = fmt.Fprintf(&b, "       • %s%s%s [%s] %s\n",
+					_, _ = fmt.Fprintf(&b, "       • %s: %s%s%s [%s] (%s%s)\n",
+						lv.Theme.MutedTextStyle.Render(revTime.Format("02.01.2006 15:04:05")),
 						ternary(isSelected, lv.Theme.ListCurrentArrowTextStyle.Render("["), " "),
 						ternary(isSelected, lv.Theme.ListCurrentArrowTextStyle, lv.Theme.ListRevisionTextStyle).
 							Render(rv.id.String()),
 						ternary(isSelected, lv.Theme.ListCurrentArrowTextStyle.Render("]"), " "),
 						lv.Theme.MutedTextStyle.Render(revKind),
-						lv.Theme.MutedTextStyle.Italic(isInitialRev).Render(prevRevDuration)+lv.Theme.MutedTextStyle.Render(fmt.Sprintf(" (%s)", humanize.Time(revTime))))
+						humanize.Time(revTime),
+						lv.Theme.MutedTextStyle.Italic(isInitialRev).Render(relTimeStr),
+					)
 					line++
 				}
 			}
@@ -442,6 +441,13 @@ func (lv *ListView) renderLeft() tea.Cmd {
 	}
 	lv.left.SetContent(b.String())
 	return nil
+}
+
+func getTime(patch *store.Patch, snapshot *store.Snapshot) time.Time {
+	if patch != nil {
+		return patch.Time
+	}
+	return snapshot.Time
 }
 
 // TODO: only re-render if the revision changes
