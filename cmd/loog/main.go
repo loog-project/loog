@@ -139,8 +139,6 @@ func main() {
 	log.Println("Starting dynamic watches...")
 	go runCollector(ctx, program, mux, trackerService, rps, prog, uiLogger)
 
-	// TODO(future): load database on startup
-
 	if !flagNonInteractive {
 		log.Println("Starting UI...")
 		if _, err := program.Run(); err != nil {
@@ -161,7 +159,7 @@ func runCollector(
 	program *vm.Program,
 	logSink ui.Logger,
 ) {
-	if err := loadHistoryFromDB(rps, trackerService, p); err != nil {
+	if err := loadHistoryFromDB(rps, trackerService, p, program, logSink); err != nil {
 		p.Send(ui.NewAlert("when walking object revisions", err))
 		return
 	}
@@ -225,7 +223,7 @@ func runCollector(
 	}
 }
 
-func loadHistoryFromDB(rps store.ResourcePatchStore, trackerService *service.TrackerService, p *tea.Program) error {
+func loadHistoryFromDB(rps store.ResourcePatchStore, trackerService *service.TrackerService, p *tea.Program, prog *vm.Program, logSink ui.Logger) error {
 	objectRevisionState := map[string]*store.Snapshot{}
 	err := rps.WalkObjectRevisions(func(
 		objectUID string,
@@ -257,6 +255,17 @@ func loadHistoryFromDB(rps store.ResourcePatchStore, trackerService *service.Tra
 		objectRevisionState[objectUID] = current
 		trackerService.WarmCache(objectUID, current)
 		unstructuredObj := &unstructured.Unstructured{Object: current.Object}
+
+		// make sure we want to track this object
+		pass, err := expr.Run(prog, util.EventEntryEnv{Object: unstructuredObj})
+		if err != nil {
+			logSink.Errorf("loadHistoryFromDB", "when executing filter expression: %s", err)
+			return true
+		}
+		if !pass.(bool) {
+			return true
+		}
+
 		p.Send(ui.NewCommitCommand(
 			objectUID,
 			unstructuredObj.GetKind(),
