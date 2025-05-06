@@ -7,9 +7,30 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/dustin/go-humanize"
-
 	"github.com/loog-project/loog/internal/store"
 )
+
+// CustomHumanizeMagnitudes is a custom set of humanize time formats.
+// It is used to display `initial` instead of `now`
+var CustomHumanizeMagnitudes = []humanize.RelTimeMagnitude{
+	{D: time.Second, Format: "initial", DivBy: time.Second},
+	{D: 2 * time.Second, Format: "1 second %s", DivBy: 1},
+	{D: time.Minute, Format: "%d seconds %s", DivBy: time.Second},
+	{D: 2 * time.Minute, Format: "1 minute %s", DivBy: 1},
+	{D: time.Hour, Format: "%d minutes %s", DivBy: time.Minute},
+	{D: 2 * time.Hour, Format: "1 hour %s", DivBy: 1},
+	{D: humanize.Day, Format: "%d hours %s", DivBy: time.Hour},
+	{D: 2 * humanize.Day, Format: "1 day %s", DivBy: 1},
+	{D: humanize.Week, Format: "%d days %s", DivBy: humanize.Day},
+	{D: 2 * humanize.Week, Format: "1 week %s", DivBy: 1},
+	{D: humanize.Month, Format: "%d weeks %s", DivBy: humanize.Week},
+	{D: 2 * humanize.Month, Format: "1 month %s", DivBy: 1},
+	{D: humanize.Year, Format: "%d months %s", DivBy: humanize.Month},
+	{D: 18 * humanize.Month, Format: "1 year %s", DivBy: 1},
+	{D: 2 * humanize.Year, Format: "2 years %s", DivBy: 1},
+	{D: humanize.LongTime, Format: "%d years %s", DivBy: humanize.Year},
+	{D: math.MaxInt64, Format: "a long while %s", DivBy: 1},
+}
 
 type Base struct {
 	Width  int
@@ -115,24 +136,4 @@ func ScrollViewport(k tea.KeyMsg, vp *viewport.Model) tea.Cmd {
 		vp.ScrollRight(1)
 	}
 	return nil
-}
-
-var CustomHumanizeMagnitudes = []humanize.RelTimeMagnitude{
-	{time.Second, "initial", time.Second},
-	{2 * time.Second, "1 second %s", 1},
-	{time.Minute, "%d seconds %s", time.Second},
-	{2 * time.Minute, "1 minute %s", 1},
-	{time.Hour, "%d minutes %s", time.Minute},
-	{2 * time.Hour, "1 hour %s", 1},
-	{humanize.Day, "%d hours %s", time.Hour},
-	{2 * humanize.Day, "1 day %s", 1},
-	{humanize.Week, "%d days %s", humanize.Day},
-	{2 * humanize.Week, "1 week %s", 1},
-	{humanize.Month, "%d weeks %s", humanize.Week},
-	{2 * humanize.Month, "1 month %s", 1},
-	{humanize.Year, "%d months %s", humanize.Month},
-	{18 * humanize.Month, "1 year %s", 1},
-	{2 * humanize.Year, "2 years %s", 1},
-	{humanize.LongTime, "%d years %s", humanize.Year},
-	{math.MaxInt64, "a long while %s", 1},
 }
