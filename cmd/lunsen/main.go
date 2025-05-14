@@ -37,7 +37,6 @@ const (
 var (
 	RandomKindColors = []lipgloss.Color{
 		lipgloss.Color("12"),
-		lipgloss.Color("4"),
 		lipgloss.Color("13"),
 		lipgloss.Color("5"),
 		lipgloss.Color("14"),
@@ -47,7 +46,8 @@ var (
 	HeaderStyle = lipgloss.NewStyle().
 			Foreground(purple).
 			Bold(true).
-			Align(lipgloss.Center)
+			Align(lipgloss.Center).
+			Padding(0, 1)
 
 	CellStyle = lipgloss.NewStyle().
 			Padding(0, 1)
@@ -63,6 +63,8 @@ var (
 	ChangedStyle = lipgloss.NewStyle().
 			Foreground(purple).
 			Bold(true)
+
+	TableStyle = lipgloss.NewStyle().Padding(0, 1)
 )
 
 func tableStyleFunc(row, _ int) lipgloss.Style {
@@ -106,6 +108,8 @@ type model struct {
 	kindOrder map[string]int
 	colors    map[string]lipgloss.Color
 
+	height, width int
+
 	quitting bool
 }
 
@@ -135,6 +139,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.quitting = true
 			return m, tea.Quit
 		}
+	case tea.WindowSizeMsg:
+		m.width, m.height = msg.Width, msg.Height
 	case tickMsg:
 		cmds = append(cmds, tick())
 	case updateMsg:
@@ -163,74 +169,83 @@ func (m model) View() string {
 	}
 
 	t := table.New().StyleFunc(tableStyleFunc)
-	t.Headers("Kind", "Namespace", "Name", "Status", "Last Update")
 
 	objects := make([]object, 0, len(m.objects))
 	for _, o := range m.objects {
 		objects = append(objects, o)
 	}
 
-	slices.SortFunc(objects, func(a, b object) int {
-		aOrder, aExists := m.kindOrder[a.kind]
-		bOrder, bExists := m.kindOrder[b.kind]
+	var rendered string
 
-		if aExists && bExists {
-			if aOrder != bOrder {
-				return aOrder - bOrder
+	if len(objects) == 0 {
+		rendered = OddRowStyle.Render("Nothing here (yet) 😳")
+	} else {
+		t.Headers("Kind", "Namespace", "Name", "Status", "Last Update")
+
+		slices.SortFunc(objects, func(a, b object) int {
+			aOrder, aExists := m.kindOrder[a.kind]
+			bOrder, bExists := m.kindOrder[b.kind]
+
+			if aExists && bExists {
+				if aOrder != bOrder {
+					return aOrder - bOrder
+				}
+			} else if aExists {
+				return -1
+			} else if bExists {
+				return 1
 			}
-		} else if aExists {
-			return -1
-		} else if bExists {
-			return 1
+
+			if a.kind != b.kind {
+				return strings.Compare(a.kind, b.kind)
+			}
+			return strings.Compare(a.uid, b.uid)
+		})
+
+		prevKind := ""
+		for _, o := range objects {
+			timeStr := humanize.Time(o.lastUpdate)
+			if time.Now().Sub(o.lastUpdate) < 3*time.Second {
+				timeStr = ActivityStyle.Render(timeStr)
+			}
+
+			color := gray
+
+			color, hasColor := m.colors[o.kind]
+			if !hasColor {
+				color = RandomKindColors[len(m.colors)%len(RandomKindColors)]
+				m.colors[o.kind] = color
+			}
+
+			nameStr := o.name
+			if time.Now().Sub(o.nameChangedAt) < 10*time.Second {
+				nameStr = ChangedStyle.Render(nameStr)
+			}
+
+			statusStr := o.status
+			if time.Now().Sub(o.statusChangedAt) < 10*time.Second {
+				statusStr = ChangedStyle.Render(statusStr)
+			}
+
+			if prevKind != "" && o.kind != prevKind {
+				t.Row()
+			}
+			prevKind = o.kind
+
+			t.Row(
+				lipgloss.NewStyle().Foreground(color).Render(o.kind),
+				o.namespace,
+				nameStr,
+				statusStr,
+				timeStr,
+			)
 		}
-
-		if a.kind != b.kind {
-			return strings.Compare(a.kind, b.kind)
-		}
-		return strings.Compare(a.uid, b.uid)
-	})
-
-	prevKind := ""
-	for _, o := range objects {
-		timeStr := humanize.Time(o.lastUpdate)
-		if time.Now().Sub(o.lastUpdate) < 3*time.Second {
-			timeStr = ActivityStyle.Render(timeStr)
-		}
-
-		color := gray
-
-		color, hasColor := m.colors[o.kind]
-		if !hasColor {
-			color = RandomKindColors[len(m.colors)%len(RandomKindColors)]
-			m.colors[o.kind] = color
-		}
-
-		nameStr := o.name
-		if time.Now().Sub(o.nameChangedAt) < 10*time.Second {
-			nameStr = ChangedStyle.Render(nameStr)
-		}
-
-		statusStr := o.status
-		if time.Now().Sub(o.statusChangedAt) < 10*time.Second {
-			statusStr = ChangedStyle.Render(statusStr)
-		}
-
-		if prevKind != "" && o.kind != prevKind {
-			t.Row()
-		}
-		prevKind = o.kind
-
-		t.Row(
-			lipgloss.NewStyle().Foreground(color).Render(o.kind),
-			o.namespace,
-			nameStr,
-			statusStr,
-			timeStr,
-		)
+		rendered = t.Render()
 	}
 
-	return "\n" + t.Render()
+	return "\n" + lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, TableStyle.Render(rendered))
 }
+
 func init() {
 	flag.StringVar(&flagFilterExpression, "filter-expr", "All()", "expr filter")
 	flag.Var(&flagResources, "resource", "<group>/<version>/<resource> (repeatable)")
