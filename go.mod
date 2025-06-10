@@ -3,6 +3,7 @@ module github.com/loog-project/loog
 go 1.24.1
 
 require (
+	github.com/alecthomas/chroma/v2 v2.18.0
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.4
 	github.com/charmbracelet/lipgloss v1.1.0
@@ -10,6 +11,7 @@ require (
 	github.com/expr-lang/expr v1.17.2
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	go.etcd.io/bbolt v1.4.0
+	golang.org/x/exp v0.0.0-20220909182711-5c715a9e8561
 	k8s.io/apimachinery v0.32.4
 	k8s.io/client-go v0.32.4
 	k8s.io/klog/v2 v2.130.1
@@ -21,6 +23,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.8.0 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.13 // indirect
 	github.com/charmbracelet/x/term v0.2.1 // indirect
+	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/emicklei/go-restful/v3 v3.11.0 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/fxamacker/cbor/v2 v2.8.0 // indirect

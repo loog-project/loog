@@ -8,7 +8,7 @@ import (
 	"github.com/loog-project/loog/internal/ui/theme"
 )
 
-type BorderedLayout struct {
+type BorderLayout struct {
 	// content contains the "main" content of the view
 	content core.View
 
@@ -16,61 +16,68 @@ type BorderedLayout struct {
 	width, height int
 
 	borderStyle lipgloss.Style
+	borderWidth int
 }
 
-var _ Layout = (*BorderedLayout)(nil)
+var _ Layout = (*BorderLayout)(nil)
 
-func NewBorderedLayout(content core.View, borderStyle lipgloss.Style) *BorderedLayout {
-	return &BorderedLayout{
-		content:     content,
-		borderStyle: borderStyle,
+func NewBorderLayout(content core.View, borderStyle lipgloss.Style) *BorderLayout {
+	b := &BorderLayout{
+		content: content,
 	}
+	b.SetBorderStyle(borderStyle)
+	return b
 }
 
-func (l *BorderedLayout) Init() tea.Cmd {
+func (l *BorderLayout) Init() tea.Cmd {
 	return l.content.Init()
 }
 
-func (l *BorderedLayout) Update(msg tea.Msg) (core.View, tea.Cmd) {
+func (l *BorderLayout) Update(msg tea.Msg) (core.View, tea.Cmd) {
 	newView, cmd := l.content.Update(msg)
 	l.content = newView
 	return l, cmd
 }
 
-func (l *BorderedLayout) View() string {
+func (l *BorderLayout) View() string {
 	return l.borderStyle.
-		Width(l.width - 2).   // -2 for border
-		Height(l.height - 2). // -2 for border
+		Width(l.width - l.borderWidth).
+		Height(l.height - l.borderWidth).
 		Render(l.content.View())
 }
 
-/// Dispatchers
-
-func (l *BorderedLayout) dispatchSize() {
+func (l *BorderLayout) dispatchSize() {
 	if s, ok := l.content.(core.Sizeable); ok {
-		s.SetSize(l.width-2, l.height-2) // -2 for border
+		s.SetSize(
+			l.width-l.borderWidth,
+			l.height-l.borderWidth,
+		)
 	}
 }
 
 // SetSize sets the size of the layout and its components
-func (l *BorderedLayout) SetSize(width, height int) {
+func (l *BorderLayout) SetSize(width, height int) {
 	l.width, l.height = width, height
 	l.dispatchSize()
 }
 
 // SetTheme sets the theme of the layout and its components
-func (l *BorderedLayout) SetTheme(theme theme.Theme) {
+func (l *BorderLayout) SetTheme(theme theme.Theme) {
 	// dispatch the theme to the content
 	dispatchTheme(theme, l.content)
 }
 
 /// Mutators
 
-func (l *BorderedLayout) SetContent(content core.View) {
+func (l *BorderLayout) SetContent(content core.View) {
 	l.content = content
 	l.dispatchSize()
 }
 
-func (l *BorderedLayout) SetBorderStyle(borderStyle lipgloss.Style) {
+func (l *BorderLayout) SetBorderStyle(borderStyle lipgloss.Style) {
+	// dummy render empty content to calculate the actual border width
+	borderWidth := lipgloss.Width(borderStyle.Render(""))
+
 	l.borderStyle = borderStyle
+	l.borderWidth = borderWidth
 }
