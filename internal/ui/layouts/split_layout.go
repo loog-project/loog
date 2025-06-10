@@ -96,16 +96,22 @@ func (l *SplitLayout) Update(msg tea.Msg) (core.View, tea.Cmd) {
 }
 
 func (l *SplitLayout) View() string {
-	if l.fixedLeftSize == 0 && l.fixedRightSize == 0 {
-		if int(l.fraction*float64(l.height)) == 0 {
-			// if the fraction is 0, just return the right view
-			return l.right.View()
-		}
-	}
 	switch l.orientation {
 	case Horizontal:
+		if l.fixedLeftSize == 0 && l.fixedRightSize == 0 {
+			if int(l.fraction*float64(l.width)) == 0 {
+				// if the fraction is 0, just return the right view
+				return l.right.View()
+			}
+		}
 		return lipgloss.JoinHorizontal(lipgloss.Top, l.left.View(), l.right.View())
 	case Vertical:
+		if l.fixedLeftSize == 0 && l.fixedRightSize == 0 {
+			if int(l.fraction*float64(l.height)) == 0 {
+				// if the fraction is 0, just return the right view
+				return l.right.View()
+			}
+		}
 		return lipgloss.JoinVertical(lipgloss.Left, l.left.View(), l.right.View())
 	}
 	return ""
@@ -145,7 +151,7 @@ func (l *SplitLayout) SetTheme(theme theme.Theme) {
 }
 
 func (l *SplitLayout) SetFraction(fraction float64) {
-	l.fraction = util.RangeOrElse(fraction, 0, 1, 0.5)
+	l.fraction = util.Clamp(fraction, 0, 1)
 	l.dispatchSizes()
 }
 
