@@ -16,7 +16,7 @@ plugins:
         -filter-expr
         'Namespaced("$NAMESPACE", "$NAME")'
   loog-run-namespace:
-    shortCut: Ctrl-L
+    shortCut: Shift-O
     confirm: true
     scopes:
       - all
