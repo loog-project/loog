@@ -1,6 +1,6 @@
 plugins:
   loog-run-selected:
-    shortCut: O
+    shortCut: Ctrl-Y
     confirm: false
     scopes:
       - all
@@ -16,7 +16,7 @@ plugins:
         -filter-expr
         'Namespaced("$NAMESPACE", "$NAME")'
   loog-run-namespace:
-    shortCut: Shift-O
+    shortCut: Shift-Y
     confirm: true
     scopes:
       - all
