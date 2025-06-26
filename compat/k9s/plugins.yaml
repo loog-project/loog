@@ -1,6 +1,6 @@
 plugins:
   loog-run-selected:
-    shortCut: o
+    shortCut: O
     confirm: false
     scopes:
       - all
