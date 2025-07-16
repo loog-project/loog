@@ -1,0 +1,44 @@
+#compdef loog kubectl_observe
+# ------------- #
+#  loog(1) Z‑sh #
+# ------------- #
+# Put this file somewhere in your $fpath (e.g. ~/.zsh/completions/_loog)
+# then `autoload -Uz compinit && compinit` (or just restart your shell).
+
+_loog_cache_resources() {
+  typeset -gUa _loog_resources
+  (( ${#_loog_resources} )) && return
+
+  if (( $+commands[kubectl] )); then
+    local raw
+    raw=$(kubectl api-resources -o wide --no-headers 2>/dev/null) || return
+
+    while read -r name shortnames apiversion namespaced kind; do
+      if [[ "$apiversion" == "true" || "$apiversion" == "false" ]]; then
+        apiversion="$shortnames"
+        name="$name"
+      fi
+      _loog_resources+="${apiversion}/${name}"
+    done <<< "$raw"
+  fi
+}
+
+_loog_complete_resource() {
+  _loog_cache_resources
+  if (( ${#_loog_resources} )); then
+    _describe -t resources 'Kubernetes resource (group/version/resource)' \
+      _loog_resources && return
+  fi
+  _message 'group/version/resource'
+}
+
+_arguments -s -w -C \
+  '(-h -help)'{-h,-help}'[show help and exit]' \
+  '-out=[write output to file]:output file:_files' \
+  '-not-durable[do not fsync every commit]' \
+  '-no-cache[disable in‑memory cache]' \
+  '-snapshot-every=[create snapshot after this many patches]:patch count (uint)' \
+  '-filter-expr=[evaluate only objects for which expr is true]:expression' \
+  '-non-interactive[disable the TUIs and prompt only via flags]' \
+  '-kubeconfig=[path to kubeconfig]:kubeconfig file:_files' \
+  '*:Group/Version/Resource:_loog_complete_resource'

@@ -29,7 +29,6 @@ import (
 var (
 	flagKubeconfig       string
 	flagOutFile          string
-	flagResources        util.StringSliceFlag
 	flagNotDurable       bool
 	flagNoCache          bool
 	flagSnapshotEvery    uint64
@@ -44,7 +43,6 @@ func init() {
 	flag.Uint64Var(&flagSnapshotEvery, "snapshot-every", 8, "patches until snapshot")
 	flag.StringVar(&flagFilterExpression, "filter-expr", "All()", "expr filter")
 	flag.BoolVar(&flagNonInteractive, "non-interactive", false, "set to true to disable the UI")
-	flag.Var(&flagResources, "resource", "<group>/<version>/<resource> (repeatable)")
 	if h := homedir.HomeDir(); h != "" {
 		flag.StringVar(&flagKubeconfig, "kubeconfig", filepath.Join(h, ".kube", "config"), "")
 	} else {
@@ -107,8 +105,8 @@ func main() {
 	defer mux.Stop()
 
 	log.Println("Starting dynamic mux...")
-	// add default resources from -resource flags
-	for _, r := range flagResources {
+	// add default resources from the arguments
+	for _, r := range flag.Args() {
 		gvr, err := util.ParseGroupVersionResource(r)
 		if err != nil {
 			log.Fatal("Cannot parse resource:", err, "input:", r)
