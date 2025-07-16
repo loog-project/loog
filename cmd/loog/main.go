@@ -109,11 +109,11 @@ func main() {
 	for _, r := range flag.Args() {
 		gvr, err := util.ParseGroupVersionResource(r)
 		if err != nil {
-			log.Fatal("Cannot parse resource:", err, "input:", r)
+			log.Fatalf("Cannot parse resource '%s': %v", r, err)
 			return
 		}
 		if err := mux.Add(gvr); err != nil {
-			log.Fatal("Cannot add resource to dynamic mux:", err, "input:", r)
+			log.Fatalf("Cannot add resource '%s' to dynamic mux: %v", r, err)
 			return
 		}
 	}
