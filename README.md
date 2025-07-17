@@ -72,7 +72,7 @@ Usage of loog:
   -no-cache                 if set to true, the store won't cache the data
   -non-interactive          if set to true, the UI won't be shown
   -not-durable              if set to true, the store won't fsync every commit
-  -out string               output file of the revisions
+  -out [string]             output file of the revisions
   -snapshot-every [uint]    patches until snapshot (default 8)
 ```
 
