@@ -24,27 +24,7 @@ cd loog
 go install ./cmd/loog
 ```
 
-### `kubectl` plugin
-
-To install `loog` as a `kubectl` plugin, copy the binary to your `PATH`:
-
-```bash
-ln -s $(which loog) $(dirname $(which loog))/kubectl-observe
-```
-
-### `k9s` plugin
-
-To install loog-shortcuts for `k9s`, copy the `compat/k9s/plugins.yaml` to your
-[`k9s` config directory](https://github.com/derailed/k9s#k9s-configuration) or extend your existing `plugins.yaml`.
-
-```bash
-# macOS
-cp compat/k9s/plugins.yaml ~/Library/Application\ Support/k9s/plugins.yaml
-# Unix
-cp compat/k9s/plugins.yaml ~/.config/k9s/plugins.yaml
-```
-
-### Completions
+#### `zsh` shell completions
 
 Shell completions for `zsh` can be found in `compat/zsh/_loog`. To install, copy it to your `fpath`:
 
@@ -53,6 +33,29 @@ mkdir -p ~/.zsh/completions
 ln -s $(pwd)/compat/zsh/_loog ~/.zsh/completions/_loog
 echo 'fpath=(~/.zsh/completions $fpath)' >> ~/.zshrc
 source ~/.zshrc
+```
+
+### `kubectl` plugin
+
+To install _LOOG_ as a `kubectl` plugin, copy or link the _LOOG_ binary to your `PATH`:
+
+```bash
+ln -s $(which loog) $(dirname $(which loog))/kubectl-observe
+kubectl observe v1/configmaps
+```
+
+Note that the plugin does not support shell completions yet.
+
+### `k9s` plugin
+
+To install _LOOG_-shortcuts for `k9s`, copy the `compat/k9s/plugins.yaml` to your
+[`k9s` config directory](https://github.com/derailed/k9s#k9s-configuration) or extend your existing `plugins.yaml`.
+
+```bash
+# macOS
+cp compat/k9s/plugins.yaml ~/Library/Application\ Support/k9s/plugins.yaml
+# Unix
+cp compat/k9s/plugins.yaml ~/.config/k9s/plugins.yaml
 ```
 
 ---
