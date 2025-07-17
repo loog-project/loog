@@ -29,9 +29,8 @@ go install ./cmd/loog
 Shell completions for `zsh` can be found in `compat/zsh/_loog`. To install, copy it to your `fpath`:
 
 ```bash
-mkdir -p ~/.zsh/completions
-ln -s $(pwd)/compat/zsh/_loog ~/.zsh/completions/_loog
-echo 'fpath=(~/.zsh/completions $fpath)' >> ~/.zshrc
+echo 'fpath=("'$(pwd)'/compat/zsh" $fpath)' >> ~/.zshrc
+echo 'autoload -Uz compinit && compinit' >> ~/.zshrc
 source ~/.zshrc
 ```
 
