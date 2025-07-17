@@ -41,7 +41,7 @@ func init() {
 	flag.BoolVar(&flagNotDurable, "not-durable", false, "if set to true, the store won't fsync every commit")
 	flag.BoolVar(&flagNoCache, "no-cache", false, "if set to true, the store won't cache the data")
 	flag.Uint64Var(&flagSnapshotEvery, "snapshot-every", 8, "patches until snapshot")
-	flag.StringVar(&flagFilterExpression, "filter-expr", "All()", "expr filter")
+	flag.StringVar(&flagFilterExpression, "filter-expr", "All()", "filter for objects to process")
 	flag.BoolVar(&flagNonInteractive, "non-interactive", false, "set to true to disable the UI")
 	if h := homedir.HomeDir(); h != "" {
 		flag.StringVar(&flagKubeconfig, "kubeconfig", filepath.Join(h, ".kube", "config"), "")
@@ -55,8 +55,7 @@ func main() {
 	if flagOutFile == "" {
 		file, err := os.CreateTemp("", "loog-output-*.loog")
 		if err != nil {
-			log.Fatal("Cannot create temp file:", err)
-			return
+			log.Fatalln("Cannot create temp file:", err)
 		}
 		defer func() {
 			_ = file.Close()
@@ -72,35 +71,30 @@ func main() {
 	log.Println("Compiling filter expression...")
 	prog, err := expr.Compile(flagFilterExpression, expr.Env(util.EventEntryEnv{}), expr.AsBool())
 	if err != nil {
-		log.Fatal("Cannot compile filter expression:", err)
-		return
+		log.Fatalln("Cannot compile filter expression:", err)
 	}
 
 	log.Println("Creating store...")
 	rps, err := bboltStore.New(flagOutFile, nil, !flagNotDurable)
 	if err != nil {
-		log.Fatal("Cannot create store:", err)
-		return
+		log.Fatalln("Cannot create store:", err)
 	}
 	trackerService := service.NewTrackerService(rps, flagSnapshotEvery, !flagNoCache)
 
 	log.Println("Creating dynamic client...")
 	cfg, err := clientcmd.BuildConfigFromFlags("", flagKubeconfig)
 	if err != nil {
-		log.Fatal("Cannot load kubeconfig:", err)
-		return
+		log.Fatalln("Cannot load kubeconfig:", err)
 	}
 
 	dyn, err := dynamic.NewForConfig(cfg)
 	if err != nil {
-		log.Fatal("Cannot create dynamic client:", err)
-		return
+		log.Fatalln("Cannot create dynamic client:", err)
 	}
 
 	mux, err := dynamicmux.New(ctx, dyn)
 	if err != nil {
-		log.Fatal("Cannot create dynamic mux:", err)
-		return
+		log.Fatalln("Cannot create dynamic mux:", err)
 	}
 	defer mux.Stop()
 
@@ -110,11 +104,9 @@ func main() {
 		gvr, err := util.ParseGroupVersionResource(r)
 		if err != nil {
 			log.Fatalf("Cannot parse resource '%s': %v", r, err)
-			return
 		}
 		if err := mux.Add(gvr); err != nil {
 			log.Fatalf("Cannot add resource '%s' to dynamic mux: %v", r, err)
-			return
 		}
 	}
 

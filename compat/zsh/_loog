@@ -1,4 +1,4 @@
-#compdef loog kubectl_observe
+#compdef loog kubectl_complete-observe
 # ------------- #
 #  loog(1) Z‑sh #
 # ------------- #
@@ -38,7 +38,7 @@ _arguments -s -w -C \
   '-not-durable[do not fsync every commit]' \
   '-no-cache[disable in‑memory cache]' \
   '-snapshot-every=[create snapshot after this many patches]:patch count (uint)' \
-  '-filter-expr=[evaluate only objects for which expr is true]:expression' \
+  '-filter-expr=[process objects only for which expr is true]:expression' \
   '-non-interactive[disable the TUIs and prompt only via flags]' \
   '-kubeconfig=[path to kubeconfig]:kubeconfig file:_files' \
   '*:Group/Version/Resource:_loog_complete_resource'

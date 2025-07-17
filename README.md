@@ -29,7 +29,19 @@ go install ./cmd/loog
 To install `loog` as a `kubectl` plugin, copy the binary to your `PATH`:
 
 ```bash
-ln -s $(which loog) $(dirname $(which loog))/kubectl-loog
+ln -s $(which loog) $(dirname $(which loog))/kubectl-observe
+```
+
+### `k9s` plugin
+
+To install loog-shortcuts for `k9s`, copy the `compat/k9s/plugins.yaml` to your
+[`k9s` config directory](https://github.com/derailed/k9s#k9s-configuration) or extend your existing `plugins.yaml`.
+
+```bash
+# macOS
+cp compat/k9s/plugins.yaml ~/Library/Application\ Support/k9s/plugins.yaml
+# Unix
+cp compat/k9s/plugins.yaml ~/.config/k9s/plugins.yaml
 ```
 
 ### Completions
