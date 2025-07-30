@@ -131,7 +131,7 @@ func (t *TrackerService) Commit(
 	}
 
 	lastRevisionResourceVersion, ok := util.ExtractResourceVersion(ts.obj)
-	if lastRevisionResourceVersion == newObject.GetResourceVersion() && ok {
+	if ok && lastRevisionResourceVersion == newObject.GetResourceVersion() {
 		return 0, DuplicateResourceVersionError{
 			rev:             ts.rev,
 			resourceVersion: lastRevisionResourceVersion,
