@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/loog-project/loog/internal/store"
+	"github.com/loog-project/loog/internal/util"
 	"github.com/loog-project/loog/pkg/diffmap"
 )
 
@@ -129,11 +130,11 @@ func (t *TrackerService) Commit(
 		}
 	}
 
-	lastRevisionObj := &unstructured.Unstructured{Object: ts.obj}
-	if lastRevisionObj.GetResourceVersion() == newObject.GetResourceVersion() {
+	lastRevisionResourceVersion, ok := util.ExtractResourceVersion(ts.obj)
+	if lastRevisionResourceVersion == newObject.GetResourceVersion() && ok {
 		return 0, DuplicateResourceVersionError{
 			rev:             ts.rev,
-			resourceVersion: lastRevisionObj.GetResourceVersion(),
+			resourceVersion: lastRevisionResourceVersion,
 		}
 	}
 
