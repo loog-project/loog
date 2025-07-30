@@ -72,7 +72,7 @@ func (t *TrackerService) Close() error {
 	return nil
 }
 
-// DuplicateResourceVersionError is thrown when a kubernetes object was commited that is already in the rps
+// DuplicateResourceVersionError is thrown when a Kubernetes object was committed that is already in the rps
 type DuplicateResourceVersionError struct {
 	rev             store.RevisionID
 	resourceVersion string
