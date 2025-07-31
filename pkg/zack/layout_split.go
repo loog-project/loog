@@ -18,39 +18,39 @@ var _ Boundable = (*SplitLayoutModel)(nil)
 
 // SplitLayoutModel is a layout that splits the screen into two views, either horizontally or vertically.
 // It takes a fraction (0 to 1) to determine how much space each view should take.
-// The left view will take the fraction of the screen, and the right view will take the remaining space.
-// For example, if the fraction is 0.4, the left view will take 40% of the screen and the right view will take 60%.
+// The left view will take the fraction of the screen, and the end view will take the remaining space.
+// For example, if the fraction is 0.4, the left view will take 40% of the screen and the end view will take 60%.
 //
 // Horizontal:
 //
-//	+-----------------+------------------+
-//	| Left View (50%) | Right View (50%) |
-//	+-----------------+------------------+
+//	+------------------+------------------+
+//	| Start View (50%) | End View (50%)   |
+//	+------------------+------------------+
 //
 // Vertical:
 //
-//	+-----------------+
-//	| Left View (50%) |
-//	+-----------------+
-//	| Right View (50%)|
-//	+-----------------+
+//	+------------------+
+//	| Start View (50%) |
+//	+------------------+
+//	| End View (50%)   |
+//	+------------------+
 type SplitLayoutModel struct {
 	orientation SplitOrientation
 
-	leftChildBounds    Bounds
-	leftChildBoundable Boundable
+	startChildBounds    Bounds
+	startChildBoundable Boundable
 
-	rightChildBounds    Bounds
-	rightChildBoundable Boundable
+	endChildBounds    Bounds
+	endChildBoundable Boundable
 
 	layoutBounds Bounds
 
-	// fraction element (0, 1), for example 0.4 means 40% of the screen will be used by the left view
+	// fraction element (0, 1), for example 0.4 means 40% of the screen will be used by the start view
 	fraction float64
 
-	// fixedLeftSize and fixedRightSize can be used to set a specific size for the left and right views.
+	// fixedStartSize and fixedEndSize can be used to set a specific size for the start and end views.
 	// This will override the fraction. Set to 0 to fill the remaining space.
-	fixedLeftSize, fixedRightSize uint
+	fixedStartSize, fixedEndSize uint
 }
 
 // NewSplitLayoutWithFraction creates a new SplitLayoutModel with the given orientation.
@@ -66,124 +66,132 @@ func NewSplitLayoutWithFraction(orientation SplitOrientation, fraction float64) 
 }
 
 // NewSplitLayoutWithFixedSize creates a new SplitLayoutModel with the given orientation.
-// [fixedLeftSize] will override the fraction, meaning the "left" (or top) view will always have this size.
+// [fixedStartSize] will override the fraction, meaning the "start" (or top) view will always have this size.
+//
+// You can set either [fixedStartSize] or [fixedEndSide] to a non-zero value.
+// If both are set, [fixedStartSize] will take precedence.
 func NewSplitLayoutWithFixedSize(
 	orientation SplitOrientation,
-	fixedLeftSize, fixedRightSide uint,
+	fixedStartSize, fixedEndSide uint,
 ) *SplitLayoutModel {
-	if fixedLeftSize == 0 && fixedRightSide == 0 {
-		fixedRightSide = 1 // default to a status bar layout
+	if fixedStartSize == 0 && fixedEndSide == 0 {
+		fixedEndSide = 1 // default to a status bar layout
 	}
 	return &SplitLayoutModel{
 		orientation:    orientation,
-		fixedLeftSize:  fixedLeftSize,
-		fixedRightSize: fixedRightSide,
+		fixedStartSize: fixedStartSize,
+		fixedEndSize:   fixedEndSide,
 	}
 }
 
-func (m *SplitLayoutModel) Render(leftContent, rightContent string) string {
+func (m *SplitLayoutModel) Render(startContent, endContent string) string {
 	if !m.layoutBounds.IsValid() {
 		return "waiting for layout bounds to be set"
 	}
 
 	switch m.orientation {
 	case Horizontal:
-		if m.leftChildBounds.Width <= 0 {
-			// if the left view has no width, return the right view only (fullscreen-ish)
-			return rightContent
+		if m.startChildBounds.Width <= 0 {
+			// if the start view has no width, return the end view only (fullscreen-ish)
+			return endContent
 		}
-		if m.rightChildBounds.Width <= 0 {
-			// if the right view has no width, return the left view only (fullscreen-ish)
-			return leftContent
+		if m.endChildBounds.Width <= 0 {
+			// if the end view has no width, return the start view only (fullscreen-ish)
+			return startContent
 		}
 		return lipgloss.JoinHorizontal(lipgloss.Top,
-			renderWithBounds(&m.leftChildBounds, leftContent),
-			renderWithBounds(&m.rightChildBounds, rightContent))
+			renderWithBounds(&m.startChildBounds, startContent),
+			renderWithBounds(&m.endChildBounds, endContent))
 
 	case Vertical:
-		if m.leftChildBounds.Height <= 0 {
-			return rightContent
+		if m.startChildBounds.Height <= 0 {
+			return endContent
 		}
-		if m.rightChildBounds.Height <= 0 {
-			return leftContent
+		if m.endChildBounds.Height <= 0 {
+			return startContent
 		}
 		return lipgloss.JoinVertical(lipgloss.Left,
-			renderWithBounds(&m.leftChildBounds, leftContent),
-			renderWithBounds(&m.rightChildBounds, rightContent))
+			renderWithBounds(&m.startChildBounds, startContent),
+			renderWithBounds(&m.endChildBounds, endContent))
 	}
 
 	log.Warn().Msgf("(SplitLayout.Render) Invalid SplitLayoutModel orientation: %v", m.orientation)
 	return ""
 }
 
-// SetBounds sets the bounds for the left and right child views based on the parent bounds.
+// SetBounds sets the bounds for the start and end child views based on the parent bounds.
 func (m *SplitLayoutModel) SetBounds(bounds Bounds) {
 	m.layoutBounds = bounds
 
 	switch m.orientation {
 	case Horizontal:
-		var leftWidth, rightWidth int
-		if m.fixedLeftSize > 0 {
-			leftWidth = int(m.fixedLeftSize)
-			rightWidth = bounds.Width - leftWidth
-		} else if m.fixedRightSize > 0 {
-			rightWidth = int(m.fixedRightSize)
-			leftWidth = bounds.Width - rightWidth
+		var startWidth, endWidth int
+		if m.fixedStartSize > 0 {
+			if m.fixedEndSize > 0 {
+				log.Warn().Msgf("(%s) Both fixedStartSize and fixedEndSize are set, using fixedStartSize: %d",
+					"SplitLayoutModel.SetBounds",
+					m.fixedStartSize)
+			}
+			startWidth = int(m.fixedStartSize)
+			endWidth = bounds.Width - startWidth
+		} else if m.fixedEndSize > 0 {
+			endWidth = int(m.fixedEndSize)
+			startWidth = bounds.Width - endWidth
 		} else {
-			leftWidth = int(float64(bounds.Width) * m.fraction)
-			rightWidth = bounds.Width - leftWidth
+			startWidth = int(float64(bounds.Width) * m.fraction)
+			endWidth = bounds.Width - startWidth
 		}
-		m.setLeftChildBounds(NewBounds(leftWidth, bounds.Height))
-		m.setRightChildBounds(NewBounds(rightWidth, bounds.Height))
+		m.setStartChildBounds(NewBounds(startWidth, bounds.Height))
+		m.setEndChildBounds(NewBounds(endWidth, bounds.Height))
 		return
 
 	case Vertical:
-		var leftHeight, rightHeight int
-		if m.fixedLeftSize > 0 {
-			leftHeight = int(m.fixedLeftSize)
-			rightHeight = bounds.Height - leftHeight
-		} else if m.fixedRightSize > 0 {
-			rightHeight = int(m.fixedRightSize)
-			leftHeight = bounds.Height - rightHeight
+		var startHeight, endHeight int
+		if m.fixedStartSize > 0 {
+			startHeight = int(m.fixedStartSize)
+			endHeight = bounds.Height - startHeight
+		} else if m.fixedEndSize > 0 {
+			endHeight = int(m.fixedEndSize)
+			startHeight = bounds.Height - endHeight
 		} else {
-			leftHeight = int(float64(bounds.Height) * m.fraction)
-			rightHeight = bounds.Height - leftHeight
+			startHeight = int(float64(bounds.Height) * m.fraction)
+			endHeight = bounds.Height - startHeight
 		}
-		m.setLeftChildBounds(NewBounds(bounds.Width, leftHeight))
-		m.setRightChildBounds(NewBounds(bounds.Width, rightHeight))
+		m.setStartChildBounds(NewBounds(bounds.Width, startHeight))
+		m.setEndChildBounds(NewBounds(bounds.Width, endHeight))
 		return
 	}
 
 	log.Warn().Msgf("(SplitLayout.SetBounds) Invalid SplitLayoutModel orientation: %v", m.orientation)
 }
 
-// refreshBounds send the newest bounds to the left and right child boundables.
+// refreshBounds send the newest bounds to the start and end child boundables.
 // This is useful when the _layout_ itself changes, e.g. when you increase or decrease the fraction,
 func (m *SplitLayoutModel) refreshBounds() {
 	m.SetBounds(m.layoutBounds)
 }
 
-// setLeftChildBounds sets the bounds for the left child view and updates its boundable.
-func (m *SplitLayoutModel) setLeftChildBounds(bounds Bounds) {
-	m.leftChildBounds = bounds
+// setStartChildBounds sets the bounds for the start child view and updates its boundable.
+func (m *SplitLayoutModel) setStartChildBounds(bounds Bounds) {
+	m.startChildBounds = bounds
 	if !bounds.IsValid() {
-		log.Warn().Msgf("(SplitLayout.setLeftChildBounds) left child bounds are invalid: %v", bounds)
+		log.Warn().Msgf("(SplitLayout.setStartChildBounds) start child bounds are invalid: %v", bounds)
 		return
 	}
-	if m.leftChildBoundable != nil {
-		m.leftChildBoundable.SetBounds(bounds)
+	if m.startChildBoundable != nil {
+		m.startChildBoundable.SetBounds(bounds)
 	}
 }
 
-// setRightChildBounds sets the bounds for the right child view and updates its boundable.
-func (m *SplitLayoutModel) setRightChildBounds(bounds Bounds) {
-	m.rightChildBounds = bounds
+// setEndChildBounds sets the bounds for the end child view and updates its boundable.
+func (m *SplitLayoutModel) setEndChildBounds(bounds Bounds) {
+	m.endChildBounds = bounds
 	if !bounds.IsValid() {
-		log.Warn().Msgf("(SplitLayout.setRightChildBounds) right child bounds are invalid: %v", bounds)
+		log.Warn().Msgf("(SplitLayout.setEndChildBounds) end child bounds are invalid: %v", bounds)
 		return
 	}
-	if m.rightChildBoundable != nil {
-		m.rightChildBoundable.SetBounds(bounds)
+	if m.endChildBoundable != nil {
+		m.endChildBoundable.SetBounds(bounds)
 	}
 }
 
@@ -192,7 +200,7 @@ func (m *SplitLayoutModel) SetFraction(fraction float64) {
 	m.refreshBounds()
 }
 
-// Increase increases the fraction of the left view by 1/width
+// Increase increases the fraction of the start view by 1/width
 func (m *SplitLayoutModel) Increase() {
 	switch m.orientation {
 	case Horizontal:
@@ -204,7 +212,7 @@ func (m *SplitLayoutModel) Increase() {
 	}
 }
 
-// Decrease decreases the fraction of the left view by 1/width
+// Decrease decreases the fraction of the start view by 1/width
 func (m *SplitLayoutModel) Decrease() {
 	switch m.orientation {
 	case Horizontal:
@@ -227,20 +235,20 @@ func (m *SplitLayoutModel) ToggleOrientation() {
 	m.refreshBounds()
 }
 
-// AttachLeftBoundable attaches a boundable to the left side of the split layout
-func (m *SplitLayoutModel) AttachLeftBoundable(boundable Boundable) {
+// AttachStartBoundable attaches a boundable to the start side of the split layout
+func (m *SplitLayoutModel) AttachStartBoundable(boundable Boundable) {
 	if boundable == nil {
-		log.Warn().Msgf("(SplitLayoutModel.AttachLeftBoundable) boundable is nil, cannot attach")
+		log.Warn().Msgf("(SplitLayoutModel.AttachStartBoundable) boundable is nil, cannot attach")
 		return
 	}
-	m.leftChildBoundable = boundable
+	m.startChildBoundable = boundable
 }
 
-// AttachRightBoundable attaches a boundable to the right side of the split layout
-func (m *SplitLayoutModel) AttachRightBoundable(boundable Boundable) {
+// AttachEndBoundable attaches a boundable to the end side of the split layout
+func (m *SplitLayoutModel) AttachEndBoundable(boundable Boundable) {
 	if boundable == nil {
-		log.Warn().Msgf("(SplitLayoutModel.AttachRightBoundable) boundable is nil, cannot attach")
+		log.Warn().Msgf("(SplitLayoutModel.AttachEndBoundable) boundable is nil, cannot attach")
 		return
 	}
-	m.rightChildBoundable = boundable
+	m.endChildBoundable = boundable
 }

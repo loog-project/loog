@@ -16,8 +16,7 @@ var (
 
 	// DefaultBorderActiveStyle is the default style for the border when it is active (focused).
 	// It uses a normal border style with blue foreground color.
-	DefaultBorderActiveStyle = lipgloss.NewStyle().
-					BorderStyle(lipgloss.NormalBorder()).
+	DefaultBorderActiveStyle = DefaultBorderIdleStyle.
 					BorderForeground(lipgloss.Color("33"))
 )
 
