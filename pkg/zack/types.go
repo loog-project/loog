@@ -1,12 +1,5 @@
 package zack
 
-import (
-	tea "github.com/charmbracelet/bubbletea"
-)
-
-// Noop can be used as a placeholder for initialization commands or when no command is needed.
-var Noop tea.Cmd = nil
-
 // Focusable can be used to check if a widget or component can be focused and check the current focus state
 type Focusable interface {
 	SetFocus(active bool)

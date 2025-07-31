@@ -68,19 +68,19 @@ func NewSplitLayoutWithFraction(orientation SplitOrientation, fraction float64) 
 // NewSplitLayoutWithFixedSize creates a new SplitLayoutModel with the given orientation.
 // [fixedStartSize] will override the fraction, meaning the "start" (or top) view will always have this size.
 //
-// You can set either [fixedStartSize] or [fixedEndSide] to a non-zero value.
+// You can set either [fixedStartSize] or [fixedEndSize] to a non-zero value.
 // If both are set, [fixedStartSize] will take precedence.
 func NewSplitLayoutWithFixedSize(
 	orientation SplitOrientation,
-	fixedStartSize, fixedEndSide uint,
+	fixedStartSize, fixedEndSize uint,
 ) *SplitLayoutModel {
-	if fixedStartSize == 0 && fixedEndSide == 0 {
-		fixedEndSide = 1 // default to a status bar layout
+	if fixedStartSize == 0 && fixedEndSize == 0 {
+		fixedEndSize = 1 // default to a status bar layout
 	}
 	return &SplitLayoutModel{
 		orientation:    orientation,
 		fixedStartSize: fixedStartSize,
-		fixedEndSize:   fixedEndSide,
+		fixedEndSize:   fixedEndSize,
 	}
 }
 
