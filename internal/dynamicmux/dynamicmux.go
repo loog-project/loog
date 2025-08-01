@@ -179,6 +179,12 @@ func (m *Mux) Remove(gvr schema.GroupVersionResource) bool {
 	return false
 }
 
+func (m *Mux) Len() int {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+	return len(m.activeInformers)
+}
+
 // Events exposes the unified, read‑only event stream.
 // The channel is closed after Stop().
 func (m *Mux) Events() <-chan watch.Event {
