@@ -2,9 +2,9 @@ package bbolt
 
 import (
 	"fmt"
-	"log"
 	"sync"
 
+	"github.com/rs/zerolog/log"
 	"go.etcd.io/bbolt"
 
 	"github.com/loog-project/loog/internal/store"
@@ -73,7 +73,7 @@ func New(path string, codec store.Codec, durable bool) (*Store, error) {
 func (s *Store) Close() error {
 	if !s.durable {
 		if err := s.db.Sync(); err != nil {
-			log.Println("failed to sync database:", err)
+			log.Error().Err(err).Msg("Error syncing database before closing")
 		}
 	}
 	return s.db.Close()
