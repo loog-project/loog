@@ -64,6 +64,7 @@ those revisions in a Terminal UI or collect them head-less for further analysis`
 func init() {
 	cobra.OnInitialize(initConfig)
 
+	// global flags
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "",
 		"config file (default is $HOME/.loog.yaml)")
 	defaultKube := ""
@@ -77,10 +78,13 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&truncateDebugLog, "truncate-debug", false,
 		"Truncate the debug.log file on startup, if it exists")
 
+	// loog command flags
 	rootCmd.Flags().StringVarP(&outputFile, "output", "o", "",
 		"Path to the *.loog output file (default: temporary file)")
 	rootCmd.Flags().StringVarP(&filterExpr, "filter", "f", "All()",
 		"Filter expression to select which resources to store (default: all resources)")
+	rootCmd.Flags().BoolVarP(&headlessMode, "headless", "H", false,
+		"Run in headless mode, without TUI. Useful for collecting revisions only.")
 	rootCmd.Flags().BoolVar(&noDurableSync, "no-durable-sync", false,
 		"Skip fsync on every commit to improve throughput (unsafe on crashes)")
 	rootCmd.Flags().BoolVar(&disableCache, "disable-cache", false,
@@ -88,16 +92,19 @@ func init() {
 	rootCmd.Flags().Uint64VarP(&snapshotInterval, "snapshot-interval", "s", 8,
 		"Create a full snapshot after this many patches (default 8)")
 
-	_ = viper.BindPFlag("kubeconfig", rootCmd.PersistentFlags().Lookup("kubeconfig"))
-	_ = viper.BindPFlag("debug", rootCmd.PersistentFlags().Lookup("debug"))
-	_ = viper.BindPFlag("truncate-debug", rootCmd.PersistentFlags().Lookup("truncate-debug"))
-	_ = viper.BindPFlag("no-durable-sync", rootCmd.Flags().Lookup("no-durable-sync"))
-	_ = viper.BindPFlag("disable-cache", rootCmd.Flags().Lookup("disable-cache"))
-	_ = viper.BindPFlag("snapshot-interval", rootCmd.Flags().Lookup("snapshot-interval"))
-
-	// Cobra also supports local flags, which will only run
-	// when this action is called directly.
-	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	// allow some flags to be set via environment variables / config file
+	mustBind("kubeconfig",
+		viper.BindPFlag("kubeconfig", rootCmd.PersistentFlags().Lookup("kubeconfig")))
+	mustBind("debug",
+		viper.BindPFlag("debug", rootCmd.PersistentFlags().Lookup("debug")))
+	mustBind("truncate-debug",
+		viper.BindPFlag("truncate-debug", rootCmd.PersistentFlags().Lookup("truncate-debug")))
+	mustBind("no-durable-sync",
+		viper.BindPFlag("no-durable-sync", rootCmd.Flags().Lookup("no-durable-sync")))
+	mustBind("disable-cache",
+		viper.BindPFlag("disable-cache", rootCmd.Flags().Lookup("disable-cache")))
+	mustBind("snapshot-interval",
+		viper.BindPFlag("snapshot-interval", rootCmd.Flags().Lookup("snapshot-interval")))
 }
 
 func Execute() {
@@ -486,20 +493,6 @@ func loadHistoryFromDB(
 	return err
 }
 
-// argsOrOutputFile checks if there are any arguments passed to the command or if the --output flag was set.
-// TODO: in the future, we should separate --output into --output and --load (or a load subcommand)
-//
-//	so we either save to file OR read from file, but never both (maybe if --append is set)
-func argsOrOutputFile(cmd *cobra.Command, args []string) error {
-	if len(args) > 0 {
-		return nil
-	}
-	if outputFile != "" {
-		return nil
-	}
-	return fmt.Errorf("either specify at least one resource to watch or set the --output flag")
-}
-
 func validateArgsAndFlags(cmd *cobra.Command, args []string) error {
 	if len(args) == 0 && outputFile == "" {
 		return fmt.Errorf("either specify at least one resource to watch or set the --output flag")
@@ -513,4 +506,10 @@ func validateArgsAndFlags(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func mustBind(flagName string, err error) {
+	if err != nil {
+		log.Fatal().Err(err).Msgf("Failed to bind flag %s", flagName)
+	}
 }
