@@ -406,7 +406,7 @@ func loadHistoryFromDB(
 			return true
 		}
 
-		if handleErr := handler.HandleRevision(unstructuredObj, current.ID, snapshot, patch); handleErr != nil {
+		if handleErr := handler.HandleRevision(unstructuredObj, revisionID, current, patch); handleErr != nil {
 			log.Error().Err(handleErr).Msg("Error handling historic revision")
 		}
 		return true
