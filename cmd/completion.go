@@ -1,8 +1,14 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/kubernetes"
@@ -38,7 +44,21 @@ func init() {
 	rootCmd.AddCommand(completionCmd)
 }
 
+// loadClusterGVRs loads the GroupVersionResources (GVRs) from the Kubernetes cluster
 func loadClusterGVRs(kubeConfigPath string) ([]string, error) {
+	const cacheTTL = 60 * time.Second
+
+	cacheKey := strings.ReplaceAll(kubeConfigPath, string(os.PathSeparator), "_")
+	cachePath := filepath.Join(os.TempDir(), "loog_complete_"+cacheKey+".json")
+	if info, err := os.Stat(cachePath); err == nil && time.Since(info.ModTime()) < cacheTTL {
+		if data, err := os.ReadFile(cachePath); err == nil {
+			var cached []string
+			if json.Unmarshal(data, &cached) == nil {
+				return cached, nil
+			}
+		}
+	}
+
 	cfg, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("building kube config: %w", err)
@@ -72,6 +92,16 @@ func loadClusterGVRs(kubeConfigPath string) ([]string, error) {
 			gvrList = append(gvrList, gvr)
 		}
 	}
+
+	// sort the GVRs for consistent output
+	sort.SliceStable(gvrList, func(i, j int) bool {
+		return gvrList[i] < gvrList[j]
+	})
+
+	// cache the GVRs to a file
+	data, _ := json.Marshal(gvrList)
+	_ = os.WriteFile(cachePath, data, 0o600)
+
 	return gvrList, nil
 }
 
