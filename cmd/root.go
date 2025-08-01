@@ -61,7 +61,13 @@ those revisions in a Terminal UI or collect them head-less for further analysis`
 	},
 }
 
+var setupLog = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().
+	Timestamp().
+	Caller().
+	Logger()
+
 func init() {
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnixMs
 	cobra.OnInitialize(initConfig)
 
 	// global flags
@@ -131,21 +137,13 @@ func initConfig() {
 
 	// If a config file is found, read it in.
 	if err := viper.ReadInConfig(); err == nil {
-		_, _ = fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
+		setupLog.Info().Msgf("Using config file: %s", viper.ConfigFileUsed())
 	}
 }
 
 // run is the main entry point for the command execution.
 func run(ctx context.Context, args []string) error {
-	zerolog.TimeFieldFormat = zerolog.TimeFormatUnixMs
 
-	// setupLog is a secondary logger only used for setup and initialization.
-	// when you want to log something later when the TUI is running, it writes only to the debug.log file
-	// if this was enabled by the [debugMode] flag.
-	setupLog := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().
-		Timestamp().
-		Caller().
-		Logger()
 	if enableDebugMode {
 		setupLog.Info().Msg("Debug mode is enabled, setting up debug logger...")
 

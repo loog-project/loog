@@ -99,8 +99,18 @@ func loadClusterGVRs(kubeConfigPath string) ([]string, error) {
 	})
 
 	// cache the GVRs to a file
-	data, _ := json.Marshal(gvrList)
-	_ = os.WriteFile(cachePath, data, 0o600)
+	func() {
+		data, err := json.Marshal(gvrList)
+		if err != nil {
+			setupLog.Error().Err(err).Msg("failed to marshal GVRs for caching")
+			return
+		}
+		err = os.WriteFile(cachePath, data, 0o600)
+		if err != nil {
+			setupLog.Error().Err(err).Msg("failed to write GVRs to cache file")
+			return
+		}
+	}()
 
 	return gvrList, nil
 }
