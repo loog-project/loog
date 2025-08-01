@@ -493,7 +493,8 @@ func loadHistoryFromDB(
 
 func validateArgsAndFlags(cmd *cobra.Command, args []string) error {
 	if len(args) == 0 && outputFile == "" {
-		return fmt.Errorf("either specify at least one resource to watch or set the --output flag")
+		return fmt.Errorf(
+			"at least one resource argument or the --output flag must be provided (you may provide both)")
 	}
 
 	// validate each provided resource argument

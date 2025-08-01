@@ -105,7 +105,7 @@ func loadClusterGVRs(kubeConfigPath string) ([]string, error) {
 			setupLog.Error().Err(err).Msg("failed to marshal GVRs for caching")
 			return
 		}
-		err = os.WriteFile(cachePath, data, 0o600)
+		err = os.WriteFile(cachePath, data, 0o644)
 		if err != nil {
 			setupLog.Error().Err(err).Msg("failed to write GVRs to cache file")
 			return
