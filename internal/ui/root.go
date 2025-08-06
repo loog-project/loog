@@ -32,14 +32,11 @@ type Root struct {
 
 	ViewStack    []View
 	ShuttingDown bool
-
-	Logger *UILogger
 }
 
-func NewRoot(theme Theme, logger *UILogger, first View) *Root {
+func NewRoot(theme Theme, first View) *Root {
 	r := &Root{
-		Theme:  theme,
-		Logger: logger,
+		Theme: theme,
 	}
 	r.applyTo(first)
 	r.ViewStack = []View{first}
@@ -122,11 +119,6 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// TODO(future): remove `q` from here as views should handle it
 			r.ShuttingDown = true
 			return r, tea.Quit
-		case "L":
-			if isViewOpen[*LogView](r) {
-				return r, PushChangeView(Pop, nil)
-			}
-			return r, PushChangeView(Push, NewLogView(r.Logger))
 		case "E":
 			return r, PushAlert("Test", fmt.Errorf("This is a test!"))
 		}
@@ -147,27 +139,13 @@ func (r Root) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (r Root) renderBar(breadcrumbs string, help string) string {
 	breadcrumbsRender := r.Theme.BreadcrumbBarStyle.Render(breadcrumbs)
 
-	var logRender string
-	if r.Logger != nil {
-		info, warn, err := r.Logger.peekUnread(false)
-
-		if info+warn+err > 0 {
-			// TODO(future): nicer format
-			logRender = r.Theme.LoggerBarStyle.Render(fmt.Sprintf("🔔(%di|%dw|%de)",
-				info, warn, err))
-		} else {
-			logRender = ""
-		}
-	}
-
 	helpRender := r.Theme.HelpBarStyle.
-		Width(r.Width - lipgloss.Width(breadcrumbsRender) - lipgloss.Width(logRender)).
+		Width(r.Width - lipgloss.Width(breadcrumbsRender)).
 		Render(help)
 
 	return lipgloss.JoinHorizontal(lipgloss.Top,
 		helpRender,
 		breadcrumbsRender,
-		logRender,
 	)
 }
 

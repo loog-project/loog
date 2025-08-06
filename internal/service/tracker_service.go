@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/loog-project/loog/internal/store"
+	"github.com/loog-project/loog/internal/util"
 	"github.com/loog-project/loog/pkg/diffmap"
 )
 
@@ -71,6 +72,16 @@ func (t *TrackerService) Close() error {
 	return nil
 }
 
+// DuplicateResourceVersionError is thrown when a Kubernetes object was committed that is already in the rps
+type DuplicateResourceVersionError struct {
+	rev             store.RevisionID
+	resourceVersion string
+}
+
+func (n DuplicateResourceVersionError) Error() string {
+	return fmt.Sprintf("resource version %s is already present in revision %d", n.resourceVersion, n.rev)
+}
+
 // Commit persists *obj* and returns the new revision ID.
 func (t *TrackerService) Commit(
 	ctx context.Context,
@@ -116,6 +127,14 @@ func (t *TrackerService) Commit(
 		ts = &trackerState{obj: snapshot.Object, rev: latest}
 		if t.cache != nil {
 			t.cache.set(objID, ts)
+		}
+	}
+
+	lastRevisionResourceVersion, ok := util.ExtractResourceVersion(ts.obj)
+	if ok && lastRevisionResourceVersion == newObject.GetResourceVersion() {
+		return 0, DuplicateResourceVersionError{
+			rev:             ts.rev,
+			resourceVersion: lastRevisionResourceVersion,
 		}
 	}
 
