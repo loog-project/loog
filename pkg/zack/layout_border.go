@@ -1,8 +1,6 @@
 package zack
 
 import (
-	"context"
-
 	"github.com/charmbracelet/lipgloss"
 	"github.com/rs/zerolog/log"
 )
@@ -24,11 +22,11 @@ var _ Boundable = (*BorderLayout)(nil)
 
 // BorderLayout is a layout that renders a border around its content.
 //
-// +-------------------+
-// |                   |
-// |     content       |
-// |                   |
-// +-------------------+
+// +-----------------+
+// |                 |
+// |     content     |
+// |                 |
+// +-----------------+
 type BorderLayout struct {
 	Focuser
 
@@ -60,7 +58,7 @@ func NewBorderLayout() *BorderLayout {
 }
 
 // Render adds a border around the content.
-func (m *BorderLayout) Render(ctx context.Context, content string) string {
+func (m *BorderLayout) Render(content string) string {
 	if !m.layoutBounds.IsValid() {
 		return "waiting for layout bounds to be set"
 	}

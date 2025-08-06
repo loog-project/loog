@@ -18,21 +18,21 @@ var _ Boundable = (*SplitLayoutModel)(nil)
 
 // SplitLayoutModel is a layout that splits the screen into two views, either horizontally or vertically.
 // It takes a fraction (0 to 1) to determine how much space each view should take.
-// The left view will take the fraction of the screen, and the end view will take the remaining space.
-// For example, if the fraction is 0.4, the left view will take 40% of the screen and the end view will take 60%.
+// The start view will take the fraction of the screen, and the end view will take the remaining space.
+// For example, if the fraction is 0.4, the start view will take 40% of the screen and the end view will take 60%.
 //
 // Horizontal:
 //
-//	+------------------+------------------+
-//	| Start View (50%) | End View (50%)   |
-//	+------------------+------------------+
+//	+------------------+------------------------+
+//	| Start View (40%) |     End View (60%)     |
+//	+------------------+------------------------+
 //
 // Vertical:
 //
 //	+------------------+
 //	| Start View (50%) |
 //	+------------------+
-//	| End View (50%)   |
+//	|  End View (50%)  |
 //	+------------------+
 type SplitLayoutModel struct {
 	orientation SplitOrientation
@@ -174,10 +174,6 @@ func (m *SplitLayoutModel) refreshBounds() {
 // setStartChildBounds sets the bounds for the start child view and updates its boundable.
 func (m *SplitLayoutModel) setStartChildBounds(bounds Bounds) {
 	m.startChildBounds = bounds
-	if !bounds.IsValid() {
-		log.Warn().Msgf("(SplitLayout.setStartChildBounds) start child bounds are invalid: %v", bounds)
-		return
-	}
 	if m.startChildBoundable != nil {
 		m.startChildBoundable.SetBounds(bounds)
 	}
@@ -236,19 +232,21 @@ func (m *SplitLayoutModel) ToggleOrientation() {
 }
 
 // AttachStartBoundable attaches a boundable to the start side of the split layout
-func (m *SplitLayoutModel) AttachStartBoundable(boundable Boundable) {
+func (m *SplitLayoutModel) AttachStartBoundable(boundable Boundable) *SplitLayoutModel {
 	if boundable == nil {
 		log.Warn().Msgf("(SplitLayoutModel.AttachStartBoundable) boundable is nil, cannot attach")
-		return
+		return m
 	}
 	m.startChildBoundable = boundable
+	return m
 }
 
 // AttachEndBoundable attaches a boundable to the end side of the split layout
-func (m *SplitLayoutModel) AttachEndBoundable(boundable Boundable) {
+func (m *SplitLayoutModel) AttachEndBoundable(boundable Boundable) *SplitLayoutModel {
 	if boundable == nil {
 		log.Warn().Msgf("(SplitLayoutModel.AttachEndBoundable) boundable is nil, cannot attach")
-		return
+		return m
 	}
 	m.endChildBoundable = boundable
+	return m
 }
