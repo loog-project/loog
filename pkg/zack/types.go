@@ -22,7 +22,7 @@ func (f *Focuser) HasFocus() bool {
 
 // =====================================================================================================================
 
-type Boundable interface {
+type Resizable interface {
 	SetBounds(bounds Bounds)
 }
 

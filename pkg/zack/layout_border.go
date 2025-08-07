@@ -2,7 +2,6 @@ package zack
 
 import (
 	"github.com/charmbracelet/lipgloss"
-	"github.com/rs/zerolog/log"
 )
 
 var (
@@ -18,7 +17,7 @@ var (
 					BorderForeground(lipgloss.Color("33"))
 )
 
-var _ Boundable = (*BorderLayout)(nil)
+var _ Resizable = (*BorderLayout)(nil)
 
 // BorderLayout is a layout that renders a border around its content.
 //
@@ -30,8 +29,8 @@ var _ Boundable = (*BorderLayout)(nil)
 type BorderLayout struct {
 	Focuser
 
-	childBounds    Bounds
-	childBoundable Boundable
+	childBounds          Bounds
+	attachedChildResizer Resizable
 
 	layoutBounds Bounds
 
@@ -75,8 +74,10 @@ func (m *BorderLayout) Render(content string) string {
 
 // SetBounds sets the bounds for the BorderLayout and its child view.
 func (m *BorderLayout) SetBounds(bounds Bounds) {
-	m.layoutBounds = bounds
+	m.layoutBounds = bounds // keep track of the layout bounds
 
+	// calculate the insets based on the current focus state
+	// since two different border styles may have different padding
 	widthInset := m.borderIdleWidthInset
 	heightInset := m.borderIdleHeightInset
 	if m.HasFocus() {
@@ -85,13 +86,19 @@ func (m *BorderLayout) SetBounds(bounds Bounds) {
 	}
 
 	m.childBounds = NewBounds(bounds.Width-widthInset, bounds.Height-heightInset)
-	if !m.childBounds.IsValid() {
-		log.Warn().Msgf("(BorderLayout.SetBounds) child bounds are invalid: %v", bounds)
-		return
+	if m.attachedChildResizer != nil {
+		m.attachedChildResizer.SetBounds(m.childBounds)
 	}
-	if m.childBoundable != nil {
-		m.childBoundable.SetBounds(m.childBounds)
+}
+
+// AttachChild attaches a Resizable child to the BorderLayout. When the BorderLayout's bounds are set,
+// it will also set the bounds of the attached child Resizable to match the inner bounds of the border.
+func (m *BorderLayout) AttachChild(resizer Resizable) *BorderLayout {
+	m.attachedChildResizer = resizer
+	if m.attachedChildResizer != nil {
+		m.attachedChildResizer.SetBounds(m.childBounds)
 	}
+	return m
 }
 
 // SetActiveBorderStyle sets the style for the border when it is active (focused).
