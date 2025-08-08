@@ -1,9 +1,6 @@
-<p align="center">
-  <img src="./assets/banner.png" />
-  <h1 align="center">LOOG</h1>
-</p>
+![banner](./assets/banner.png)
 
-<blockquote align="center">A small TUI program that records every change made to one or more Kubernetes resources and lets you browse those revisions.</blockquote>
+<blockquote align="center"><i>LOOG</i> is a small TUI program that records every change made to one or more Kubernetes resources and lets you browse those revisions.</blockquote>
 
 <p align="center">
 [
