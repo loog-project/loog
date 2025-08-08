@@ -34,10 +34,11 @@ loog apps/v1/deployments v1/services
 loog -f 'Namespaces("prod","kube-system")' v1/pods
 ```
 
+**Resources** are specified as Group/Version/Resource (`GVR`) strings, e.g. `v1/pods`, `apps/v1/deployments`,
+`batch/v1/jobs`. You must provide **at least one resource** to watch or load an older recording using `--output [FILE]` file (or both).
+
 > [!NOTE]
-> **Resources** are specified as Group/Version/Resource (`GVR`) strings, e.g. `v1/pods`, `apps/v1/deployments`,
-`batch/v1/jobs`.
-> You must provide **at least one resource** to watch or load an older recording using `--output [FILE]` file (or both).
+> _LOOG_ uses your kubeconfig and RBAC. You'll only see/list/watch what your credentials allow.
 
 ### Interactive vs. headless
 
@@ -112,6 +113,18 @@ loog -f 'Object.GetLabels()["app"] == "web" && Object.GetNamespace() == "adm"' a
 > **Non-matching resources are *not added* to the database.**
 > When opening an existing `.loog` file, the filter acts as a **view** in the UI (it doesn't delete data).
 
+### Performance & Durability
+
+- `--snapshot-interval, -s <N>`: write a full snapshot every N patches (default `8`).
+- `--no-durable-sync`: skip fsync on each commit (higher throughput, **unsafe on crashes**).
+- `--disable-cache`: disable the in-memory cache layer.
+
+### Kubeconfig & Debug
+
+- `--kubeconfig <path>` (default: `$HOME/.kube/config`)
+- `--debug`: write verbose logs to `debug.log` (`--truncate-debug` to start fresh)
+  - this is useful for debugging the TUI
+
 ---
 
 ## Installation
@@ -136,9 +149,17 @@ _LOOG_ supports shell completions for `bash`, `zsh`, `fish` and `powershell`.
 To install completions for `bash`, `zsh` and `fish`, add the following lines to your shell configuration file
 
 ```bash
-source <(loog completion bash)  # for bash
-source <(loog completion zsh)   # for zsh
-source <(loog completion fish)  # for fish
+# bash
+source <(loog completion bash)
+
+# zsh
+source <(loog completion zsh)
+
+# fish
+loog completion fish | source
+
+# powershell
+loog completion powershell | Out-String | Invoke-Expression
 ```
 
 ### `kubectl` plugin
