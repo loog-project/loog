@@ -42,7 +42,7 @@ loog -f 'Namespaces("prod","kube-system")' v1/pods
 ### Interactive vs. headless
 
 ```bash
-# Interactive (TUI) — default mode
+# Interactive (TUI) - default mode
 loog apps/v1/deployments v1/pods
 ```
 
@@ -51,7 +51,7 @@ loog apps/v1/deployments v1/pods
 * Exit the TUI to stop; the temp store is removed on exit.
 
 ```bash
-# Headless — collect only, no TUI (Ctrl+C to stop)
+# Headless - collect only, no TUI (Ctrl+C to stop)
 loog -H -o history.loog apps/v1/deployments v1/pods
 ```
 
@@ -68,7 +68,7 @@ loog -o history.loog
 ### Filtering
 
 The `-f/--filter` flag takes an [expr-lang](https://github.com/expr-lang/expr) boolean expression.
-By default, it’s `All()` (record everything).
+By default, it's `All()` (record everything).
 
 **Built-in helpers** make it easy to filter by namespace, name, or both:
 
@@ -110,7 +110,7 @@ loog -f 'Object.GetLabels()["app"] == "web" && Object.GetNamespace() == "adm"' a
 > [!IMPORTANT]
 > Filters are evaluated **before writing** live events.
 > **Non-matching resources are *not added* to the database.**
-> When opening an existing `.loog` file, the filter acts as a **view** in the UI (it doesn’t delete data).
+> When opening an existing `.loog` file, the filter acts as a **view** in the UI (it doesn't delete data).
 
 ---
 
@@ -171,5 +171,5 @@ cp compat/k9s/plugins.yaml ~/.config/k9s/plugins.yaml
 The code base is **very young and still moving quickly**. Pull requests are welcome, but opening an issue first avoids
 wasted work if the surrounding code changes while you are developing.
 
-Development requires the usual Go tool‑chain and a running Kubernetes cluster (Kind or Minikube is enough).
+Development requires the usual Go tool-chain and a running Kubernetes cluster (Kind or Minikube is enough).
 Unit tests run with `go test ./...`.
