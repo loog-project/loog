@@ -82,7 +82,7 @@ By default, it's `All()` (record everything).
 * `Namespaces("ns1", "ns2", ...)` (alias: `Namespace(...)`) checks if the object is in one of the given namespaces.
 * `Names("n1", "n2", ...)` (alias: `Name(...)`) checks if the object has one of the given names.
 * `Namespaced("namespace", "name")` checks if the object is a namespaced resource with the given namespace and name.
-* `HasLabels("key1", "key2", ...)` (alias: `HasLabel(...)`) checks if the object has any of the given labels.
+* `LabelExists("key1", "key2", ...)` checks if the object has any of the given labels.
 * `Label("key", "value")` checks if the object has a label with the given key and value.
 
 **Examples:**

@@ -68,7 +68,7 @@ func (e EventEntryEnv) Namespaced(namespace, name string) bool {
 	return e.Object.GetNamespace() == namespace && e.Object.GetName() == name
 }
 
-func (e EventEntryEnv) HasLabels(labelKeys ...string) bool {
+func (e EventEntryEnv) LabelExists(labelKeys ...string) bool {
 	if len(labelKeys) == 0 {
 		return true
 	}
@@ -82,10 +82,6 @@ func (e EventEntryEnv) HasLabels(labelKeys ...string) bool {
 		}
 	}
 	return true
-}
-
-func (e EventEntryEnv) HasLabel(labelKey string) bool {
-	return e.HasLabels(labelKey)
 }
 
 func (e EventEntryEnv) Label(key, value string) bool {
