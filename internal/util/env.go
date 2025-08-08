@@ -67,3 +67,34 @@ func (e EventEntryEnv) Name(vals ...string) bool {
 func (e EventEntryEnv) Namespaced(namespace, name string) bool {
 	return e.Object.GetNamespace() == namespace && e.Object.GetName() == name
 }
+
+func (e EventEntryEnv) HasLabels(labelKeys ...string) bool {
+	if len(labelKeys) == 0 {
+		return true
+	}
+	labels := e.Object.GetLabels()
+	if labels == nil {
+		return false
+	}
+	for _, key := range labelKeys {
+		if _, exists := labels[key]; !exists {
+			return false
+		}
+	}
+	return true
+}
+
+func (e EventEntryEnv) HasLabel(labelKey string) bool {
+	return e.HasLabels(labelKey)
+}
+
+func (e EventEntryEnv) Label(key, value string) bool {
+	if e.Object.GetLabels() == nil {
+		return false
+	}
+	val, exists := e.Object.GetLabels()[key]
+	if !exists {
+		return false
+	}
+	return val == value
+}
