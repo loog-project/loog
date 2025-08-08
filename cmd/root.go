@@ -1,9 +1,9 @@
-package main
+package cmd
 
 import (
 	"context"
 	"errors"
-	"flag"
+	"fmt"
 	"maps"
 	"os"
 	"os/signal"
@@ -15,6 +15,8 @@ import (
 	"github.com/expr-lang/expr/vm"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/tools/clientcmd"
@@ -30,50 +32,123 @@ import (
 )
 
 var (
-	flagEnableDebugLog   bool
-	flagTruncateDebugLog bool
+	// persistent flags
+	cfgFile          string
+	kubeConfigPath   string
+	enableDebugMode  bool
+	truncateDebugLog bool
 
-	flagKubeconfig       string
-	flagOutFile          string
-	flagNotDurable       bool
-	flagNoCache          bool
-	flagSnapshotEvery    uint64
-	flagFilterExpression string
-	flagNonInteractive   bool
+	// local flags
+	outputFile       string
+	noDurableSync    bool
+	disableCache     bool
+	snapshotInterval uint64
+	filterExpr       string
+	headlessMode     bool
 )
 
-func init() {
-	flag.BoolVar(&flagEnableDebugLog, "debug", false, "enable debug logging to debug.log")
-	flag.BoolVar(&flagTruncateDebugLog, "truncate", false, "truncate debug.log instead of appending to it")
-	flag.StringVar(&flagOutFile, "out", "", "dump output file")
-	flag.BoolVar(&flagNotDurable, "not-durable", false, "if set to true, the store won't fsync every commit")
-	flag.BoolVar(&flagNoCache, "no-cache", false, "if set to true, the store won't cache the data")
-	flag.Uint64Var(&flagSnapshotEvery, "snapshot-every", 8, "patches until snapshot")
-	flag.StringVar(&flagFilterExpression, "filter-expr", "All()", "filter for objects to process")
-	flag.BoolVar(&flagNonInteractive, "non-interactive", false, "set to true to disable the UI")
-	if h := homedir.HomeDir(); h != "" {
-		flag.StringVar(&flagKubeconfig, "kubeconfig", filepath.Join(h, ".kube", "config"), "")
-	} else {
-		flag.StringVar(&flagKubeconfig, "kubeconfig", "", "")
-	}
-	flag.Parse()
+var rootCmd = &cobra.Command{
+	Use:   "loog [FLAGS] [RESOURCES...]",
+	Short: "Kubernetes Resource History Viewer",
+	Long: `Loog is an interactive or headless tool that watches arbitrary Kubernetes
+resources and records every change as either a snapshot or patch. You can explore
+those revisions in a Terminal UI or collect them head-less for further analysis`,
+	Args:              cobra.ArbitraryArgs,
+	ValidArgsFunction: gvrCompletion,
+	PreRunE:           validateArgsAndFlags,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return run(cmd.Context(), args)
+	},
 }
 
-func main() {
-	zerolog.TimeFieldFormat = zerolog.TimeFormatUnixMs
+var setupLog = zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().
+	Timestamp().
+	Caller().
+	Logger()
 
-	// setupLog is a secondary logger only used for setup and initialization.
-	// when you want to log something later when the TUI is running, it writes only to the debug.log file
-	// if this was enabled by the [debugMode] flag.
-	setupLog := zerolog.New(os.Stderr).With().
-		Timestamp().
-		Caller().
-		Logger()
-	if flagEnableDebugLog {
+func init() {
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnixMs
+	cobra.OnInitialize(initConfig)
+
+	// global flags
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "",
+		"config file (default is $HOME/.loog.yaml)")
+	defaultKube := ""
+	if home := homedir.HomeDir(); home != "" {
+		defaultKube = filepath.Join(home, ".kube", "config")
+	}
+	rootCmd.PersistentFlags().StringVar(&kubeConfigPath, "kubeconfig", defaultKube,
+		"Path to the kubeconfig file (defaults to $HOME/.kube/config)")
+	rootCmd.PersistentFlags().BoolVar(&enableDebugMode, "debug", false,
+		"Enable debug mode, which will print additional information to the debug.log file")
+	rootCmd.PersistentFlags().BoolVar(&truncateDebugLog, "truncate-debug", false,
+		"Truncate the debug.log file on startup, if it exists")
+
+	// loog command flags
+	rootCmd.Flags().StringVarP(&outputFile, "output", "o", "",
+		"Path to the *.loog output file (default: temporary file)")
+	rootCmd.Flags().StringVarP(&filterExpr, "filter", "f", "All()",
+		"Filter expression to select which resources to store (default: all resources)")
+	rootCmd.Flags().BoolVarP(&headlessMode, "headless", "H", false,
+		"Run in headless mode, without TUI. Useful for collecting revisions only.")
+	rootCmd.Flags().BoolVar(&noDurableSync, "no-durable-sync", false,
+		"Skip fsync on every commit to improve throughput (unsafe on crashes)")
+	rootCmd.Flags().BoolVar(&disableCache, "disable-cache", false,
+		"Disable in‑memory cache layer for the revision store")
+	rootCmd.Flags().Uint64VarP(&snapshotInterval, "snapshot-interval", "s", 8,
+		"Create a full snapshot after this many patches (default 8)")
+
+	// allow some flags to be set via environment variables / config file
+	mustBind("kubeconfig",
+		viper.BindPFlag("kubeconfig", rootCmd.PersistentFlags().Lookup("kubeconfig")))
+	mustBind("debug",
+		viper.BindPFlag("debug", rootCmd.PersistentFlags().Lookup("debug")))
+	mustBind("truncate-debug",
+		viper.BindPFlag("truncate-debug", rootCmd.PersistentFlags().Lookup("truncate-debug")))
+	mustBind("no-durable-sync",
+		viper.BindPFlag("no-durable-sync", rootCmd.Flags().Lookup("no-durable-sync")))
+	mustBind("disable-cache",
+		viper.BindPFlag("disable-cache", rootCmd.Flags().Lookup("disable-cache")))
+	mustBind("snapshot-interval",
+		viper.BindPFlag("snapshot-interval", rootCmd.Flags().Lookup("snapshot-interval")))
+}
+
+func Execute() {
+	err := rootCmd.Execute()
+	if err != nil {
+		os.Exit(1)
+	}
+}
+
+// initConfig reads in config file and ENV variables if set.
+func initConfig() {
+	if cfgFile != "" {
+		viper.SetConfigFile(cfgFile)
+	} else {
+		home, err := os.UserHomeDir()
+		cobra.CheckErr(err)
+
+		viper.AddConfigPath(home)
+		viper.SetConfigType("yaml")
+		viper.SetConfigName(".loog")
+	}
+
+	viper.AutomaticEnv()
+
+	// If a config file is found, read it in.
+	if err := viper.ReadInConfig(); err == nil {
+		setupLog.Info().Msgf("Using config file: %s", viper.ConfigFileUsed())
+	}
+}
+
+// run is the main entry point for the command execution.
+func run(ctx context.Context, args []string) error {
+
+	if enableDebugMode {
 		setupLog.Info().Msg("Debug mode is enabled, setting up debug logger...")
 
 		fileMode := os.O_CREATE | os.O_WRONLY
-		if flagTruncateDebugLog {
+		if truncateDebugLog {
 			fileMode |= os.O_TRUNC
 		} else {
 			fileMode |= os.O_APPEND
@@ -99,7 +174,7 @@ func main() {
 		log.Logger = zerolog.Nop()
 	}
 
-	if flagOutFile == "" {
+	if outputFile == "" {
 		file, err := os.CreateTemp("", "loog-output-*.loog")
 		if err != nil {
 			setupLog.Fatal().Err(err).Msg("Cannot create temp file")
@@ -110,30 +185,30 @@ func main() {
 				setupLog.Err(removeErr).Msg("Cannot remove temp file")
 			}
 		}()
-		flagOutFile = file.Name()
+		outputFile = file.Name()
 
-		setupLog.Info().Msgf("No output file specified, using temporary file: %s", flagOutFile)
+		setupLog.Info().Msgf("No output file specified, using temporary file: %s", outputFile)
 	}
 
 	setupLog.Info().
-		Str("expression", flagFilterExpression).
+		Str("expression", filterExpr).
 		Msg("Compiling filter expression...")
-	prog, err := expr.Compile(flagFilterExpression, expr.Env(util.EventEntryEnv{}), expr.AsBool())
+	prog, err := expr.Compile(filterExpr, expr.Env(util.EventEntryEnv{}), expr.AsBool())
 	if err != nil {
 		setupLog.Fatal().Err(err).Msg("Error compiling filter expression")
 	}
 
 	setupLog.Info().
-		Str("store-file", flagOutFile).
+		Str("store-file", outputFile).
 		Msg("Preparing object revision store...")
-	rps, err := bboltStore.New(flagOutFile, nil, !flagNotDurable)
+	rps, err := bboltStore.New(outputFile, nil, !noDurableSync)
 	if err != nil {
 		setupLog.Fatal().Err(err).Msg("Error preparing store")
 	}
-	trackerService := service.NewTrackerService(rps, flagSnapshotEvery, !flagNoCache)
+	trackerService := service.NewTrackerService(rps, snapshotInterval, !disableCache)
 
 	setupLog.Info().Msg("Preparing dynamic Kubernetes watch client...")
-	cfg, err := clientcmd.BuildConfigFromFlags("", flagKubeconfig)
+	cfg, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
 	if err != nil {
 		setupLog.Fatal().Err(err).Msg("Error loading kubeconfig")
 	}
@@ -153,7 +228,7 @@ func main() {
 	defer mux.Stop()
 
 	// add default resources from the arguments
-	for _, r := range flag.Args() {
+	for _, r := range args {
 		gvr, gvrParseErr := util.ParseGroupVersionResource(r)
 		if gvrParseErr != nil {
 			setupLog.Fatal().Err(gvrParseErr).Msgf("Cannot parse argument '%s' to GVR", r)
@@ -165,7 +240,7 @@ func main() {
 
 	var wg sync.WaitGroup
 
-	if flagNonInteractive {
+	if headlessMode {
 		// headless mode: we will not use the UI, but just collect revisions and store them in the store.
 		setupLog.Info().Msg("Running in headless mode, using no-op revision handler")
 
@@ -224,6 +299,8 @@ func main() {
 
 	wg.Wait()
 	setupLog.Info().Msg("Collector stopped, bye!")
+
+	return nil
 }
 
 // revisionHandler is the handler used by the collector to handle revisions.
@@ -412,4 +489,26 @@ func loadHistoryFromDB(
 		return true
 	})
 	return err
+}
+
+func validateArgsAndFlags(cmd *cobra.Command, args []string) error {
+	if len(args) == 0 && outputFile == "" {
+		return fmt.Errorf(
+			"at least one resource argument or the --output flag must be provided (you may provide both)")
+	}
+
+	// validate each provided resource argument
+	for _, a := range args {
+		if _, err := util.ParseGroupVersionResource(a); err != nil {
+			return fmt.Errorf("invalid resource argument %q: %w", a, err)
+		}
+	}
+
+	return nil
+}
+
+func mustBind(flagName string, err error) {
+	if err != nil {
+		log.Fatal().Err(err).Msgf("Failed to bind flag %s", flagName)
+	}
 }

@@ -13,7 +13,7 @@ https://github.com/user-attachments/assets/7013fe8b-fbe3-42a9-96c7-9a2fad8fabf5
 ### `loog` base binary
 
 ```bash
-go install github.com/loog-project/loog/cmd/loog@latest
+go install github.com/loog-project/loog@latest
 ```
 
 or clone and build from source:
@@ -21,17 +21,18 @@ or clone and build from source:
 ```bash
 git clone https://github.com/loog-project/loog
 cd loog
-go install ./cmd/loog
+go install .
 ```
 
-#### `zsh` shell completions
+#### Shell Completions
 
-Shell completions for `zsh` can be found in `compat/zsh/_loog`. To install, copy it to your `fpath`:
+_LOOG_ supports shell completions for `bash`, `zsh`, `fish` and `powershell`.
+To install completions for `bash`, `zsh` and `fish`, add the following lines to your shell configuration file
 
 ```bash
-echo 'fpath=("'$(pwd)'/compat/zsh" $fpath)' >> ~/.zshrc
-echo 'autoload -Uz compinit && compinit' >> ~/.zshrc
-source ~/.zshrc
+source <(loog completion bash)  # for bash
+source <(loog completion zsh)   # for zsh
+source <(loog completion fish)  # for fish
 ```
 
 ### `kubectl` plugin
