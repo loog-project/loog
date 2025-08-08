@@ -1,10 +1,19 @@
-![banner](./assets/banner.png)
+<p align="center">
+  <img src="./assets/banner.png" />
+  <h1 align="center">LOOG</h1>
+</p>
 
-_LOOG_ is a small program that records every change made to one or more Kubernetes resources and lets you browse those
-revisions.
+<blockquote align="center">A small TUI program that records every change made to one or more Kubernetes resources and lets you browse those revisions.</blockquote>
+
+<p align="center">
+[
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#installation">Installation</a> •
+  <a href="#contributing">Contributing</a> •
+]
+</p>
 
 https://github.com/user-attachments/assets/7013fe8b-fbe3-42a9-96c7-9a2fad8fabf5
-
 
 ---
 
