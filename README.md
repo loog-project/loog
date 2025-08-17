@@ -146,7 +146,7 @@ or clone and build from source:
 ```bash
 git clone https://github.com/loog-project/loog
 cd loog
-go install .
+go install . # or: make build
 ```
 
 #### Shell Completions
@@ -170,6 +170,9 @@ loog completion powershell | Out-String | Invoke-Expression
 
 ### `kubectl` plugin
 
+> You can use `make link-kubectl` to automatically install _LOOG_ as a `kubectl` plugin.
+> Use `make unlink-kubectl` to remove the plugin.
+
 To install _LOOG_ as a `kubectl` plugin, copy or link the _LOOG_ binary to your `PATH`:
 
 ```bash
@@ -181,14 +184,20 @@ Note that the plugin does not support shell completions yet.
 
 ### `k9s` plugin
 
+> You can use `make link-k9s` to automatically install _LOOG_-shortcuts for `k9s`.
+> Use `make unlink-k9s` to remove the shortcuts.
+
 To install _LOOG_-shortcuts for `k9s`, copy the `compat/k9s/plugins.yaml` to your
-[`k9s` config directory](https://github.com/derailed/k9s#k9s-configuration) or extend your existing `plugins.yaml`.
+[`k9s` plugins directory](https://github.com/derailed/k9s#k9s-configuration) or extend your existing `plugins.yaml`.
 
 ```bash
 # macOS
-cp compat/k9s/plugins.yaml ~/Library/Application\ Support/k9s/plugins.yaml
+mkdir -p ~/Library/Application\ Support/k9s/plugins
+cp ./compat/k9s/plugins.yaml ~/Library/Application\ Support/k9s/plugins/loog-plugins.yaml
+
 # Unix
-cp compat/k9s/plugins.yaml ~/.config/k9s/plugins.yaml
+mkdir -p ~/.config/k9s/plugins
+cp ./compat/k9s/plugins.yaml ~/.config/k9s/plugins/loog-plugins.yaml
 ```
 
 ---
