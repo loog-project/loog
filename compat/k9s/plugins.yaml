@@ -11,13 +11,12 @@ plugins:
       - -c
       - >
         loog
-        -resource
-        $RESOURCE_GROUP/$RESOURCE_VERSION/$RESOURCE_NAME
-        -filter-expr
+        -f
         'Namespaced("$NAMESPACE", "$NAME")'
+        $RESOURCE_GROUP/$RESOURCE_VERSION/$RESOURCE_NAME
   loog-run-namespace:
     shortCut: Shift-Y
-    confirm: true
+    confirm: false
     scopes:
       - all
     description: "👀: Run Namespace"
@@ -27,7 +26,6 @@ plugins:
       - -c
       - >
         loog
-        -resource
-        $RESOURCE_GROUP/$RESOURCE_VERSION/$RESOURCE_NAME
-        -filter-expr
+        -f
         'Namespace("$NAMESPACE")'
+        $RESOURCE_GROUP/$RESOURCE_VERSION/$RESOURCE_NAME
