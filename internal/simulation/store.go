@@ -86,12 +86,11 @@ func (s *Store) FilterResources(expr string) []*resource.ResourceData {
 	if expr == "" {
 		return s.AllResources()
 	}
+	prog := resource.CompileFilter(expr)
 	lower := strings.ToLower(expr)
 	var result []*resource.ResourceData
 	for _, rd := range s.resources {
-		r := rd.Resource
-		searchable := strings.ToLower(r.Kind + " " + r.Name + " " + r.Namespace)
-		if strings.Contains(searchable, lower) {
+		if resource.MatchesFilterOrSubstring(prog, rd.Resource, lower) {
 			result = append(result, rd)
 		}
 	}
@@ -102,17 +101,15 @@ func (s *Store) FilterTimeline(expr string, starredOnly bool) []resource.Timelin
 	if expr == "" && !starredOnly {
 		return s.timeline
 	}
+	prog := resource.CompileFilter(expr)
 	lower := strings.ToLower(expr)
 	var result []resource.TimelineEntry
 	for _, e := range s.timeline {
 		if starredOnly && !e.Resource.Starred {
 			continue
 		}
-		if lower != "" {
-			searchable := strings.ToLower(e.Resource.Kind + " " + e.Resource.Name + " " + e.Resource.Namespace)
-			if !strings.Contains(searchable, lower) {
-				continue
-			}
+		if expr != "" && !resource.MatchesFilterOrSubstring(prog, e.Resource, lower) {
+			continue
 		}
 		result = append(result, e)
 	}

@@ -138,12 +138,18 @@ func (kg *KindGroup) TotalRevisions() int {
 type ResourceKind struct {
 	Kind       string // e.g., "Pod", "Deployment", "Secret"
 	APIVersion string // e.g., "v1", "apps/v1"
+	Resource   string // plural resource name, e.g., "pods", "deployments"
 	Namespaced bool   // whether instances live in a namespace
 }
 
 // String returns the Kind name (used for display and fuzzy matching).
 func (rk ResourceKind) String() string {
 	return rk.Kind
+}
+
+// GVR returns the "group/version/resource" string, e.g. "apps/v1/deployments" or "v1/pods".
+func (rk ResourceKind) GVR() string {
+	return rk.APIVersion + "/" + rk.Resource
 }
 
 // BurstGroup represents a group of timeline entries that occurred within

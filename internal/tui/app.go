@@ -72,6 +72,10 @@ type App struct {
 
 	// Analysis results cache
 	analysisResults map[string]AnalysisResult // resourceUID -> result
+
+	// External callbacks for watch kind management (production mode wiring)
+	onWatchKindAdded   func(rk ResourceKind) // called when user adds a watch kind
+	onWatchKindRemoved func(kind string)     // called when user removes a watch kind
 }
 
 // pendingRevision holds a revision that arrived during freeze.
@@ -99,6 +103,15 @@ func WithRecording() AppOption {
 	return func(a *App) {
 		a.recording = true
 		a.simulating = true // reuse simulating flag for "active data flow" state
+	}
+}
+
+// WithWatchCallbacks sets callbacks invoked when the user adds or removes a watched kind.
+// In production mode, these trigger mux.Add() / mux.Remove() on the dynamic informer.
+func WithWatchCallbacks(onAdd func(rk ResourceKind), onRemove func(kind string)) AppOption {
+	return func(a *App) {
+		a.onWatchKindAdded = onAdd
+		a.onWatchKindRemoved = onRemove
 	}
 }
 
@@ -485,6 +498,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case AddWatchKindMsg:
 		created := a.store.AddWatchKind(msg.Kind)
+		// Notify external watcher (e.g. mux.Add) so real data starts flowing
+		if a.onWatchKindAdded != nil {
+			a.onWatchKindAdded(msg.Kind)
+		}
 		a.store.RebuildKindGroups()
 		a.explorer.SetGroups(a.store.KindGroups())
 		a.refreshTimeline()
@@ -506,6 +523,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		a.store.RemoveWatchKind(msg.Kind)
+		// Notify external watcher (e.g. mux.Remove) so it stops watching this kind
+		if a.onWatchKindRemoved != nil {
+			a.onWatchKindRemoved(msg.Kind)
+		}
 		a.store.RebuildKindGroups()
 		a.explorer.SetGroups(a.store.KindGroups())
 		a.refreshTimeline()

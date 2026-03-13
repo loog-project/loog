@@ -193,12 +193,14 @@ func (cp *CommandPalette) View() string {
 		Render(strings.Repeat("─", contentW))
 
 	// Match list
+	// Chrome lines: border(2) + padding(2) + title(1) + search(1) + sep(1) + sep(1) + count(1) = 9
 	maxVisible := 10
-	if maxVisible > cp.height-10 {
-		maxVisible = cp.height - 10
+	maxFit := cp.height - 9
+	if maxFit < 3 {
+		maxFit = 3
 	}
-	if maxVisible < 3 {
-		maxVisible = 3
+	if maxVisible > maxFit {
+		maxVisible = maxFit
 	}
 
 	var matchLines []string
@@ -433,12 +435,14 @@ func (qs *QuickSearch) View() string {
 		Foreground(qs.theme.Surface1).
 		Render(strings.Repeat("─", contentW))
 
+	// Chrome lines: border(2) + padding(2) + title(1) + search(1) + sep(1) + sep(1) + count(1) = 9
 	maxVisible := 12
-	if maxVisible > qs.height-10 {
-		maxVisible = qs.height - 10
+	maxFit := qs.height - 9
+	if maxFit < 3 {
+		maxFit = 3
 	}
-	if maxVisible < 3 {
-		maxVisible = 3
+	if maxVisible > maxFit {
+		maxVisible = maxFit
 	}
 
 	var matchLines []string
@@ -834,12 +838,14 @@ func (wm *WatchManager) viewWatching(contentW int) string {
 	cursor := lipgloss.NewStyle().Background(wm.theme.Text).Foreground(wm.theme.Base).Render(" ")
 	searchLine := searchPrefix + queryDisplay + cursor
 
+	// Chrome lines: border(2) + padding(2) + title(1) + tabs(1) + sep(1) + search(1) + sep(1) + footer(1) = 10
 	maxVisible := 12
-	if maxVisible > wm.height-14 {
-		maxVisible = wm.height - 14
+	maxFit := wm.height - 10
+	if maxFit < 3 {
+		maxFit = 3
 	}
-	if maxVisible < 3 {
-		maxVisible = 3
+	if maxVisible > maxFit {
+		maxVisible = maxFit
 	}
 
 	nameStyle := lipgloss.NewStyle().Foreground(wm.theme.Text)
@@ -902,12 +908,14 @@ func (wm *WatchManager) viewAdd(contentW int) string {
 	cursor := lipgloss.NewStyle().Background(wm.theme.Text).Foreground(wm.theme.Base).Render(" ")
 	searchLine := searchPrefix + queryDisplay + cursor
 
+	// Chrome lines: border(2) + padding(2) + title(1) + tabs(1) + sep(1) + search(1) + sep(1) + footer(1) = 10
 	maxVisible := 12
-	if maxVisible > wm.height-14 {
-		maxVisible = wm.height - 14
+	maxFit := wm.height - 10
+	if maxFit < 3 {
+		maxFit = 3
 	}
-	if maxVisible < 3 {
-		maxVisible = 3
+	if maxVisible > maxFit {
+		maxVisible = maxFit
 	}
 
 	nameStyle := lipgloss.NewStyle().Foreground(wm.theme.Text)

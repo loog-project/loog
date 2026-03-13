@@ -140,10 +140,11 @@ func (s *LiveStore) FilterResources(expr string) []*resource.ResourceData {
 		return s.allResourcesLocked()
 	}
 
+	prog := resource.CompileFilter(expr)
 	lower := strings.ToLower(expr)
 	var result []*resource.ResourceData
 	for _, rd := range s.resources {
-		if matchesFilter(rd, lower) {
+		if resource.MatchesFilterOrSubstring(prog, rd.Resource, lower) {
 			result = append(result, rd)
 		}
 	}
@@ -167,6 +168,7 @@ func (s *LiveStore) FilterTimeline(expr string, starredOnly bool) []resource.Tim
 		return result
 	}
 
+	prog := resource.CompileFilter(expr)
 	lower := strings.ToLower(expr)
 	var result []resource.TimelineEntry
 	for _, e := range s.timeline {
@@ -176,11 +178,8 @@ func (s *LiveStore) FilterTimeline(expr string, starredOnly bool) []resource.Tim
 				continue
 			}
 		}
-		if expr != "" {
-			rd := s.resources[e.Resource.UID]
-			if rd == nil || !matchesFilter(rd, lower) {
-				continue
-			}
+		if expr != "" && !resource.MatchesFilterOrSubstring(prog, e.Resource, lower) {
+			continue
 		}
 		result = append(result, e)
 	}
@@ -370,14 +369,4 @@ func (s *LiveStore) allResourcesLocked() []*resource.ResourceData {
 		return result[i].Resource.Name < result[j].Resource.Name
 	})
 	return result
-}
-
-func matchesFilter(rd *resource.ResourceData, lowerExpr string) bool {
-	name := strings.ToLower(rd.Resource.Name)
-	kind := strings.ToLower(rd.Resource.Kind)
-	ns := strings.ToLower(rd.Resource.Namespace)
-	return strings.Contains(name, lowerExpr) ||
-		strings.Contains(kind, lowerExpr) ||
-		strings.Contains(ns, lowerExpr) ||
-		strings.Contains(strings.ToLower(rd.Resource.KindName()), lowerExpr)
 }

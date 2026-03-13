@@ -25,6 +25,10 @@ type ResourceTree struct {
 	items         []treeItem // flattened visible items
 	selected      string     // UID of the selected resource
 
+	// Persistent expanded state keyed by kind name.
+	// true = expanded, false = collapsed. Kinds not in the map default to expanded.
+	expandState map[string]bool
+
 	// Compare mark support
 	compareLeft  *CompareItem
 	compareRight *CompareItem
@@ -47,12 +51,19 @@ type treeItem struct {
 }
 
 func NewResourceTree(theme Theme) *ResourceTree {
-	return &ResourceTree{theme: theme}
+	return &ResourceTree{theme: theme, expandState: make(map[string]bool)}
 }
 
 func (rt *ResourceTree) SetSize(w, h int) { rt.width = w; rt.height = h; rt.buildItems() }
 func (rt *ResourceTree) SetFocus(f bool)  { rt.focused = f }
 func (rt *ResourceTree) SetGroups(groups []*KindGroup) {
+	// Apply persistent expand state: if the user has previously collapsed a kind,
+	// carry that forward. New kinds default to expanded.
+	for _, g := range groups {
+		if expanded, ok := rt.expandState[g.Kind]; ok {
+			g.Expanded = expanded
+		}
+	}
 	rt.groups = groups
 	rt.buildItems()
 }
@@ -77,6 +88,7 @@ func (rt *ResourceTree) SelectByUID(uid string) {
 			if rd.Resource.UID == uid {
 				if !g.Expanded {
 					g.Expanded = true
+					rt.expandState[g.Kind] = true
 					rt.buildItems()
 				}
 				// Now find it in the rebuilt items
@@ -180,6 +192,7 @@ func (rt *ResourceTree) Update(msg tea.Msg) tea.Cmd {
 					for _, g := range rt.groups {
 						if g.Kind == item.Kind {
 							g.Expanded = !g.Expanded
+							rt.expandState[g.Kind] = g.Expanded
 							break
 						}
 					}

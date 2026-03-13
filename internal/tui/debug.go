@@ -154,14 +154,11 @@ func NewDebugLogViewer(theme Theme, log *DebugLog) *DebugLogViewer {
 func (dlv *DebugLogViewer) SetSize(w, h int) {
 	dlv.width = w
 	dlv.height = h
-	dialogW := w * 75 / 100
-	if dialogW > 120 {
-		dialogW = 120
-	}
+	dialogW := w * 92 / 100
 	if dialogW < 50 {
 		dialogW = 50
 	}
-	dialogH := h * 70 / 100
+	dialogH := h * 90 / 100
 	if dialogH < 10 {
 		dialogH = 10
 	}
@@ -268,10 +265,7 @@ func (dlv *DebugLogViewer) View() string {
 
 	dlv.refresh() // Always refresh to show latest logs
 
-	dialogW := dlv.width * 75 / 100
-	if dialogW > 120 {
-		dialogW = 120
-	}
+	dialogW := dlv.width * 92 / 100
 	if dialogW < 50 {
 		dialogW = 50
 	}
@@ -346,18 +340,15 @@ func NewDevConsole(theme Theme, store Store, log *DebugLog) *DevConsole {
 func (dc *DevConsole) SetSize(w, h int) {
 	dc.width = w
 	dc.height = h
-	dialogW := w * 70 / 100
-	if dialogW > 100 {
-		dialogW = 100
-	}
+	dialogW := w * 92 / 100
 	if dialogW < 50 {
 		dialogW = 50
 	}
-	dialogH := h * 60 / 100
+	dialogH := h * 85 / 100
 	if dialogH < 10 {
 		dialogH = 10
 	}
-	dc.viewport.Width = dialogW - 6
+	dc.viewport.Width = dialogW - 4
 	dc.viewport.Height = dialogH - 8
 }
 
@@ -665,14 +656,11 @@ func (dc *DevConsole) View() string {
 		return ""
 	}
 
-	dialogW := dc.width * 70 / 100
-	if dialogW > 100 {
-		dialogW = 100
-	}
+	dialogW := dc.width * 92 / 100
 	if dialogW < 50 {
 		dialogW = 50
 	}
-	innerW := dialogW - 6
+	innerW := dialogW - 4
 
 	title := lipgloss.NewStyle().Foreground(dc.theme.Green).Bold(true).
 		Render("Developer Console")
@@ -708,7 +696,7 @@ func (dc *DevConsole) View() string {
 		Background(dc.theme.Mantle).
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(dc.theme.Green).
-		Padding(1, 2).
+		Padding(1, 1).
 		Width(dialogW).
 		Render(content)
 
