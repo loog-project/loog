@@ -1,8 +1,6 @@
 package tui
 
 import (
-	"fmt"
-
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -83,38 +81,6 @@ var CatppuccinMocha = Theme{
 
 // --- Style Factories ---
 
-func (t Theme) BaseStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Background(t.Base).Foreground(t.Text)
-}
-
-func (t Theme) PanelStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Background(t.Mantle)
-}
-
-func (t Theme) FocusedBorderStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(t.Blue)
-}
-
-func (t Theme) NormalBorderStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(t.Surface1)
-}
-
-func (t Theme) StatusBarStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		Background(t.Crust).
-		Foreground(t.Subtext0)
-}
-
-func (t Theme) HeaderStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		Background(t.Mantle).
-		Foreground(t.Text)
-}
-
 func (t Theme) ActiveTabStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Background(t.Blue).
@@ -129,44 +95,12 @@ func (t Theme) InactiveTabStyle() lipgloss.Style {
 		Padding(0, 1)
 }
 
-func (t Theme) FilterBarStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		Background(t.Surface0).
-		Foreground(t.Text)
-}
-
-func (t Theme) SelectedStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		Background(t.Surface0).
-		Foreground(t.Text).
-		Bold(true)
-}
-
-func (t Theme) DialogStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		Background(t.Mantle).
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(t.Blue).
-		Padding(1, 2)
-}
-
-func (t Theme) DialogTitleStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		Foreground(t.Blue).
-		Bold(true).
-		MarginBottom(1)
-}
-
 // Text styles
-func (t Theme) TextStyle() lipgloss.Style      { return lipgloss.NewStyle().Foreground(t.Text) }
-func (t Theme) MutedStyle() lipgloss.Style     { return lipgloss.NewStyle().Foreground(t.Overlay0) }
-func (t Theme) SubtextStyle() lipgloss.Style   { return lipgloss.NewStyle().Foreground(t.Subtext0) }
-func (t Theme) AccentStyle() lipgloss.Style    { return lipgloss.NewStyle().Foreground(t.Blue) }
-func (t Theme) SecondaryStyle() lipgloss.Style { return lipgloss.NewStyle().Foreground(t.Mauve) }
-func (t Theme) SuccessStyle() lipgloss.Style   { return lipgloss.NewStyle().Foreground(t.Green) }
-func (t Theme) ErrorStyle() lipgloss.Style     { return lipgloss.NewStyle().Foreground(t.Red) }
-func (t Theme) WarningStyle() lipgloss.Style   { return lipgloss.NewStyle().Foreground(t.Peach) }
-func (t Theme) InfoStyle() lipgloss.Style      { return lipgloss.NewStyle().Foreground(t.Sky) }
+func (t Theme) MutedStyle() lipgloss.Style   { return lipgloss.NewStyle().Foreground(t.Overlay0) }
+func (t Theme) SuccessStyle() lipgloss.Style { return lipgloss.NewStyle().Foreground(t.Green) }
+func (t Theme) ErrorStyle() lipgloss.Style   { return lipgloss.NewStyle().Foreground(t.Red) }
+func (t Theme) WarningStyle() lipgloss.Style { return lipgloss.NewStyle().Foreground(t.Peach) }
+func (t Theme) InfoStyle() lipgloss.Style    { return lipgloss.NewStyle().Foreground(t.Sky) }
 
 // Syntax highlighting styles
 func (t Theme) SyntaxKeyStyle() lipgloss.Style    { return lipgloss.NewStyle().Foreground(t.Blue) }
@@ -177,21 +111,6 @@ func (t Theme) SyntaxNullStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(t.Overlay0).Italic(true)
 }
 
-// Diff styles
-func (t Theme) AddedStyle() lipgloss.Style    { return lipgloss.NewStyle().Foreground(t.Green) }
-func (t Theme) RemovedStyle() lipgloss.Style  { return lipgloss.NewStyle().Foreground(t.Red) }
-func (t Theme) ModifiedStyle() lipgloss.Style { return lipgloss.NewStyle().Foreground(t.Peach) }
-
-func (t Theme) AddedBgStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Background(t.DiffAddedBg).Foreground(t.Green)
-}
-func (t Theme) RemovedBgStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Background(t.DiffRemovedBg).Foreground(t.Red)
-}
-func (t Theme) ModifiedBgStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Background(t.DiffModifiedBg).Foreground(t.Peach)
-}
-
 // Badge styles for resource tree indicators
 func (t Theme) HotBadgeStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(t.Red).Bold(true)
@@ -199,21 +118,8 @@ func (t Theme) HotBadgeStyle() lipgloss.Style {
 func (t Theme) WarmBadgeStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(t.Peach)
 }
-func (t Theme) LoopBadgeStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		Foreground(t.Crust).
-		Background(t.Red).
-		Bold(true).
-		Padding(0, 1)
-}
 func (t Theme) StarStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(t.Yellow)
-}
-
-// Burst group style for timeline
-func (t Theme) BurstBorderStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		Foreground(t.Surface2)
 }
 
 // KeyHint renders a keybinding hint like "ctrl+k commands".
@@ -221,13 +127,6 @@ func (t Theme) KeyHint(key, label string) string {
 	k := lipgloss.NewStyle().Foreground(t.Overlay2).Render(key)
 	l := lipgloss.NewStyle().Foreground(t.Overlay0).Render(label)
 	return k + " " + l
-}
-
-// CountBadge renders a count in a muted style like "(12)".
-func (t Theme) CountBadge(count int) string {
-	return lipgloss.NewStyle().Foreground(t.Overlay1).Render(
-		fmt.Sprintf("%d", count),
-	)
 }
 
 // EventTypeStyle returns the appropriate style for an event type.

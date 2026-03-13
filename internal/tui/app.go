@@ -33,15 +33,21 @@ type App struct {
 	helpOverlay    *HelpOverlay
 	quickSearch    *QuickSearch
 	watchManager   *WatchManager
+	debugLogViewer *DebugLogViewer
+	devConsole     *DevConsole
 	registry       *CommandRegistry
 
+	// Debug log
+	debugLog *DebugLog
+
 	// State
-	filterExpr string
-	fullscreen bool
-	statusText string
-	statusErr  bool
-	statusTime time.Time
-	ready      bool
+	filterExpr          string
+	fullscreen          bool
+	timelineStarredOnly bool
+	statusText          string
+	statusErr           bool
+	statusTime          time.Time
+	ready               bool
 
 	// Auto-scroll
 	autoScroll bool
@@ -72,11 +78,13 @@ type pendingRevision struct {
 func NewApp(store *DummyStore) *App {
 	theme := CatppuccinMocha
 	registry := NewCommandRegistry()
+	debugLog := NewDebugLog(500)
 
 	app := &App{
 		theme:           theme,
 		store:           store,
 		registry:        registry,
+		debugLog:        debugLog,
 		analysisResults: make(map[string]AnalysisResult),
 
 		// Chrome
@@ -96,6 +104,8 @@ func NewApp(store *DummyStore) *App {
 		helpOverlay:    NewHelpOverlay(theme),
 		quickSearch:    NewQuickSearch(theme),
 		watchManager:   NewWatchManager(theme),
+		debugLogViewer: NewDebugLogViewer(theme, debugLog),
+		devConsole:     NewDevConsole(theme, store, debugLog),
 
 		// Simulation on by default for demo
 		simulating: true,
@@ -119,6 +129,9 @@ func NewApp(store *DummyStore) *App {
 		len(store.StarredResources()),
 	)
 	app.statusBar.SetSimulating(app.simulating)
+
+	debugLog.Info("app", "loog TUI started with %d resources, %d revisions",
+		store.TotalResourceCount(), store.TotalRevisionCount())
 
 	return app
 }
@@ -186,11 +199,21 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd := a.watchManager.Update(msg)
 			return a, cmd
 		}
+		if a.debugLogViewer.IsVisible() {
+			cmd := a.debugLogViewer.Update(msg)
+			return a, cmd
+		}
+		if a.devConsole.IsVisible() {
+			cmd := a.devConsole.Update(msg)
+			return a, cmd
+		}
 
 		// Filter bar editing mode
 		if a.filterBar.IsEditing() {
-			// Quick search: typing / while filter expression is empty opens fuzzy resource finder
-			if msg.String() == "/" && a.filterBar.Expression() == "" {
+			// Quick search: typing / immediately after opening filter (no edits yet)
+			// opens fuzzy resource finder. This enables // to work even when a
+			// previous filter expression is active.
+			if msg.String() == "/" && a.filterBar.IsUnmodified() {
 				a.filterBar.StopEditing()
 				a.quickSearch.Show(a.store.AllResources())
 				return a, nil
@@ -302,6 +325,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, GlobalKeyMap.WatchManager):
 			a.watchManager.Show(a.store, a.store.UnwatchedKinds())
 			return a, nil
+
+		case key.Matches(msg, GlobalKeyMap.DebugLog):
+			a.debugLogViewer.Show()
+			return a, nil
+
+		case key.Matches(msg, GlobalKeyMap.DevConsole):
+			a.devConsole.Show()
+			return a, nil
 		}
 
 		// Delegate to active view
@@ -327,6 +358,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.explorer.SetResource(msg.Resource)
 		a.watchlist.SetResource(msg.Resource)
 		if msg.Resource != nil {
+			a.debugLog.Debug("app", "resource selected: %s (%d revs)",
+				msg.Resource.Resource.KindName(), msg.Resource.RevisionCount())
 			a.statusBar.SetResourceInfo(msg.Resource.Resource.KindName())
 			revCount := msg.Resource.RevisionCount()
 			a.statusBar.SetRevisionInfo(fmt.Sprintf("%d revisions", revCount))
@@ -342,6 +375,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.watchlist.SetRevision(msg.Resource, msg.Index)
 		if msg.Index >= 0 && msg.Index < len(msg.Resource.Revisions) {
 			rev := msg.Resource.Revisions[msg.Index]
+			a.debugLog.Debug("app", "revision selected: %s [%d] %s",
+				msg.Resource.Resource.KindName(), msg.Index, rev.ID.String())
 			a.statusBar.SetRevisionInfo(rev.ID.String())
 			// Update window anchor to selected revision's timestamp
 			a.windowAnchor = rev.Time
@@ -363,6 +398,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ViewModeChangedMsg:
 		a.statusBar.SetViewMode(msg.Mode)
+		// Also change the detail view in the active view
+		switch a.activeView {
+		case ExplorerView:
+			a.explorer.detail.SetViewMode(msg.Mode)
+		case TimelineView:
+			a.timeline.detail.SetViewMode(msg.Mode)
+		case WatchlistView:
+			a.watchlist.detail.SetViewMode(msg.Mode)
+		}
 
 	case FilterChangedMsg:
 		a.filterExpr = msg.Expression
@@ -382,6 +426,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case JumpToTimelineMsg:
 		a.switchView(TimelineView)
+		// Try to find and select the matching timeline entry
+		a.timeline.ScrollToEntry(msg.Entry)
 
 	case ShowCommandPaletteMsg:
 		a.commandPalette.Show()
@@ -401,12 +447,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ShowWatchManagerMsg:
 		a.watchManager.Show(a.store, a.store.UnwatchedKinds())
 
+	case ShowDebugLogMsg:
+		a.debugLogViewer.Show()
+
+	case ShowDevConsoleMsg:
+		a.devConsole.Show()
+
 	case AddWatchKindMsg:
 		created := a.store.AddWatchKind(msg.Kind)
 		a.store.KindGroups = BuildKindGroups(a.store.AllResources())
 		a.explorer.SetGroups(a.store.KindGroups)
-		a.timeline.SetEntries(a.store.Timeline)
-		a.watchlist.RefreshStarred()
+		a.refreshTimeline()
+		a.watchlist.RefreshStarredFiltered(a.filterExpr)
 		a.statusBar.SetCounts(
 			a.store.TotalResourceCount(),
 			a.store.TotalRevisionCount(),
@@ -426,8 +478,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.store.RemoveWatchKind(msg.Kind)
 		a.store.KindGroups = BuildKindGroups(a.store.AllResources())
 		a.explorer.SetGroups(a.store.KindGroups)
-		a.timeline.SetEntries(a.store.Timeline)
-		a.watchlist.RefreshStarred()
+		a.refreshTimeline()
+		a.watchlist.RefreshStarredFiltered(a.filterExpr)
 		a.statusBar.SetCounts(
 			a.store.TotalResourceCount(),
 			a.store.TotalRevisionCount(),
@@ -441,6 +493,26 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case StatusMsg:
 		a.setStatus(msg.Text, msg.IsError)
+
+	case ExportYAMLMsg:
+		a.setStatus("Export YAML: not yet implemented (prototype)", false)
+
+	case CopyToClipboardMsg:
+		a.setStatus("Copy to clipboard: not yet implemented (prototype)", false)
+
+	case ToggleTimelineStarredMsg:
+		a.timelineStarredOnly = !a.timelineStarredOnly
+		a.refreshTimeline()
+		if a.timelineStarredOnly {
+			a.setStatus("Timeline: showing starred resources only", false)
+		} else {
+			a.setStatus("Timeline: showing all resources", false)
+		}
+
+	case CompareClearMsg:
+		a.compare.Clear()
+		a.syncCompareMarks()
+		a.setStatus("Compare selection cleared", false)
 
 	case ToggleFullscreenMsg:
 		a.fullscreen = !a.fullscreen
@@ -493,9 +565,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.simulating {
 			cmds = append(cmds, SimulateNewRevisionCmd(a.store))
 		}
-
-	case NewRevisionMsg:
-		// Nothing extra needed; store already updated in handleSimulationTick
 	}
 
 	return a, Batch(cmds...)
@@ -560,6 +629,14 @@ func (a *App) View() string {
 		wmView := a.watchManager.View()
 		mainView = PlaceOverlay(wmView, mainView, true)
 	}
+	if a.debugLogViewer.IsVisible() {
+		dlView := a.debugLogViewer.View()
+		mainView = PlaceOverlay(dlView, mainView, true)
+	}
+	if a.devConsole.IsVisible() {
+		dcView := a.devConsole.View()
+		mainView = PlaceOverlay(dcView, mainView, true)
+	}
 
 	return mainView
 }
@@ -587,11 +664,18 @@ func (a *App) layout() {
 	a.helpOverlay.SetSize(a.width, a.height)
 	a.quickSearch.SetSize(a.width, a.height)
 	a.watchManager.SetSize(a.width, a.height)
+	a.debugLogViewer.SetSize(a.width, a.height)
+	a.devConsole.SetSize(a.width, a.height)
 }
 
 func (a *App) switchView(v ViewID) {
+	a.debugLog.Debug("app", "switch view: %s → %s", a.activeView, v)
 	a.activeView = v
 	a.header.SetView(v)
+	// Re-apply filter so the target view reflects current filter + any data changes
+	if a.filterExpr != "" {
+		a.applyFilter()
+	}
 }
 
 func (a *App) nextPanel() {
@@ -648,10 +732,19 @@ func (a *App) updateActiveView(msg tea.Msg) tea.Cmd {
 func (a *App) toggleStar(uid string) {
 	if rd, ok := a.store.Resources[uid]; ok {
 		rd.Resource.Starred = !rd.Resource.Starred
+
+		// Also update the starred flag in timeline entries (they carry a snapshot)
+		for i := range a.store.Timeline {
+			if a.store.Timeline[i].Resource.UID == uid {
+				a.store.Timeline[i].Resource.Starred = rd.Resource.Starred
+			}
+		}
+
 		// Refresh kind groups (to update star indicators)
 		a.store.KindGroups = BuildKindGroups(a.store.AllResources())
 		a.explorer.SetGroups(a.store.KindGroups)
-		a.watchlist.RefreshStarred()
+		a.watchlist.RefreshStarredFiltered(a.filterExpr)
+		a.refreshTimeline()
 		a.statusBar.SetCounts(
 			a.store.TotalResourceCount(),
 			a.store.TotalRevisionCount(),
@@ -666,9 +759,22 @@ func (a *App) toggleStar(uid string) {
 }
 
 func (a *App) applyFilter() {
+	// Filter explorer tree
 	filtered := a.store.FilterResources(a.filterExpr)
 	groups := BuildKindGroups(filtered)
 	a.explorer.SetGroups(groups)
+
+	// Filter watchlist tree (starred resources only, then apply filter)
+	a.watchlist.RefreshStarredFiltered(a.filterExpr)
+
+	// Filter timeline
+	a.refreshTimeline()
+}
+
+// refreshTimeline rebuilds the timeline entries applying both text filter and starred-only.
+func (a *App) refreshTimeline() {
+	entries := a.store.FilterTimeline(a.filterExpr, a.timelineStarredOnly)
+	a.timeline.SetEntries(entries)
 }
 
 func (a *App) setStatus(text string, isErr bool) {
@@ -697,6 +803,7 @@ func (a *App) viewFullscreen(contentHeight int) string {
 func (a *App) syncCompareMarks() {
 	sel := a.compare.Selection()
 	a.explorer.SetCompareMarks(sel.Left, sel.Right)
+	a.timeline.SetCompareMarks(sel.Left, sel.Right)
 	a.watchlist.SetCompareMarks(sel.Left, sel.Right)
 }
 
@@ -738,7 +845,7 @@ func (a *App) updateHint() {
 	case WatchlistView:
 		hint = a.watchlist.CurrentHint()
 	case CompareView:
-		hint = "Tab: switch side  j/k: scroll"
+		hint = "j/k: scroll  tab: switch pane  ctrl+d/u: page  X: clear compare"
 	}
 	a.statusBar.SetHint(hint)
 }
@@ -753,6 +860,7 @@ func (a *App) handleSimulationTick(resourceUID string) {
 	// Generate and add the new revision to the store (always — even when frozen)
 	newRev := GenerateSimulatedRevision(rd)
 	rd.Revisions = append(rd.Revisions, newRev)
+	a.debugLog.Debug("sim", "new rev %s for %s (%s)", newRev.ID, rd.Resource.KindName(), newRev.EventType)
 
 	// Rebuild timeline in the store (always — keeps store consistent)
 	a.store.Timeline = append([]TimelineEntry{{
@@ -787,8 +895,8 @@ func (a *App) refreshViewsAfterNewRevision(resourceUID string) {
 	// Rebuild kind groups and refresh all views
 	a.store.KindGroups = BuildKindGroups(a.store.AllResources())
 	a.explorer.SetGroups(a.store.KindGroups)
-	a.timeline.SetEntries(a.store.Timeline)
-	a.watchlist.RefreshStarred()
+	a.refreshTimeline()
+	a.watchlist.RefreshStarredFiltered(a.filterExpr)
 
 	// Update counts
 	a.statusBar.SetCounts(

@@ -6,7 +6,32 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/expr-lang/expr"
 )
+
+// filterEnv mirrors internal/util.EventEntryEnv method signatures without k8s
+// imports. Used solely for expr.Compile type-checking in the TUI prototype.
+type filterEnv struct{}
+
+func (filterEnv) All() bool                    { return true }
+func (filterEnv) None() bool                   { return false }
+func (filterEnv) Namespaces(_ ...string) bool  { return true }
+func (filterEnv) Namespace(_ ...string) bool   { return true }
+func (filterEnv) Names(_ ...string) bool       { return true }
+func (filterEnv) Name(_ ...string) bool        { return true }
+func (filterEnv) Namespaced(_, _ string) bool  { return true }
+func (filterEnv) LabelExists(_ ...string) bool { return true }
+func (filterEnv) Label(_, _ string) bool       { return true }
+
+// validateFilterExpr returns true if the expression compiles as a valid
+// expr-lang expression against the filter DSL environment.
+func validateFilterExpr(expression string) bool {
+	if expression == "" {
+		return false
+	}
+	_, err := expr.Compile(expression, expr.Env(filterEnv{}), expr.AsBool())
+	return err == nil
+}
 
 // Header renders the top bar: logo, view tabs, and recording status.
 type Header struct {
@@ -226,6 +251,7 @@ type FilterBar struct {
 	width      int
 	theme      Theme
 	expression string
+	savedExpr  string // expression saved when editing starts, restored on escape
 	editing    bool
 	cursor     int
 }
@@ -237,9 +263,17 @@ func NewFilterBar(theme Theme) *FilterBar {
 func (fb *FilterBar) SetSize(width int)         { fb.width = width }
 func (fb *FilterBar) SetExpression(expr string) { fb.expression = expr }
 func (fb *FilterBar) IsEditing() bool           { return fb.editing }
-func (fb *FilterBar) StartEditing()             { fb.editing = true; fb.cursor = len(fb.expression) }
-func (fb *FilterBar) StopEditing()              { fb.editing = false }
-func (fb *FilterBar) Expression() string        { return fb.expression }
+func (fb *FilterBar) StartEditing() {
+	fb.savedExpr = fb.expression
+	fb.editing = true
+	fb.cursor = len(fb.expression)
+}
+func (fb *FilterBar) StopEditing()       { fb.editing = false }
+func (fb *FilterBar) Expression() string { return fb.expression }
+
+// IsUnmodified returns true if the user hasn't typed anything since editing started.
+// Used to detect the // quick-search shortcut even when a previous filter is active.
+func (fb *FilterBar) IsUnmodified() bool { return fb.expression == fb.savedExpr }
 
 func (fb *FilterBar) HandleKey(keyStr string) (string, bool) {
 	switch keyStr {
@@ -247,6 +281,7 @@ func (fb *FilterBar) HandleKey(keyStr string) (string, bool) {
 		fb.editing = false
 		return fb.expression, true
 	case "esc", "escape":
+		fb.expression = fb.savedExpr // restore original expression
 		fb.editing = false
 		return "", false
 	case "backspace":
@@ -261,10 +296,12 @@ func (fb *FilterBar) HandleKey(keyStr string) (string, bool) {
 		fb.cursor = 0
 		return "", false
 	default:
-		if len(keyStr) == 1 || (len(keyStr) > 0 && keyStr[0] != 'c') { // not a control sequence
-			runes := []rune(fb.expression)
-			fb.expression = string(runes[:fb.cursor]) + keyStr + string(runes[fb.cursor:])
-			fb.cursor += len([]rune(keyStr))
+		// Only insert single printable characters (not control sequences like "tab", "space", "alt+x")
+		runes := []rune(keyStr)
+		if len(runes) == 1 && keyStr == string(runes[0]) {
+			exprRunes := []rune(fb.expression)
+			fb.expression = string(exprRunes[:fb.cursor]) + keyStr + string(exprRunes[fb.cursor:])
+			fb.cursor += 1
 		}
 		return "", false
 	}
@@ -278,6 +315,12 @@ func (fb *FilterBar) View() string {
 	prefix := lipgloss.NewStyle().Foreground(fb.theme.Blue).Bold(true).Render("filter")
 	separator := lipgloss.NewStyle().Foreground(fb.theme.Surface2).Render(" │ ")
 
+	// Determine validation color: green for valid expr-lang, peach for invalid.
+	exprColor := fb.theme.Peach
+	if validateFilterExpr(fb.expression) {
+		exprColor = fb.theme.Green
+	}
+
 	var content string
 	if fb.editing {
 		cursor := lipgloss.NewStyle().Background(fb.theme.Text).Foreground(fb.theme.Base).Render(" ")
@@ -286,12 +329,12 @@ func (fb *FilterBar) View() string {
 				Render("type expression... e.g. Namespaces(\"default\")")
 			content = placeholder + cursor
 		} else {
-			content = lipgloss.NewStyle().Foreground(fb.theme.Text).Render(fb.expression) + cursor
+			content = lipgloss.NewStyle().Foreground(exprColor).Render(fb.expression) + cursor
 		}
 	} else if fb.expression == "" {
 		content = lipgloss.NewStyle().Foreground(fb.theme.Overlay0).Italic(true).Render("no filter")
 	} else {
-		content = lipgloss.NewStyle().Foreground(fb.theme.Blue).Render(fb.expression)
+		content = lipgloss.NewStyle().Foreground(exprColor).Render(fb.expression)
 	}
 
 	line := " " + prefix + separator + content

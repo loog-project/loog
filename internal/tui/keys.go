@@ -23,6 +23,8 @@ type GlobalKeys struct {
 	PauseRecording key.Binding
 	FreezeView     key.Binding
 	WatchManager   key.Binding
+	DebugLog       key.Binding
+	DevConsole     key.Binding
 }
 
 var GlobalKeyMap = GlobalKeys{
@@ -102,6 +104,14 @@ var GlobalKeyMap = GlobalKeys{
 		key.WithKeys("W"),
 		key.WithHelp("W", "watch manager"),
 	),
+	DebugLog: key.NewBinding(
+		key.WithKeys("f6", "alt+6"),
+		key.WithHelp("F6", "debug log"),
+	),
+	DevConsole: key.NewBinding(
+		key.WithKeys(":"),
+		key.WithHelp(":", "dev console"),
+	),
 }
 
 // ListKeys defines keybindings for navigable lists.
@@ -172,6 +182,7 @@ type DetailKeys struct {
 	JumpTimeline key.Binding
 	PrevRevision key.Binding
 	NextRevision key.Binding
+	ModeRaw      key.Binding
 }
 
 var DetailKeyMap = DetailKeys{
@@ -230,5 +241,9 @@ var DetailKeyMap = DetailKeys{
 	NextRevision: key.NewBinding(
 		key.WithKeys("]"),
 		key.WithHelp("]", "next rev"),
+	),
+	ModeRaw: key.NewBinding(
+		key.WithKeys("r"),
+		key.WithHelp("r", "raw mode"),
 	),
 }

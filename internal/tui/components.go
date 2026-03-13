@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -9,7 +10,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/loog-project/loog/pkg/diffmap"
 	"github.com/loog-project/loog/pkg/diffpreview"
 )
 
@@ -52,7 +52,6 @@ func NewResourceTree(theme Theme) *ResourceTree {
 
 func (rt *ResourceTree) SetSize(w, h int) { rt.width = w; rt.height = h; rt.buildItems() }
 func (rt *ResourceTree) SetFocus(f bool)  { rt.focused = f }
-func (rt *ResourceTree) IsFocused() bool  { return rt.focused }
 func (rt *ResourceTree) SetGroups(groups []*KindGroup) {
 	rt.groups = groups
 	rt.buildItems()
@@ -95,6 +94,30 @@ func (rt *ResourceTree) SelectByUID(uid string) {
 
 // CursorInfo returns cursor position and total item count.
 func (rt *ResourceTree) CursorInfo() (int, int) { return rt.cursor, len(rt.items) }
+
+// CanScrollUp returns true if there are items above the visible window.
+func (rt *ResourceTree) CanScrollUp() bool {
+	if len(rt.items) == 0 || rt.height <= 0 {
+		return false
+	}
+	startIdx := 0
+	if rt.cursor >= rt.height {
+		startIdx = rt.cursor - rt.height + 1
+	}
+	return startIdx > 0
+}
+
+// CanScrollDown returns true if there are items below the visible window.
+func (rt *ResourceTree) CanScrollDown() bool {
+	if len(rt.items) == 0 || rt.height <= 0 {
+		return false
+	}
+	startIdx := 0
+	if rt.cursor >= rt.height {
+		startIdx = rt.cursor - rt.height + 1
+	}
+	return startIdx+rt.height < len(rt.items)
+}
 
 func (rt *ResourceTree) SetCompareMarks(left, right *CompareItem) {
 	rt.compareLeft = left
@@ -180,6 +203,26 @@ func (rt *ResourceTree) Update(msg tea.Msg) tea.Cmd {
 				rt.cursor = len(rt.items) - 1
 			}
 			return rt.selectCurrent()
+		case "ctrl+d", "pgdown":
+			pageSize := rt.height / 2
+			if pageSize < 1 {
+				pageSize = 1
+			}
+			rt.cursor += pageSize
+			if rt.cursor >= len(rt.items) {
+				rt.cursor = len(rt.items) - 1
+			}
+			return rt.selectCurrent()
+		case "ctrl+u", "pgup":
+			pageSize := rt.height / 2
+			if pageSize < 1 {
+				pageSize = 1
+			}
+			rt.cursor -= pageSize
+			if rt.cursor < 0 {
+				rt.cursor = 0
+			}
+			return rt.selectCurrent()
 		}
 	}
 	return nil
@@ -205,7 +248,7 @@ func (rt *ResourceTree) CurrentHint() string {
 	item := rt.items[rt.cursor]
 	switch item.Type {
 	case treeItemKind:
-		return "Enter: expand/collapse  s: star"
+		return "Enter: expand/collapse  s: star  ctrl+d/u: page"
 	case treeItemResource:
 		if item.Resource == nil {
 			return ""
@@ -236,12 +279,28 @@ func (rt *ResourceTree) CurrentHint() string {
 		if len(hints) > 0 {
 			return strings.Join(hints, "  ")
 		}
-		return "Enter: select  s: star  c: compare"
+		return "Enter: select  s: star  c: compare  ctrl+d/u: page"
 	}
 	return ""
 }
 
 func (rt *ResourceTree) View() string {
+	if len(rt.items) == 0 {
+		placeholder := lipgloss.NewStyle().
+			Foreground(rt.theme.Overlay0).
+			Italic(true).
+			Render("  ◇ No resources to display")
+		var lines []string
+		lines = append(lines, PadRight(placeholder, rt.width))
+		hint := lipgloss.NewStyle().Foreground(rt.theme.Overlay0).
+			Render("    Press 's' to star resources")
+		lines = append(lines, PadRight(hint, rt.width))
+		for len(lines) < rt.height {
+			lines = append(lines, strings.Repeat(" ", rt.width))
+		}
+		return strings.Join(lines, "\n")
+	}
+
 	var lines []string
 	// Reserve space for: indent(2) + star(2) + indicator(1) + space(1) + name + badges(~5)
 	maxNameLen := rt.width - 12
@@ -291,14 +350,14 @@ func (rt *ResourceTree) View() string {
 
 			star := "  "
 			if r.Starred {
-				star = rt.theme.StarStyle().Render("*") + " "
+				star = rt.theme.StarStyle().Render("★") + " "
 			}
 
-			indicator := lipgloss.NewStyle().Foreground(rt.theme.Overlay0).Render("o")
+			indicator := lipgloss.NewStyle().Foreground(rt.theme.Overlay0).Render("○")
 			if rd.LatestRevision() != nil {
 				age := RelativeTime(rd.LatestRevision().Time)
 				if age == "now" || strings.HasSuffix(age, "s") {
-					indicator = lipgloss.NewStyle().Foreground(rt.theme.Peach).Render("@")
+					indicator = lipgloss.NewStyle().Foreground(rt.theme.Peach).Render("●")
 				}
 			}
 
@@ -306,15 +365,15 @@ func (rt *ResourceTree) View() string {
 			if rd.DetectLoop(6) {
 				loopBadge = " " + lipgloss.NewStyle().
 					Foreground(rt.theme.Red).Bold(true).
-					Render("~")
+					Render("↻")
 			}
 
 			freqBadge := ""
 			freq := rd.ChangeFrequency()
 			if freq > 5 {
-				freqBadge = " " + rt.theme.HotBadgeStyle().Render("!")
+				freqBadge = " " + rt.theme.HotBadgeStyle().Render("▲")
 			} else if freq > 2 {
-				freqBadge = " " + rt.theme.WarmBadgeStyle().Render("~")
+				freqBadge = " " + rt.theme.WarmBadgeStyle().Render("△")
 			}
 
 			// Compare mark badges
@@ -364,8 +423,7 @@ type RevisionList struct {
 	theme         Theme
 	focused       bool
 	resource      *ResourceData
-	cursor        int // index into revisions (0 = newest displayed first)
-	scrollOffset  int
+	cursor        int // index into revisions slice (0 = oldest, len-1 = newest)
 
 	// Stable selection by ID
 	selectedID RevisionID
@@ -387,7 +445,6 @@ func NewRevisionList(theme Theme) *RevisionList {
 
 func (rl *RevisionList) SetSize(w, h int) { rl.width = w; rl.height = h }
 func (rl *RevisionList) SetFocus(f bool)  { rl.focused = f }
-func (rl *RevisionList) IsFocused() bool  { return rl.focused }
 
 func (rl *RevisionList) SetResource(rd *ResourceData) {
 	oldResource := rl.resource
@@ -402,14 +459,12 @@ func (rl *RevisionList) SetResource(rd *ResourceData) {
 				}
 			}
 		}
-		// New resource or old ID not found: select newest and reset scroll
+		// New resource or old ID not found: select newest
 		rl.cursor = len(rd.Revisions) - 1
 		rl.selectedID = rd.Revisions[rl.cursor].ID
-		rl.scrollOffset = 0
 	} else {
 		rl.cursor = 0
 		rl.selectedID = 0
-		rl.scrollOffset = 0
 	}
 }
 
@@ -433,8 +488,6 @@ func (rl *RevisionList) JumpToNewest() {
 		rl.selectedID = rl.resource.Revisions[rl.cursor].ID
 	}
 }
-
-func (rl *RevisionList) SelectedIndex() int { return rl.cursor }
 
 // SelectIndex moves the cursor to a specific revision index and updates selectedID.
 // This is used by external callers (e.g. SetRevision in views) to sync the
@@ -461,10 +514,72 @@ func (rl *RevisionList) CursorInfo() (int, int) {
 	return rl.cursor, len(rl.resource.Revisions)
 }
 
+// CanScrollUp returns true if there are revisions above the visible window.
+func (rl *RevisionList) CanScrollUp() bool {
+	if rl.resource == nil {
+		return false
+	}
+	revs := rl.resource.Revisions
+	total := len(revs)
+	itemHeight := rl.height - 1 // 1 line for title
+	if itemHeight <= 0 || total <= itemHeight {
+		return false
+	}
+	visualCursor := total - 1 - rl.cursor
+	startVisual := 0
+	if visualCursor >= itemHeight {
+		startVisual = visualCursor - itemHeight + 1
+	}
+	if startVisual+itemHeight > total {
+		startVisual = total - itemHeight
+	}
+	if startVisual < 0 {
+		startVisual = 0
+	}
+	return startVisual > 0
+}
+
+// CanScrollDown returns true if there are revisions below the visible window.
+func (rl *RevisionList) CanScrollDown() bool {
+	if rl.resource == nil {
+		return false
+	}
+	revs := rl.resource.Revisions
+	total := len(revs)
+	itemHeight := rl.height - 1 // 1 line for title
+	if itemHeight <= 0 || total <= itemHeight {
+		return false
+	}
+	visualCursor := total - 1 - rl.cursor
+	startVisual := 0
+	if visualCursor >= itemHeight {
+		startVisual = visualCursor - itemHeight + 1
+	}
+	if startVisual+itemHeight > total {
+		startVisual = total - itemHeight
+	}
+	if startVisual < 0 {
+		startVisual = 0
+	}
+	return startVisual+itemHeight < total
+}
+
 func (rl *RevisionList) Update(msg tea.Msg) tea.Cmd {
 	if !rl.focused || rl.resource == nil {
 		return nil
 	}
+	revs := rl.resource.Revisions
+	total := len(revs)
+	if total == 0 {
+		return nil
+	}
+
+	// cursor is a slice index into revs[]. Display order is newest-first:
+	// visual row 0 = revs[total-1] (newest), visual row total-1 = revs[0] (oldest).
+	// To convert: visualRow = total - 1 - cursor, cursor = total - 1 - visualRow.
+	// j/down = move visual cursor down = toward older = decrease cursor
+	// k/up = move visual cursor up = toward newer = increase cursor
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -472,13 +587,35 @@ func (rl *RevisionList) Update(msg tea.Msg) tea.Cmd {
 			if rl.cursor > 0 {
 				rl.cursor--
 			}
-			rl.selectedID = rl.resource.Revisions[rl.cursor].ID
+			rl.selectedID = revs[rl.cursor].ID
 			return rl.selectCurrent()
 		case "k", "up":
-			if rl.cursor < len(rl.resource.Revisions)-1 {
+			if rl.cursor < total-1 {
 				rl.cursor++
 			}
-			rl.selectedID = rl.resource.Revisions[rl.cursor].ID
+			rl.selectedID = revs[rl.cursor].ID
+			return rl.selectCurrent()
+		case "ctrl+d", "pgdown":
+			pageSize := rl.height / 2
+			if pageSize < 1 {
+				pageSize = 1
+			}
+			rl.cursor -= pageSize
+			if rl.cursor < 0 {
+				rl.cursor = 0
+			}
+			rl.selectedID = revs[rl.cursor].ID
+			return rl.selectCurrent()
+		case "ctrl+u", "pgup":
+			pageSize := rl.height / 2
+			if pageSize < 1 {
+				pageSize = 1
+			}
+			rl.cursor += pageSize
+			if rl.cursor >= total {
+				rl.cursor = total - 1
+			}
+			rl.selectedID = revs[rl.cursor].ID
 			return rl.selectCurrent()
 		case "enter":
 			return rl.selectCurrent()
@@ -487,12 +624,14 @@ func (rl *RevisionList) Update(msg tea.Msg) tea.Cmd {
 		case "c":
 			return Cmd(CompareMarkMsg{Resource: rl.resource, Index: rl.cursor})
 		case "g", "home":
-			rl.cursor = len(rl.resource.Revisions) - 1
-			rl.selectedID = rl.resource.Revisions[rl.cursor].ID
+			// Go to top of visual list = newest = highest index
+			rl.cursor = total - 1
+			rl.selectedID = revs[rl.cursor].ID
 			return rl.selectCurrent()
 		case "G", "end":
+			// Go to bottom of visual list = oldest = index 0
 			rl.cursor = 0
-			rl.selectedID = rl.resource.Revisions[rl.cursor].ID
+			rl.selectedID = revs[rl.cursor].ID
 			return rl.selectCurrent()
 		}
 	}
@@ -540,7 +679,7 @@ func (rl *RevisionList) CurrentHint() string {
 	if len(parts) > 0 {
 		return strings.Join(parts, "  ")
 	}
-	return "c: compare  [/]: prev/next  d/o/p/J: view modes"
+	return "c: compare  [/]: prev/next  d/o/p/J: view modes  ctrl+d/u: page"
 }
 
 func (rl *RevisionList) View() string {
@@ -548,9 +687,9 @@ func (rl *RevisionList) View() string {
 		placeholder := lipgloss.NewStyle().
 			Foreground(rl.theme.Overlay0).
 			Italic(true).
-			Render("Select a resource")
+			Render("  ◇ Select a resource")
 		var lines []string
-		lines = append(lines, PadRight(" "+placeholder, rl.width))
+		lines = append(lines, PadRight(placeholder, rl.width))
 		for len(lines) < rl.height {
 			lines = append(lines, strings.Repeat(" ", rl.width))
 		}
@@ -558,18 +697,38 @@ func (rl *RevisionList) View() string {
 	}
 
 	revs := rl.resource.Revisions
+	total := len(revs)
 	loopInfo := rl.resource.AnalyzeLoop(8)
 
 	var lines []string
 
 	// Title line with loop detection
 	title := lipgloss.NewStyle().Foreground(rl.theme.Overlay1).Render("Revisions")
-	countStr := lipgloss.NewStyle().Foreground(rl.theme.Overlay0).Render(fmt.Sprintf(" (%d)", len(revs)))
+	countStr := lipgloss.NewStyle().Foreground(rl.theme.Overlay0).Render(fmt.Sprintf(" (%d)", total))
 	titleLine := " " + title + countStr
 	if loopInfo.IsLoop {
+		// Compact loop indicator: "↻ A↔B x3 ~30s"
+		// Uses the pre-built PatternSample from AnalyzeLoop and fits within available width.
+		loopStr := fmt.Sprintf(" ↻ %s", loopInfo.PatternSample)
+		if loopInfo.Cycles > 0 {
+			loopStr += fmt.Sprintf(" x%d", loopInfo.Cycles)
+		}
+		if loopInfo.Period > 0 {
+			loopStr += fmt.Sprintf(" ~%s", loopInfo.Period.Round(time.Second))
+		}
+		// Truncate to fit remaining panel width (leave room for [AUTO] badge)
+		maxLoopW := rl.width - lipgloss.Width(titleLine) - 8
+		if maxLoopW < 6 {
+			loopStr = " ↻"
+		} else if lipgloss.Width(loopStr) > maxLoopW {
+			loopStr = " ↻ " + loopInfo.PatternSample
+			if lipgloss.Width(loopStr) > maxLoopW {
+				loopStr = " ↻"
+			}
+		}
 		loopWarn := lipgloss.NewStyle().
 			Foreground(rl.theme.Red).Bold(true).
-			Render(fmt.Sprintf(" ~ LOOP x%d ~%s", loopInfo.OscillationCount, loopInfo.Period.Round(time.Second)))
+			Render(loopStr)
 		titleLine += loopWarn
 	}
 	if rl.autoScroll {
@@ -578,19 +737,46 @@ func (rl *RevisionList) View() string {
 	}
 	lines = append(lines, PadRight(titleLine, rl.width))
 
-	// Render revisions newest-first
-	for i := len(revs) - 1; i >= 0; i-- {
-		if len(lines) >= rl.height {
-			break
-		}
-		rev := revs[i]
-		isSelected := i == rl.cursor && rl.focused
-		isPassive := i == rl.cursor && !rl.focused
-		isCurrent := i == rl.cursor
+	// Available height for revision items (after title line)
+	itemHeight := rl.height - len(lines)
+	if itemHeight <= 0 {
+		return strings.Join(lines, "\n")
+	}
 
-		dot := lipgloss.NewStyle().Foreground(rl.theme.Overlay0).Render("o")
+	// Display order: visual row 0 = revs[total-1] (newest) ... row total-1 = revs[0] (oldest).
+	// The cursor's visual row = total - 1 - rl.cursor.
+	visualCursor := total - 1 - rl.cursor
+
+	// Compute scroll window based on visual cursor
+	startVisual := 0
+	if visualCursor >= itemHeight {
+		startVisual = visualCursor - itemHeight + 1
+	}
+	// Clamp so we don't go past the end
+	if startVisual+itemHeight > total {
+		startVisual = total - itemHeight
+	}
+	if startVisual < 0 {
+		startVisual = 0
+	}
+
+	endVisual := startVisual + itemHeight
+	if endVisual > total {
+		endVisual = total
+	}
+
+	// Render the visible window
+	for v := startVisual; v < endVisual; v++ {
+		// Convert visual row to slice index
+		sliceIdx := total - 1 - v
+		rev := revs[sliceIdx]
+		isSelected := sliceIdx == rl.cursor && rl.focused
+		isPassive := sliceIdx == rl.cursor && !rl.focused
+		isCurrent := sliceIdx == rl.cursor
+
+		dot := lipgloss.NewStyle().Foreground(rl.theme.Overlay0).Render("○")
 		if isCurrent {
-			dot = lipgloss.NewStyle().Foreground(rl.theme.Blue).Render("@")
+			dot = lipgloss.NewStyle().Foreground(rl.theme.Blue).Render("●")
 		}
 
 		idStr := lipgloss.NewStyle().Foreground(rl.theme.Mauve).Render(rev.ID.String())
@@ -621,7 +807,15 @@ func (rl *RevisionList) View() string {
 			}
 		}
 
-		line := " " + dot + " " + compareBadge + idStr + " " + etStr + " " + timeStr + tagBadge
+		// Loop state label: show which "state" this revision matches (A, B, ...)
+		loopBadge := ""
+		if loopInfo.IsLoop && loopInfo.LoopRevisions != nil {
+			if label, ok := loopInfo.LoopRevisions[rev.ID]; ok {
+				loopBadge = " " + lipgloss.NewStyle().Foreground(rl.theme.Red).Render("↻"+label)
+			}
+		}
+
+		line := " " + dot + " " + compareBadge + idStr + " " + etStr + " " + timeStr + tagBadge + loopBadge
 
 		padded := PadRight(line, rl.width)
 		if isSelected {
@@ -678,7 +872,6 @@ func (dv *DetailView) SetSize(w, h int) {
 }
 
 func (dv *DetailView) SetFocus(f bool) { dv.focused = f }
-func (dv *DetailView) IsFocused() bool { return dv.focused }
 
 func (dv *DetailView) SetRevision(rd *ResourceData, index int) {
 	dv.resource = rd
@@ -693,19 +886,25 @@ func (dv *DetailView) SetViewMode(mode ViewMode) {
 
 func (dv *DetailView) ViewMode() ViewMode { return dv.viewMode }
 
+// CanScrollUp returns true if the viewport has content above the visible area.
+func (dv *DetailView) CanScrollUp() bool { return !dv.viewport.AtTop() }
+
+// CanScrollDown returns true if the viewport has content below the visible area.
+func (dv *DetailView) CanScrollDown() bool { return !dv.viewport.AtBottom() }
+
 // CurrentHint returns a context-sensitive hint for the status bar.
 func (dv *DetailView) CurrentHint() string {
 	if dv.resource == nil {
 		return ""
 	}
-	return "d=diff  o=object  p=patch  J=json  [/]=prev/next  c=compare  t=timeline"
+	return "d=diff  o=object  p=patch  J=json  r=raw  [/]=prev/next  c=compare  t=timeline  e=export  y=copy"
 }
 
 func (dv *DetailView) renderContent() {
 	if dv.resource == nil || dv.revIndex < 0 || dv.revIndex >= len(dv.resource.Revisions) {
 		dv.content = lipgloss.NewStyle().
 			Foreground(dv.theme.Overlay0).Italic(true).
-			Render("Select a revision to view details")
+			Render("  ◇ Select a revision to view details")
 		dv.viewport.SetContent(dv.content)
 		return
 	}
@@ -724,7 +923,7 @@ func (dv *DetailView) renderContent() {
 	if sepW <= 0 {
 		sepW = 40
 	}
-	separator := lipgloss.NewStyle().Foreground(dv.theme.Surface1).Render(strings.Repeat("-", sepW))
+	separator := lipgloss.NewStyle().Foreground(dv.theme.Surface1).Render(strings.Repeat("─", sepW))
 
 	var body string
 	switch dv.viewMode {
@@ -741,6 +940,8 @@ func (dv *DetailView) renderContent() {
 		}
 	case JSONMode:
 		body = RenderJSONObject(rev.Object, dv.theme)
+	case RawMode:
+		body = dv.renderRaw(rev)
 	}
 
 	dv.content = titleLine + "\n" + separator + "\n" + body
@@ -780,6 +981,76 @@ func (dv *DetailView) renderDiff(rev Revision) string {
 	})
 }
 
+// renderRaw shows the revision as a raw database record — useful for debugging.
+func (dv *DetailView) renderRaw(rev Revision) string {
+	var lines []string
+	headerStyle := lipgloss.NewStyle().Foreground(dv.theme.Lavender).Bold(true)
+	keyStyle := lipgloss.NewStyle().Foreground(dv.theme.Blue)
+	valStyle := lipgloss.NewStyle().Foreground(dv.theme.Text)
+	mutedStyle := lipgloss.NewStyle().Foreground(dv.theme.Overlay0)
+
+	lines = append(lines, headerStyle.Render("── Database Record ──"))
+	lines = append(lines, "")
+	lines = append(lines, keyStyle.Render("Revision ID:  ")+valStyle.Render(rev.ID.String()))
+	lines = append(lines, keyStyle.Render("Event Type:   ")+valStyle.Render(string(rev.EventType)))
+	lines = append(lines, keyStyle.Render("Timestamp:    ")+valStyle.Render(rev.Time.Format("2006-01-02T15:04:05.000Z07:00")))
+	if dv.resource != nil {
+		r := dv.resource.Resource
+		lines = append(lines, keyStyle.Render("Resource UID: ")+valStyle.Render(r.UID))
+		lines = append(lines, keyStyle.Render("Kind:         ")+valStyle.Render(r.Kind))
+		lines = append(lines, keyStyle.Render("Name:         ")+valStyle.Render(r.Name))
+		lines = append(lines, keyStyle.Render("Namespace:    ")+valStyle.Render(r.Namespace))
+		lines = append(lines, keyStyle.Render("Starred:      ")+valStyle.Render(fmt.Sprintf("%v", r.Starred)))
+	}
+	lines = append(lines, "")
+
+	lines = append(lines, headerStyle.Render("── Object (raw JSON) ──"))
+	lines = append(lines, "")
+	if rev.Object != nil {
+		raw, err := json.MarshalIndent(rev.Object, "", "  ")
+		if err != nil {
+			lines = append(lines, mutedStyle.Render("(error marshaling: "+err.Error()+")"))
+		} else {
+			lines = append(lines, string(raw))
+		}
+	} else {
+		lines = append(lines, mutedStyle.Render("(nil)"))
+	}
+	lines = append(lines, "")
+
+	lines = append(lines, headerStyle.Render("── Patch (raw JSON) ──"))
+	lines = append(lines, "")
+	if rev.Patch != nil {
+		raw, err := json.MarshalIndent(rev.Patch, "", "  ")
+		if err != nil {
+			lines = append(lines, mutedStyle.Render("(error marshaling: "+err.Error()+")"))
+		} else {
+			lines = append(lines, string(raw))
+		}
+	} else {
+		lines = append(lines, mutedStyle.Render("(nil)"))
+	}
+
+	// Analysis info
+	lines = append(lines, "")
+	lines = append(lines, headerStyle.Render("── Analysis ──"))
+	lines = append(lines, "")
+	if dv.resource != nil {
+		loopInfo := dv.resource.AnalyzeLoop(8)
+		if loopInfo.IsLoop {
+			lines = append(lines, keyStyle.Render("Loop:         ")+valStyle.Render(fmt.Sprintf(
+				"YES  pattern=%s  states=%d  cycles=%d  period=%s",
+				loopInfo.PatternSample, loopInfo.DistinctStates, loopInfo.Cycles, loopInfo.Period.Round(time.Second))))
+		} else {
+			lines = append(lines, keyStyle.Render("Loop:         ")+valStyle.Render("no"))
+		}
+		lines = append(lines, keyStyle.Render("Frequency:    ")+valStyle.Render(fmt.Sprintf("%.2f changes/min", dv.resource.ChangeFrequency())))
+		lines = append(lines, keyStyle.Render("Rev Index:    ")+valStyle.Render(fmt.Sprintf("%d / %d", dv.revIndex, len(dv.resource.Revisions)-1)))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
 func (dv *DetailView) Update(msg tea.Msg) tea.Cmd {
 	if !dv.focused {
 		return nil
@@ -799,6 +1070,9 @@ func (dv *DetailView) Update(msg tea.Msg) tea.Cmd {
 		case "J":
 			dv.SetViewMode(JSONMode)
 			return Cmd(ViewModeChangedMsg{Mode: JSONMode})
+		case "r":
+			dv.SetViewMode(RawMode)
+			return Cmd(ViewModeChangedMsg{Mode: RawMode})
 		case "e":
 			return Cmd(StatusMsg{Text: "Export: would save YAML to file (not implemented in prototype)", IsError: false})
 		case "y":
@@ -858,6 +1132,10 @@ type TimelineList struct {
 	// Window filter centered on anchor timestamp
 	windowMode   WindowMode
 	windowAnchor time.Time // the revision timestamp the window is centered on
+
+	// Compare mark support
+	compareLeft  *CompareItem
+	compareRight *CompareItem
 }
 
 type timelineFlatItem struct {
@@ -874,7 +1152,11 @@ func NewTimelineList(theme Theme) *TimelineList {
 
 func (tl *TimelineList) SetSize(w, h int) { tl.width = w; tl.height = h }
 func (tl *TimelineList) SetFocus(f bool)  { tl.focused = f }
-func (tl *TimelineList) IsFocused() bool  { return tl.focused }
+
+func (tl *TimelineList) SetCompareMarks(left, right *CompareItem) {
+	tl.compareLeft = left
+	tl.compareRight = right
+}
 
 func (tl *TimelineList) SetAutoScroll(on bool) {
 	tl.autoScroll = on
@@ -931,6 +1213,16 @@ func (tl *TimelineList) JumpToNewest() {
 	}
 }
 
+// ScrollToRevision finds a timeline entry by revision ID and moves the cursor to it.
+func (tl *TimelineList) ScrollToRevision(revID RevisionID) {
+	for i, item := range tl.flatItems {
+		if item.entry != nil && item.entry.Revision.ID == revID {
+			tl.cursor = i
+			return
+		}
+	}
+}
+
 // SelectedEntry returns the currently selected timeline entry, or nil.
 func (tl *TimelineList) SelectedEntry() *TimelineEntry {
 	if tl.cursor >= 0 && tl.cursor < len(tl.flatItems) {
@@ -941,6 +1233,47 @@ func (tl *TimelineList) SelectedEntry() *TimelineEntry {
 
 // CursorInfo returns cursor position and total count.
 func (tl *TimelineList) CursorInfo() (int, int) { return tl.cursor, len(tl.flatItems) }
+
+// CanScrollUp returns true if there are items above the visible window.
+func (tl *TimelineList) CanScrollUp() bool {
+	if len(tl.flatItems) == 0 || tl.height <= 0 {
+		return false
+	}
+	// Account for optional header lines (window mode / auto-scroll banner)
+	headerLines := 0
+	if tl.windowMode != WindowAll || tl.autoScroll {
+		headerLines = 1
+	}
+	visibleHeight := tl.height - headerLines
+	if visibleHeight <= 0 {
+		return false
+	}
+	startIdx := 0
+	if tl.cursor >= visibleHeight {
+		startIdx = tl.cursor - visibleHeight + 1
+	}
+	return startIdx > 0
+}
+
+// CanScrollDown returns true if there are items below the visible window.
+func (tl *TimelineList) CanScrollDown() bool {
+	if len(tl.flatItems) == 0 || tl.height <= 0 {
+		return false
+	}
+	headerLines := 0
+	if tl.windowMode != WindowAll || tl.autoScroll {
+		headerLines = 1
+	}
+	visibleHeight := tl.height - headerLines
+	if visibleHeight <= 0 {
+		return false
+	}
+	startIdx := 0
+	if tl.cursor >= visibleHeight {
+		startIdx = tl.cursor - visibleHeight + 1
+	}
+	return startIdx+visibleHeight < len(tl.flatItems)
+}
 
 func (tl *TimelineList) buildFlatItems() {
 	tl.flatItems = nil
@@ -977,11 +1310,11 @@ func (tl *TimelineList) CurrentHint() string {
 	var parts []string
 
 	if item.isBurstStart {
-		parts = append(parts, fmt.Sprintf("+=burst start (%d events)", item.burstSize))
+		parts = append(parts, fmt.Sprintf("╭=burst start (%d events)", item.burstSize))
 	} else if item.isBurstMid {
-		parts = append(parts, "|=burst middle")
+		parts = append(parts, "│=burst middle")
 	} else if item.isBurstEnd {
-		parts = append(parts, "`=burst end")
+		parts = append(parts, "╰=burst end")
 	}
 
 	if item.entry != nil && item.entry.Resource.Starred {
@@ -1003,7 +1336,7 @@ func (tl *TimelineList) CurrentHint() string {
 	if len(parts) > 0 {
 		return strings.Join(parts, "  ")
 	}
-	return "s: star  Enter: select  w: time window"
+	return "s: star  S: starred-only  Enter: select  w: time window  ctrl+d/u: page"
 }
 
 func (tl *TimelineList) Update(msg tea.Msg) tea.Cmd {
@@ -1040,6 +1373,29 @@ func (tl *TimelineList) Update(msg tea.Msg) tea.Cmd {
 				tl.cursor = len(tl.flatItems) - 1
 			}
 			return tl.selectCurrent()
+		case "ctrl+d", "pgdown":
+			pageSize := tl.height / 2
+			if pageSize < 1 {
+				pageSize = 1
+			}
+			tl.cursor += pageSize
+			if tl.cursor >= len(tl.flatItems) {
+				tl.cursor = len(tl.flatItems) - 1
+			}
+			return tl.selectCurrent()
+		case "ctrl+u", "pgup":
+			pageSize := tl.height / 2
+			if pageSize < 1 {
+				pageSize = 1
+			}
+			tl.cursor -= pageSize
+			if tl.cursor < 0 {
+				tl.cursor = 0
+			}
+			return tl.selectCurrent()
+		case "S":
+			// Toggle starred-only filter for the timeline
+			return Cmd(ToggleTimelineStarredMsg{})
 		}
 	}
 	return nil
@@ -1105,18 +1461,18 @@ func (tl *TimelineList) View() string {
 		burstPrefix := "  "
 		burstStyle := lipgloss.NewStyle().Foreground(tl.theme.Surface2)
 		if item.isBurstStart {
-			burstPrefix = burstStyle.Render("+ ")
+			burstPrefix = burstStyle.Render("╭ ")
 		} else if item.isBurstEnd {
-			burstPrefix = burstStyle.Render("` ")
+			burstPrefix = burstStyle.Render("╰ ")
 		} else if item.isBurstMid {
-			burstPrefix = burstStyle.Render("| ")
+			burstPrefix = burstStyle.Render("│ ")
 		}
 
 		// Time with recency-based coloring
 		timeStr := lipgloss.NewStyle().Foreground(timeColor(tl.theme, e.Revision.Time)).
 			Render(FormatTimestamp(e.Revision.Time))
 
-		// Anchor indicator: show ">" next to the entry closest to anchor
+		// Anchor indicator: show "▸" next to the entry closest to anchor
 		anchorMark := " "
 		if tl.windowMode != WindowAll && !tl.windowAnchor.IsZero() {
 			diff := e.Revision.Time.Sub(tl.windowAnchor)
@@ -1124,7 +1480,7 @@ func (tl *TimelineList) View() string {
 				diff = -diff
 			}
 			if diff < 1*time.Second {
-				anchorMark = lipgloss.NewStyle().Foreground(tl.theme.Yellow).Bold(true).Render(">")
+				anchorMark = lipgloss.NewStyle().Foreground(tl.theme.Yellow).Bold(true).Render("▸")
 			}
 		}
 
@@ -1136,10 +1492,18 @@ func (tl *TimelineList) View() string {
 
 		star := ""
 		if e.Resource.Starred {
-			star = tl.theme.StarStyle().Render("*") + " "
+			star = tl.theme.StarStyle().Render("★") + " "
 		}
 
-		line := burstPrefix + anchorMark + timeStr + " " + star + kindName + " " + etStr
+		// Compare badges
+		compareBadge := ""
+		if tl.compareLeft != nil && tl.compareLeft.Resource.UID == e.Resource.UID && tl.compareLeft.Revision.ID == e.Revision.ID {
+			compareBadge = lipgloss.NewStyle().Foreground(tl.theme.Blue).Bold(true).Render("[C1]") + " "
+		} else if tl.compareRight != nil && tl.compareRight.Resource.UID == e.Resource.UID && tl.compareRight.Revision.ID == e.Revision.ID {
+			compareBadge = lipgloss.NewStyle().Foreground(tl.theme.Mauve).Bold(true).Render("[C2]") + " "
+		}
+
+		line := burstPrefix + anchorMark + timeStr + " " + compareBadge + star + kindName + " " + etStr
 
 		padded := PadRight(line, tl.width)
 		if isSelected {
@@ -1203,18 +1567,58 @@ func (cp *ComparePanel) SetItems(left, right *CompareItem) {
 	cp.renderContent()
 }
 
-func (cp *ComparePanel) renderContent() {
-	if cp.left != nil {
-		cp.leftVP.SetContent(RenderYAMLObject(cp.left.Revision.Object, cp.theme, 2))
-	} else {
-		cp.leftVP.SetContent(lipgloss.NewStyle().Foreground(cp.theme.Overlay0).Italic(true).
-			Render("Mark a revision with 'c' to compare"))
+// CanScrollUp returns true if the active viewport has content above.
+func (cp *ComparePanel) CanScrollUp() bool {
+	if cp.focusLeft {
+		return !cp.leftVP.AtTop()
 	}
-	if cp.right != nil {
-		cp.rightVP.SetContent(RenderYAMLObject(cp.right.Revision.Object, cp.theme, 2))
+	return !cp.rightVP.AtTop()
+}
+
+// CanScrollDown returns true if the active viewport has content below.
+func (cp *ComparePanel) CanScrollDown() bool {
+	if cp.focusLeft {
+		return !cp.leftVP.AtBottom()
+	}
+	return !cp.rightVP.AtBottom()
+}
+
+func (cp *ComparePanel) renderContent() {
+	dpTheme := diffpreview.Theme{
+		KeyStyle:    lipgloss.NewStyle().Foreground(cp.theme.Blue),
+		StringStyle: lipgloss.NewStyle().Foreground(cp.theme.Green),
+		NumberStyle: lipgloss.NewStyle().Foreground(cp.theme.Peach),
+		BoolStyle:   lipgloss.NewStyle().Foreground(cp.theme.Yellow),
+		NullStyle:   lipgloss.NewStyle().Foreground(cp.theme.Overlay0).Italic(true),
+		AddedBg:     lipgloss.NewStyle().Background(cp.theme.DiffAddedBg).Foreground(cp.theme.Green),
+		RemovedBg:   lipgloss.NewStyle().Background(cp.theme.DiffRemovedBg).Foreground(cp.theme.Red),
+		ModifiedBg:  lipgloss.NewStyle().Background(cp.theme.DiffModifiedBg).Foreground(cp.theme.Peach),
+	}
+	renderOpts := diffpreview.RenderOptions{
+		IndentSize:                2,
+		EnableBackgroundHighlight: true,
+	}
+
+	if cp.left != nil && cp.right != nil {
+		// Both sides available — compute diff and highlight changes
+		node := diffpreview.DiffRecursive(cp.left.Revision.Object, cp.right.Revision.Object)
+		diffRendered := diffpreview.RenderYAML(node, dpTheme, renderOpts)
+		// Show the diff on both sides: left = old, right = new (diff shows both)
+		cp.leftVP.SetContent(RenderYAMLObject(cp.left.Revision.Object, cp.theme, 2))
+		cp.rightVP.SetContent(diffRendered)
 	} else {
-		cp.rightVP.SetContent(lipgloss.NewStyle().Foreground(cp.theme.Overlay0).Italic(true).
-			Render("Mark a second revision with 'c'"))
+		if cp.left != nil {
+			cp.leftVP.SetContent(RenderYAMLObject(cp.left.Revision.Object, cp.theme, 2))
+		} else {
+			cp.leftVP.SetContent(lipgloss.NewStyle().Foreground(cp.theme.Overlay0).Italic(true).
+				Render("Mark a revision with 'c' to compare"))
+		}
+		if cp.right != nil {
+			cp.rightVP.SetContent(RenderYAMLObject(cp.right.Revision.Object, cp.theme, 2))
+		} else {
+			cp.rightVP.SetContent(lipgloss.NewStyle().Foreground(cp.theme.Overlay0).Italic(true).
+				Render("Mark a second revision with 'c'"))
+		}
 	}
 }
 
@@ -1224,6 +1628,8 @@ func (cp *ComparePanel) Update(msg tea.Msg) tea.Cmd {
 		switch msg.String() {
 		case "tab":
 			cp.focusLeft = !cp.focusLeft
+		case "X":
+			return Cmd(CompareClearMsg{})
 		default:
 			if cp.focusLeft {
 				var cmd tea.Cmd
@@ -1259,9 +1665,9 @@ func (cp *ComparePanel) View() string {
 	leftHeader := PadRight(" "+leftTitle, halfW)
 	rightHeader := PadRight(" "+rightTitle, halfW)
 	sepStyle := lipgloss.NewStyle().Foreground(cp.theme.Surface1)
-	header := leftHeader + sepStyle.Render("|") + rightHeader
+	header := leftHeader + sepStyle.Render("│") + rightHeader
 
-	sep := sepStyle.Render(strings.Repeat("-", cp.width))
+	sep := sepStyle.Render(strings.Repeat("─", cp.width))
 
 	leftContent := cp.leftVP.View()
 	rightContent := cp.rightVP.View()
@@ -1279,15 +1685,11 @@ func (cp *ComparePanel) View() string {
 		if i < len(rightLines) {
 			rl = rightLines[i]
 		}
-		bodyLines = append(bodyLines, PadRight(ll, halfW)+sepStyle.Render("|")+PadRight(rl, halfW))
+		bodyLines = append(bodyLines, PadRight(ll, halfW)+sepStyle.Render("│")+PadRight(rl, halfW))
 	}
 
 	return header + "\n" + sep + "\n" + strings.Join(bodyLines, "\n")
 }
-
-// We need diffmap for its Diff function reference, but the actual import
-// is used indirectly via diffpreview. Suppress unused import.
-var _ = diffmap.Diff
 
 // timeColor returns a color based on how recent a timestamp is.
 // Very recent = bright green, minutes ago = teal, older = dim overlay.

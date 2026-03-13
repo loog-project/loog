@@ -190,7 +190,7 @@ func (cp *CommandPalette) View() string {
 	// Separator
 	sep := lipgloss.NewStyle().
 		Foreground(cp.theme.Surface1).
-		Render(strings.Repeat("-", contentW))
+		Render(strings.Repeat("─", contentW))
 
 	// Match list
 	maxVisible := 10
@@ -431,7 +431,7 @@ func (qs *QuickSearch) View() string {
 
 	sep := lipgloss.NewStyle().
 		Foreground(qs.theme.Surface1).
-		Render(strings.Repeat("-", contentW))
+		Render(strings.Repeat("─", contentW))
 
 	maxVisible := 12
 	if maxVisible > qs.height-10 {
@@ -469,10 +469,10 @@ func (qs *QuickSearch) View() string {
 		badges = append(badges, lipgloss.NewStyle().Foreground(qs.theme.Overlay0).
 			Render(fmt.Sprintf("%d revs", len(rd.Revisions))))
 		if rd.Resource.Starred {
-			badges = append(badges, lipgloss.NewStyle().Foreground(qs.theme.Yellow).Render("*"))
+			badges = append(badges, lipgloss.NewStyle().Foreground(qs.theme.Yellow).Render("★"))
 		}
 		if rd.DetectLoop(6) {
-			badges = append(badges, lipgloss.NewStyle().Foreground(qs.theme.Red).Render("~loop"))
+			badges = append(badges, lipgloss.NewStyle().Foreground(qs.theme.Red).Render("↻loop"))
 		}
 
 		info := strings.Join(badges, " ")
@@ -783,7 +783,7 @@ func (wm *WatchManager) View() string {
 	tabLine := "  " + watchingLabel + "    " + addLabel
 
 	sep := lipgloss.NewStyle().Foreground(wm.theme.Surface1).
-		Render(strings.Repeat("-", contentW))
+		Render(strings.Repeat("─", contentW))
 
 	var body string
 	if wm.tab == wmTabWatching {

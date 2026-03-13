@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -171,9 +172,9 @@ func (ev *ExplorerViewComponent) View() string {
 	}
 	modeLabel := "Detail [" + ev.detail.ViewMode().String() + "]"
 
-	treeContent := PanelBorder(ev.tree.View(), treeTitle, ev.treeOuterW, ev.height, ev.focusPanel == PanelLeft, ev.theme)
-	revContent := PanelBorder(ev.revList.View(), revTitle, ev.revOuterW, ev.height, ev.focusPanel == PanelMiddle, ev.theme)
-	detailContent := PanelBorder(ev.detail.View(), modeLabel, ev.detailOuterW, ev.height, ev.focusPanel == PanelRight, ev.theme)
+	treeContent := PanelBorderEx(ev.tree.View(), treeTitle, ev.treeOuterW, ev.height, ev.focusPanel == PanelLeft, ev.theme, ev.tree.CanScrollUp(), ev.tree.CanScrollDown())
+	revContent := PanelBorderEx(ev.revList.View(), revTitle, ev.revOuterW, ev.height, ev.focusPanel == PanelMiddle, ev.theme, ev.revList.CanScrollUp(), ev.revList.CanScrollDown())
+	detailContent := PanelBorderEx(ev.detail.View(), modeLabel, ev.detailOuterW, ev.height, ev.focusPanel == PanelRight, ev.theme, ev.detail.CanScrollUp(), ev.detail.CanScrollDown())
 
 	return SplitThreeColumns(treeContent, revContent, detailContent, ev.treeOuterW, ev.revOuterW, ev.width, ev.height)
 }
@@ -183,14 +184,14 @@ func (ev *ExplorerViewComponent) ViewFullscreen(w, h int) string {
 	switch ev.focusPanel {
 	case PanelLeft:
 		ev.tree.SetSize(w-2, h-2)
-		return PanelBorder(ev.tree.View(), "Resources [fullscreen]", w, h, true, ev.theme)
+		return PanelBorderEx(ev.tree.View(), "Resources [fullscreen]", w, h, true, ev.theme, ev.tree.CanScrollUp(), ev.tree.CanScrollDown())
 	case PanelMiddle:
 		ev.revList.SetSize(w-2, h-2)
-		return PanelBorder(ev.revList.View(), "Revisions [fullscreen]", w, h, true, ev.theme)
+		return PanelBorderEx(ev.revList.View(), "Revisions [fullscreen]", w, h, true, ev.theme, ev.revList.CanScrollUp(), ev.revList.CanScrollDown())
 	case PanelRight:
 		ev.detail.SetSize(w-2, h-2)
 		modeLabel := "Detail [" + ev.detail.ViewMode().String() + "] [fullscreen]"
-		return PanelBorder(ev.detail.View(), modeLabel, w, h, true, ev.theme)
+		return PanelBorderEx(ev.detail.View(), modeLabel, w, h, true, ev.theme, ev.detail.CanScrollUp(), ev.detail.CanScrollDown())
 	}
 	return ""
 }
@@ -239,6 +240,22 @@ func (tv *TimelineViewComponent) SetSize(w, h int) {
 
 func (tv *TimelineViewComponent) SetEntries(entries []TimelineEntry) {
 	tv.timeline.SetEntries(entries)
+}
+
+// ScrollToEntry finds and selects a specific timeline entry by matching revision ID.
+func (tv *TimelineViewComponent) ScrollToEntry(entry TimelineEntry) {
+	tv.timeline.ScrollToRevision(entry.Revision.ID)
+	// Also update the detail view
+	if sel := tv.timeline.SelectedEntry(); sel != nil {
+		if rd, ok := tv.store.Resources[sel.Resource.UID]; ok {
+			for i, rev := range rd.Revisions {
+				if rev.ID == sel.Revision.ID {
+					tv.detail.SetRevision(rd, i)
+					break
+				}
+			}
+		}
+	}
 }
 
 func (tv *TimelineViewComponent) SetStore(store *DummyStore) {
@@ -292,6 +309,10 @@ func (tv *TimelineViewComponent) SetWindowAnchor(t time.Time) {
 	tv.timeline.SetWindowAnchor(t)
 }
 
+func (tv *TimelineViewComponent) SetCompareMarks(left, right *CompareItem) {
+	tv.timeline.SetCompareMarks(left, right)
+}
+
 // CurrentHint returns the focused component's hint.
 func (tv *TimelineViewComponent) CurrentHint() string {
 	if tv.focusPanel == PanelLeft {
@@ -303,6 +324,20 @@ func (tv *TimelineViewComponent) CurrentHint() string {
 func (tv *TimelineViewComponent) Update(msg tea.Msg) tea.Cmd {
 	switch tv.focusPanel {
 	case PanelLeft:
+		// Intercept "c" for compare marking — TimelineList doesn't have store access,
+		// so we resolve the TimelineEntry → ResourceData + revision index here.
+		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "c" {
+			if entry := tv.timeline.SelectedEntry(); entry != nil && tv.store != nil {
+				if rd, ok := tv.store.Resources[entry.Resource.UID]; ok {
+					for i, rev := range rd.Revisions {
+						if rev.ID == entry.Revision.ID {
+							return Cmd(CompareMarkMsg{Resource: rd, Index: i})
+						}
+					}
+				}
+			}
+			return nil
+		}
 		return tv.timeline.Update(msg)
 	default:
 		return tv.detail.Update(msg)
@@ -317,8 +352,8 @@ func (tv *TimelineViewComponent) View() string {
 	}
 	modeLabel := "Detail [" + tv.detail.ViewMode().String() + "]"
 
-	listContent := PanelBorder(tv.timeline.View(), listTitle, tv.listOuterW, tv.height, tv.focusPanel == PanelLeft, tv.theme)
-	detailContent := PanelBorder(tv.detail.View(), modeLabel, tv.detailOuterW, tv.height, tv.focusPanel == PanelRight, tv.theme)
+	listContent := PanelBorderEx(tv.timeline.View(), listTitle, tv.listOuterW, tv.height, tv.focusPanel == PanelLeft, tv.theme, tv.timeline.CanScrollUp(), tv.timeline.CanScrollDown())
+	detailContent := PanelBorderEx(tv.detail.View(), modeLabel, tv.detailOuterW, tv.height, tv.focusPanel == PanelRight, tv.theme, tv.detail.CanScrollUp(), tv.detail.CanScrollDown())
 
 	return SplitHorizontal(listContent, detailContent, tv.listOuterW, tv.width, tv.height)
 }
@@ -328,11 +363,11 @@ func (tv *TimelineViewComponent) ViewFullscreen(w, h int) string {
 	switch tv.focusPanel {
 	case PanelLeft:
 		tv.timeline.SetSize(w-2, h-2)
-		return PanelBorder(tv.timeline.View(), "Timeline [fullscreen]", w, h, true, tv.theme)
+		return PanelBorderEx(tv.timeline.View(), "Timeline [fullscreen]", w, h, true, tv.theme, tv.timeline.CanScrollUp(), tv.timeline.CanScrollDown())
 	default:
 		tv.detail.SetSize(w-2, h-2)
 		modeLabel := "Detail [" + tv.detail.ViewMode().String() + "] [fullscreen]"
-		return PanelBorder(tv.detail.View(), modeLabel, w, h, true, tv.theme)
+		return PanelBorderEx(tv.detail.View(), modeLabel, w, h, true, tv.theme, tv.detail.CanScrollUp(), tv.detail.CanScrollDown())
 	}
 }
 
@@ -390,10 +425,27 @@ func (wv *WatchlistViewComponent) SetStore(store *DummyStore) {
 }
 
 func (wv *WatchlistViewComponent) RefreshStarred() {
+	wv.RefreshStarredFiltered("")
+}
+
+// RefreshStarredFiltered rebuilds the watchlist tree with starred resources,
+// optionally filtered by a text expression.
+func (wv *WatchlistViewComponent) RefreshStarredFiltered(filterExpr string) {
 	if wv.store == nil {
 		return
 	}
 	starred := wv.store.StarredResources()
+	if filterExpr != "" {
+		filterLower := strings.ToLower(filterExpr)
+		var filtered []*ResourceData
+		for _, rd := range starred {
+			searchable := strings.ToLower(rd.Resource.Kind + " " + rd.Resource.Name + " " + rd.Resource.Namespace)
+			if strings.Contains(searchable, filterLower) {
+				filtered = append(filtered, rd)
+			}
+		}
+		starred = filtered
+	}
 	groups := BuildKindGroups(starred)
 	wv.tree.SetGroups(groups)
 }
@@ -490,9 +542,9 @@ func (wv *WatchlistViewComponent) View() string {
 	}
 	modeLabel := "Detail [" + wv.detail.ViewMode().String() + "]"
 
-	treeContent := PanelBorder(wv.tree.View(), treeTitle, wv.treeOuterW, wv.height, wv.focusPanel == PanelLeft, wv.theme)
-	revContent := PanelBorder(wv.revList.View(), revTitle, wv.revOuterW, wv.height, wv.focusPanel == PanelMiddle, wv.theme)
-	detailContent := PanelBorder(wv.detail.View(), modeLabel, wv.detailOuterW, wv.height, wv.focusPanel == PanelRight, wv.theme)
+	treeContent := PanelBorderEx(wv.tree.View(), treeTitle, wv.treeOuterW, wv.height, wv.focusPanel == PanelLeft, wv.theme, wv.tree.CanScrollUp(), wv.tree.CanScrollDown())
+	revContent := PanelBorderEx(wv.revList.View(), revTitle, wv.revOuterW, wv.height, wv.focusPanel == PanelMiddle, wv.theme, wv.revList.CanScrollUp(), wv.revList.CanScrollDown())
+	detailContent := PanelBorderEx(wv.detail.View(), modeLabel, wv.detailOuterW, wv.height, wv.focusPanel == PanelRight, wv.theme, wv.detail.CanScrollUp(), wv.detail.CanScrollDown())
 
 	return SplitThreeColumns(treeContent, revContent, detailContent, wv.treeOuterW, wv.revOuterW, wv.width, wv.height)
 }
@@ -502,14 +554,14 @@ func (wv *WatchlistViewComponent) ViewFullscreen(w, h int) string {
 	switch wv.focusPanel {
 	case PanelLeft:
 		wv.tree.SetSize(w-2, h-2)
-		return PanelBorder(wv.tree.View(), "Watchlist [fullscreen]", w, h, true, wv.theme)
+		return PanelBorderEx(wv.tree.View(), "Watchlist [fullscreen]", w, h, true, wv.theme, wv.tree.CanScrollUp(), wv.tree.CanScrollDown())
 	case PanelMiddle:
 		wv.revList.SetSize(w-2, h-2)
-		return PanelBorder(wv.revList.View(), "Revisions [fullscreen]", w, h, true, wv.theme)
+		return PanelBorderEx(wv.revList.View(), "Revisions [fullscreen]", w, h, true, wv.theme, wv.revList.CanScrollUp(), wv.revList.CanScrollDown())
 	case PanelRight:
 		wv.detail.SetSize(w-2, h-2)
 		modeLabel := "Detail [" + wv.detail.ViewMode().String() + "] [fullscreen]"
-		return PanelBorder(wv.detail.View(), modeLabel, w, h, true, wv.theme)
+		return PanelBorderEx(wv.detail.View(), modeLabel, w, h, true, wv.theme, wv.detail.CanScrollUp(), wv.detail.CanScrollDown())
 	}
 	return ""
 }
@@ -570,11 +622,11 @@ func (cv *CompareViewComponent) Update(msg tea.Msg) tea.Cmd {
 }
 
 func (cv *CompareViewComponent) View() string {
-	return PanelBorder(cv.panel.View(), "Compare", cv.width, cv.height, true, cv.theme)
+	return PanelBorderEx(cv.panel.View(), "Compare", cv.width, cv.height, true, cv.theme, cv.panel.CanScrollUp(), cv.panel.CanScrollDown())
 }
 
 // ViewFullscreen is the same as View for compare (it's always full width).
 func (cv *CompareViewComponent) ViewFullscreen(w, h int) string {
 	cv.panel.SetSize(w-2, h-2)
-	return PanelBorder(cv.panel.View(), "Compare [fullscreen]", w, h, true, cv.theme)
+	return PanelBorderEx(cv.panel.View(), "Compare [fullscreen]", w, h, true, cv.theme, cv.panel.CanScrollUp(), cv.panel.CanScrollDown())
 }

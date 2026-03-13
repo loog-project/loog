@@ -38,6 +38,8 @@ type ShowHelpMsg struct{}
 type ShowFilterMsg struct{}
 type ShowQuickSearchMsg struct{}
 type ShowWatchManagerMsg struct{}
+type ShowDebugLogMsg struct{}
+type ShowDevConsoleMsg struct{}
 
 // --- Watch Management Messages ---
 
@@ -58,7 +60,8 @@ type StatusMsg struct {
 
 // --- Tree Messages ---
 
-type ToggleExpandMsg struct{ Kind string }
+// ToggleExpandMsg is reserved for future use (tree expand/collapse is handled inline).
+// type ToggleExpandMsg struct{ Kind string }
 
 // --- Analysis / Simulation Messages ---
 
@@ -72,12 +75,6 @@ type SimulationTickMsg struct {
 	ResourceUID string
 }
 
-// NewRevisionMsg is sent when a new revision has been added to the store.
-type NewRevisionMsg struct {
-	ResourceUID string
-	Revision    Revision
-}
-
 // ToggleAutoScrollMsg toggles auto-scroll mode.
 type ToggleAutoScrollMsg struct{}
 
@@ -89,6 +86,12 @@ type TogglePauseMsg struct{}
 
 // ToggleFreezeMsg freezes/unfreezes the view (data keeps arriving but UI doesn't update).
 type ToggleFreezeMsg struct{}
+
+// ToggleTimelineStarredMsg toggles the timeline starred-only filter.
+type ToggleTimelineStarredMsg struct{}
+
+// CompareClearMsg clears the compare selection.
+type CompareClearMsg struct{}
 
 // --- Utility ---
 

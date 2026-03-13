@@ -58,6 +58,12 @@ func SplitThreeColumns(left, middle, right string, leftW, midW, totalW, height i
 // The `width` and `height` are the OUTER dimensions (including the border).
 // The content should be pre-rendered to (width-2) x (height-2) inner dimensions.
 func PanelBorder(content, title string, width, height int, focused bool, theme Theme) string {
+	return PanelBorderEx(content, title, width, height, focused, theme, false, false)
+}
+
+// PanelBorderEx is like PanelBorder but with scroll indicators.
+// canScrollUp/canScrollDown add ▲/▼ indicators at the top-right/bottom-right of the border.
+func PanelBorderEx(content, title string, width, height int, focused bool, theme Theme, canScrollUp, canScrollDown bool) string {
 	if width < 4 || height < 3 {
 		return content
 	}
@@ -77,12 +83,18 @@ func PanelBorder(content, title string, width, height int, focused bool, theme T
 	bStyle := lipgloss.NewStyle().Foreground(borderColor)
 	tStyle := lipgloss.NewStyle().Foreground(titleColor).Bold(focused)
 
-	// Build top border with title
+	// Build top border with title and optional scroll-up indicator
 	var topLine string
+	scrollUpStr := ""
+	if canScrollUp {
+		scrollUpStr = lipgloss.NewStyle().Foreground(theme.Overlay1).Render(" ▲")
+	}
+	scrollUpW := lipgloss.Width(scrollUpStr)
+
 	if title != "" {
 		titleStr := " " + tStyle.Render(title) + " "
 		titleVisualW := lipgloss.Width(titleStr)
-		remainingW := innerW - titleVisualW
+		remainingW := innerW - titleVisualW - scrollUpW
 		if remainingW < 0 {
 			remainingW = 0
 		}
@@ -93,13 +105,32 @@ func PanelBorder(content, title string, width, height int, focused bool, theme T
 		}
 		topLine = bStyle.Render("╭"+strings.Repeat("─", leftPad)) +
 			titleStr +
-			bStyle.Render(strings.Repeat("─", rightPad)+"╮")
+			bStyle.Render(strings.Repeat("─", rightPad)) +
+			scrollUpStr +
+			bStyle.Render("╮")
 	} else {
-		topLine = bStyle.Render("╭" + strings.Repeat("─", innerW) + "╮")
+		fillW := innerW - scrollUpW
+		if fillW < 0 {
+			fillW = 0
+		}
+		topLine = bStyle.Render("╭"+strings.Repeat("─", fillW)) +
+			scrollUpStr +
+			bStyle.Render("╮")
 	}
 
-	// Build bottom border
-	bottomLine := bStyle.Render("╰" + strings.Repeat("─", innerW) + "╯")
+	// Build bottom border with optional scroll-down indicator
+	scrollDownStr := ""
+	if canScrollDown {
+		scrollDownStr = lipgloss.NewStyle().Foreground(theme.Overlay1).Render(" ▼")
+	}
+	scrollDownW := lipgloss.Width(scrollDownStr)
+	bottomFillW := innerW - scrollDownW
+	if bottomFillW < 0 {
+		bottomFillW = 0
+	}
+	bottomLine := bStyle.Render("╰"+strings.Repeat("─", bottomFillW)) +
+		scrollDownStr +
+		bStyle.Render("╯")
 
 	// Build content lines with side borders
 	contentLines := strings.Split(content, "\n")
@@ -152,9 +183,4 @@ func PadRight(s string, width int) string {
 		return s
 	}
 	return s + strings.Repeat(" ", width-w)
-}
-
-// FillWidth returns a style that fills to the given width.
-func FillWidth(width int) lipgloss.Style {
-	return lipgloss.NewStyle().Width(width)
 }

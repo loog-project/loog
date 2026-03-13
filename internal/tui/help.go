@@ -40,6 +40,25 @@ func (h *HelpOverlay) Update(msg tea.Msg) tea.Cmd {
 			if h.scrollOffset > 0 {
 				h.scrollOffset--
 			}
+		case "ctrl+d", "pgdown":
+			pageSize := h.height / 3
+			if pageSize < 5 {
+				pageSize = 5
+			}
+			h.scrollOffset += pageSize
+		case "ctrl+u", "pgup":
+			pageSize := h.height / 3
+			if pageSize < 5 {
+				pageSize = 5
+			}
+			h.scrollOffset -= pageSize
+			if h.scrollOffset < 0 {
+				h.scrollOffset = 0
+			}
+		case "g":
+			h.scrollOffset = 0
+		case "G":
+			h.scrollOffset = 9999 // will be clamped in View()
 		}
 	}
 	return nil
@@ -85,7 +104,8 @@ func (h *HelpOverlay) View() string {
 			{"?", "Toggle help"},
 			{"/", "Filter resources"},
 			{"//", "Quick fuzzy search for resources"},
-			{"F1-F4", "Switch views"},
+			{"F1-F4", "Switch views (Explorer / Timeline / Watchlist / Compare)"},
+			{"alt+1-4", "Switch views (terminal-safe fallback for F-keys)"},
 			{"1 / 2 / 3", "Focus panel"},
 			{"Tab", "Next panel"},
 			{"Shift+Tab", "Previous panel"},
@@ -93,44 +113,72 @@ func (h *HelpOverlay) View() string {
 			{"a", "Toggle auto-scroll"},
 			{"w", "Cycle time window (±15s/±30s/±1m/±5m around selected revision)"},
 			{"P", "Pause/resume recording (stops generating new data)"},
-			{"F5", "Freeze/unfreeze view (data keeps arriving, UI pauses)"},
-			{"W", "Watch Manager (add/remove watched resources)"},
+			{"F5 / alt+5", "Freeze/unfreeze view (data keeps arriving, UI pauses)"},
+			{"W", "Watch Manager (add/remove watched resource types)"},
+			{"F6 / alt+6", "Debug log viewer"},
+			{":", "Developer console"},
 		}},
 		{Title: "Lists (Resources / Revisions / Timeline)", Bindings: []helpBinding{
 			{"j / k", "Move down / up"},
 			{"g / G", "Go to top / bottom"},
+			{"ctrl+d / pgdn", "Page down"},
+			{"ctrl+u / pgup", "Page up"},
 			{"Enter", "Select / expand"},
 			{"s", "Toggle star"},
 			{"c", "Mark for compare"},
 		}},
+		{Title: "Timeline View", Bindings: []helpBinding{
+			{"S", "Toggle starred-only filter (show only starred resources)"},
+			{"w", "Cycle time window around selected revision"},
+		}},
+		{Title: "Compare View", Bindings: []helpBinding{
+			{"X", "Clear compare selection (remove both marks)"},
+			{"j / k", "Scroll diff up / down"},
+			{"ctrl+d / pgdn", "Page down in diff"},
+			{"ctrl+u / pgup", "Page up in diff"},
+		}},
 		{Title: "Detail View", Bindings: []helpBinding{
-			{"d", "Diff mode"},
+			{"d", "Diff mode (YAML with change highlighting)"},
 			{"o", "Object mode (full YAML)"},
 			{"p", "Patch mode (changes only)"},
 			{"J", "JSON mode"},
+			{"r", "Raw mode (database record for debugging)"},
 			{"[ / ]", "Previous / next revision"},
 			{"e", "Export YAML"},
 			{"y", "Copy to clipboard"},
 			{"t", "Jump to timeline"},
 		}},
 		{Title: "Symbols", Bindings: []helpBinding{
-			{"@", "Recently active resource"},
-			{"o", "Idle resource"},
-			{"~", "Reconcile loop detected"},
-			{"!", "High change frequency"},
-			{"*", "Starred resource"},
+			{"●", "Recently active resource (changed within seconds)"},
+			{"○", "Idle resource"},
+			{"↻", "Reconcile loop detected"},
+			{"▲ / △", "High / moderate change frequency"},
+			{"★", "Starred resource"},
 			{"[C1] / [C2]", "Compare mark left / right"},
-			{"+ | `", "Burst group bracket"},
+			{"╭ │ ╰", "Burst group bracket (rapid changes)"},
+			{"▸", "Window anchor position"},
+			{"▲ / ▼", "Scroll indicators (more content above/below)"},
 			{"[AUTO]", "Auto-scroll enabled"},
 			{"[SIM]", "Simulation running"},
-			{"frozen", "View frozen (blue header indicator)"},
-			{"paused", "Recording paused (yellow header indicator)"},
+			{"◆ frozen", "View frozen (blue header indicator)"},
+			{"■ paused", "Recording paused (yellow header indicator)"},
 		}},
-		{Title: "Command Palette", Bindings: []helpBinding{
-			{"typing", "Fuzzy search commands"},
-			{"up / down", "Navigate results"},
-			{"Enter", "Execute command"},
-			{"Esc", "Close"},
+		{Title: "Debug Tools", Bindings: []helpBinding{
+			{"F6 / alt+6", "Open debug log viewer (see internal events)"},
+			{":", "Open developer console (inspect store, resources, revisions)"},
+			{"r", "Raw mode in detail view (database representation)"},
+		}},
+		{Title: "Console Commands (: key)", Bindings: []helpBinding{
+			{"help", "Show available commands"},
+			{"status", "App state summary"},
+			{"resources", "List all resources with UIDs"},
+			{"revisions <uid>", "List revisions for a resource"},
+			{"inspect <uid>", "Show raw revision data (database format)"},
+			{"store", "Dump store statistics"},
+			{"kinds", "List resource kinds and counts"},
+			{"sim start/stop", "Start or stop live simulation"},
+			{"log <msg>", "Write a debug log entry"},
+			{"clear", "Clear console output"},
 		}},
 	}
 
@@ -179,7 +227,7 @@ func (h *HelpOverlay) View() string {
 	footer := lipgloss.NewStyle().
 		Foreground(h.theme.Overlay0).
 		Italic(true).
-		Render("  Press ? or Esc to close  │  j/k to scroll")
+		Render("  Press ? or Esc to close  │  j/k scroll  ctrl+d/u page  g/G top/bottom")
 
 	content := title + "\n" + sep + "\n\n" + visibleContent + "\n\n" + sep + "\n" + footer
 

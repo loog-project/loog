@@ -11,6 +11,7 @@ const (
 	CatAction     CommandCategory = "Action"
 	CatFilter     CommandCategory = "Filter"
 	CatSystem     CommandCategory = "System"
+	CatDebug      CommandCategory = "Debug"
 )
 
 // Command represents an action that can be executed from the command palette.
@@ -96,6 +97,11 @@ func NewCommandRegistry() *CommandRegistry {
 		Category: CatView, Shortcut: "J",
 		Action: func() tea.Cmd { return Cmd(ViewModeChangedMsg{Mode: JSONMode}) },
 	})
+	cr.Register(Command{
+		Name: "View: Raw Mode", Description: "Show raw database record (debug)",
+		Category: CatView, Shortcut: "r",
+		Action: func() tea.Cmd { return Cmd(ViewModeChangedMsg{Mode: RawMode}) },
+	})
 
 	// Actions
 	cr.Register(Command{
@@ -164,6 +170,32 @@ func NewCommandRegistry() *CommandRegistry {
 		Name: "Quit", Description: "Exit loog",
 		Category: CatSystem, Shortcut: "q",
 		Action: func() tea.Cmd { return tea.Quit },
+	})
+
+	// Timeline-specific
+	cr.Register(Command{
+		Name: "Toggle Starred Only", Description: "Show only starred resources in timeline",
+		Category: CatFilter, Shortcut: "S",
+		Action: func() tea.Cmd { return Cmd(ToggleTimelineStarredMsg{}) },
+	})
+
+	// Compare
+	cr.Register(Command{
+		Name: "Clear Compare", Description: "Remove both compare marks",
+		Category: CatAction, Shortcut: "X",
+		Action: func() tea.Cmd { return Cmd(CompareClearMsg{}) },
+	})
+
+	// Debug
+	cr.Register(Command{
+		Name: "Debug Log", Description: "View internal debug log (events, simulation, selection)",
+		Category: CatDebug, Shortcut: "F6",
+		Action: func() tea.Cmd { return Cmd(ShowDebugLogMsg{}) },
+	})
+	cr.Register(Command{
+		Name: "Developer Console", Description: "Interactive console for inspecting store, resources, revisions",
+		Category: CatDebug, Shortcut: ":",
+		Action: func() tea.Cmd { return Cmd(ShowDevConsoleMsg{}) },
 	})
 
 	return cr

@@ -47,6 +47,7 @@ const (
 	ObjectMode                 // Full YAML, no diff annotations
 	PatchMode                  // Only changed fields
 	JSONMode                   // Raw JSON
+	RawMode                    // Raw database representation (debug)
 )
 
 func (m ViewMode) String() string {
@@ -59,6 +60,8 @@ func (m ViewMode) String() string {
 		return "Patch"
 	case JSONMode:
 		return "JSON"
+	case RawMode:
+		return "Raw"
 	default:
 		return "?"
 	}
@@ -102,6 +105,54 @@ func (r Resource) QualifiedName() string {
 // KindName returns "Kind/name" (e.g., "Pod/nginx-abc").
 func (r Resource) KindName() string {
 	return r.Kind + "/" + r.Name
+}
+
+// KindIcon returns a Unicode icon for common Kubernetes resource kinds.
+func KindIcon(kind string) string {
+	switch kind {
+	case "Pod":
+		return "◎"
+	case "Deployment":
+		return "◈"
+	case "ReplicaSet":
+		return "◇"
+	case "StatefulSet":
+		return "◆"
+	case "DaemonSet":
+		return "◉"
+	case "Service":
+		return "◎"
+	case "Ingress":
+		return "⇋"
+	case "ConfigMap":
+		return "☰"
+	case "Secret":
+		return "⚿"
+	case "Namespace":
+		return "▣"
+	case "Node":
+		return "⬡"
+	case "PersistentVolumeClaim", "PersistentVolume":
+		return "▤"
+	case "Job":
+		return "⚙"
+	case "CronJob":
+		return "⏱"
+	case "ServiceAccount":
+		return "⊕"
+	case "Role", "ClusterRole":
+		return "⛊"
+	case "RoleBinding", "ClusterRoleBinding":
+		return "⛓"
+	case "NetworkPolicy":
+		return "⊞"
+	case "HorizontalPodAutoscaler":
+		return "⇕"
+	case "Endpoints":
+		return "⊙"
+	default:
+		return "□"
+	}
 }
 
 // ShortName returns a truncated name for narrow panels.
@@ -218,10 +269,23 @@ func (rd *ResourceData) DetectLoop(windowSize int) bool {
 
 // LoopInfo returns detailed loop information.
 type LoopInfo struct {
-	IsLoop           bool
-	OscillationCount int // how many times it flipped
-	FirstSeen        time.Time
-	Period           time.Duration // avg time between oscillations
+	IsLoop bool
+
+	// DistinctStates is the number of unique object states participating in the loop (e.g., 2 for A↔B).
+	DistinctStates int
+	// Cycles counts complete oscillation cycles. For A→B→A→B→A, there are 2 full A→B cycles.
+	Cycles int
+	// Period is the average duration of one full cycle (e.g., A→B→A takes ~Period).
+	Period    time.Duration
+	FirstSeen time.Time
+
+	// LoopRevisions maps revision IDs to their state group label ("A", "B", ...).
+	// Only revisions whose state appears 2+ times in the window get a label.
+	LoopRevisions map[RevisionID]string
+
+	// PatternSample is a short pre-built sample of the oscillation pattern
+	// from the tail of the window, e.g., "A→B→A→B". At most 6 labels.
+	PatternSample string
 }
 
 // AnalyzeLoop performs detailed loop analysis on recent revisions.
@@ -240,8 +304,18 @@ func (rd *ResourceData) AnalyzeLoop(windowSize int) LoopInfo {
 	type stateOccurrence struct {
 		count int
 		times []time.Time
+		revs  []RevisionID
 	}
 	seen := make(map[string]*stateOccurrence)
+	// Maintain insertion order of fingerprints for stable labeling
+	var fingerOrder []string
+	// Keep per-revision fingerprint for pattern building
+	type revFP struct {
+		revID RevisionID
+		fp    string
+	}
+	var revFPs []revFP
+
 	for _, rev := range window {
 		if rev.Object == nil {
 			continue
@@ -250,37 +324,110 @@ func (rd *ResourceData) AnalyzeLoop(windowSize int) LoopInfo {
 		key := string(b)
 		if _, ok := seen[key]; !ok {
 			seen[key] = &stateOccurrence{}
+			fingerOrder = append(fingerOrder, key)
 		}
 		seen[key].count++
 		seen[key].times = append(seen[key].times, rev.Time)
+		seen[key].revs = append(seen[key].revs, rev.ID)
+		revFPs = append(revFPs, revFP{revID: rev.ID, fp: key})
 	}
 
-	// Find the most repeated state
-	maxCount := 0
-	var maxTimes []time.Time
-	for _, occ := range seen {
-		if occ.count > maxCount {
-			maxCount = occ.count
-			maxTimes = occ.times
+	// Build label map: only states appearing 2+ times are loop participants
+	loopRevs := make(map[RevisionID]string)
+	nextLabel := 'A'
+	labelMap := make(map[string]string) // fingerprint -> label
+	distinctStates := 0
+	for _, fp := range fingerOrder {
+		occ := seen[fp]
+		if occ.count >= 2 {
+			label := string(nextLabel)
+			labelMap[fp] = label
+			distinctStates++
+			if nextLabel < 'Z' {
+				nextLabel++
+			}
+			for _, rid := range occ.revs {
+				loopRevs[rid] = label
+			}
 		}
 	}
 
-	if maxCount < 2 {
+	if distinctStates < 2 {
+		// Need at least 2 distinct repeating states for a meaningful loop
 		return LoopInfo{}
 	}
 
-	// Calculate average period
-	var totalDuration time.Duration
-	for i := 1; i < len(maxTimes); i++ {
-		totalDuration += maxTimes[i].Sub(maxTimes[i-1])
+	// Count actual oscillation cycles by walking the window and counting
+	// state transitions. A "cycle" is a complete round-trip: A→B→A is 1 cycle.
+	// We track transitions between loop-participating states only.
+	cycles := 0
+	var prevLabel string
+	transitions := 0
+	for _, rfp := range revFPs {
+		label, ok := labelMap[rfp.fp]
+		if !ok {
+			continue // skip non-loop revisions
+		}
+		if prevLabel != "" && label != prevLabel {
+			transitions++
+		}
+		prevLabel = label
 	}
-	avgPeriod := totalDuration / time.Duration(len(maxTimes)-1)
+	// Each pair of transitions = 1 cycle (A→B = 1 transition, A→B→A = 2 = 1 cycle)
+	cycles = transitions / 2
+
+	// Calculate cycle period from timestamps.
+	// Use the first loop-participant state's time series for measurement.
+	var period time.Duration
+	var firstSeen time.Time
+	// Find the state with the most occurrences for best period estimate
+	var bestTimes []time.Time
+	bestCount := 0
+	for fp, occ := range seen {
+		if _, isLoop := labelMap[fp]; !isLoop {
+			continue
+		}
+		if occ.count > bestCount {
+			bestCount = occ.count
+			bestTimes = occ.times
+		}
+	}
+	if len(bestTimes) >= 2 {
+		firstSeen = bestTimes[0]
+		// Period = avg gap between consecutive same-state occurrences
+		// For A→B→A→B pattern, this gives the full cycle time (A-to-A gap)
+		var totalGap time.Duration
+		for i := 1; i < len(bestTimes); i++ {
+			totalGap += bestTimes[i].Sub(bestTimes[i-1])
+		}
+		period = totalGap / time.Duration(len(bestTimes)-1)
+	}
+
+	// Build compact pattern sample from the last few revisions (max 6 labels).
+	var patternLabels []string
+	maxPatternLen := 6
+	for i := len(revFPs) - 1; i >= 0 && len(patternLabels) < maxPatternLen; i-- {
+		if label, ok := labelMap[revFPs[i].fp]; ok {
+			patternLabels = append([]string{label}, patternLabels...)
+		}
+	}
+	// Deduplicate consecutive labels (A,A,B,A → A,B,A isn't needed — we want the transition pattern)
+	var deduped []string
+	for _, l := range patternLabels {
+		if len(deduped) == 0 || deduped[len(deduped)-1] != l {
+			deduped = append(deduped, l)
+		}
+	}
+	patternSample := strings.Join(deduped, "→")
 
 	return LoopInfo{
-		IsLoop:           true,
-		OscillationCount: maxCount,
-		FirstSeen:        maxTimes[0],
-		Period:           avgPeriod,
+		IsLoop:         true,
+		DistinctStates: distinctStates,
+		Cycles:         cycles,
+		Period:         period,
+		FirstSeen:      firstSeen,
+		LoopRevisions:  loopRevs,
+		PatternSample:  patternSample,
 	}
 }
 
@@ -373,6 +520,28 @@ func (ds *DummyStore) FilterResources(expr string) []*ResourceData {
 		if strings.Contains(searchable, expr) {
 			result = append(result, rd)
 		}
+	}
+	return result
+}
+
+// FilterTimeline returns timeline entries matching a text filter and/or starred-only flag.
+func (ds *DummyStore) FilterTimeline(expr string, starredOnly bool) []TimelineEntry {
+	if expr == "" && !starredOnly {
+		return ds.Timeline
+	}
+	exprLower := strings.ToLower(expr)
+	var result []TimelineEntry
+	for _, e := range ds.Timeline {
+		if starredOnly && !e.Resource.Starred {
+			continue
+		}
+		if exprLower != "" {
+			searchable := strings.ToLower(e.Resource.Kind + " " + e.Resource.Name + " " + e.Resource.Namespace)
+			if !strings.Contains(searchable, exprLower) {
+				continue
+			}
+		}
+		result = append(result, e)
 	}
 	return result
 }
