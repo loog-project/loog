@@ -147,9 +147,9 @@ func (cp *CommandPalette) View() string {
 	}
 
 	// Dialog content width (inside border + padding)
-	dialogW := cp.width * 55 / 100
-	if dialogW > 72 {
-		dialogW = 72
+	dialogW := cp.width * 60 / 100
+	if dialogW > 80 {
+		dialogW = 80
 	}
 	if dialogW < 36 {
 		dialogW = 36
@@ -403,9 +403,9 @@ func (qs *QuickSearch) View() string {
 		return ""
 	}
 
-	dialogW := qs.width * 55 / 100
-	if dialogW > 72 {
-		dialogW = 72
+	dialogW := qs.width * 60 / 100
+	if dialogW > 80 {
+		dialogW = 80
 	}
 	if dialogW < 36 {
 		dialogW = 36

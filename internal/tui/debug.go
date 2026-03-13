@@ -146,11 +146,11 @@ func NewDebugLogViewer(theme Theme, log *DebugLog) *DebugLogViewer {
 func (dlv *DebugLogViewer) SetSize(w, h int) {
 	dlv.width = w
 	dlv.height = h
-	dialogW := w * 92 / 100
+	dialogW := w * 80 / 100
 	if dialogW < 50 {
 		dialogW = 50
 	}
-	dialogH := h * 90 / 100
+	dialogH := h * 75 / 100
 	if dialogH < 10 {
 		dialogH = 10
 	}
@@ -261,7 +261,7 @@ func (dlv *DebugLogViewer) View() string {
 
 	dlv.refresh() // Always refresh to show latest logs
 
-	dialogW := dlv.width * 92 / 100
+	dialogW := dlv.width * 80 / 100
 	if dialogW < 50 {
 		dialogW = 50
 	}
@@ -336,11 +336,11 @@ func NewDevConsole(theme Theme, store Store, log *DebugLog) *DevConsole {
 func (dc *DevConsole) SetSize(w, h int) {
 	dc.width = w
 	dc.height = h
-	dialogW := w * 92 / 100
+	dialogW := w * 80 / 100
 	if dialogW < 50 {
 		dialogW = 50
 	}
-	dialogH := h * 85 / 100
+	dialogH := h * 75 / 100
 	if dialogH < 10 {
 		dialogH = 10
 	}
@@ -656,7 +656,7 @@ func (dc *DevConsole) View() string {
 		return ""
 	}
 
-	dialogW := dc.width * 92 / 100
+	dialogW := dc.width * 80 / 100
 	if dialogW < 50 {
 		dialogW = 50
 	}

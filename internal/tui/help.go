@@ -92,9 +92,9 @@ func (h *HelpOverlay) View() string {
 		return ""
 	}
 
-	dialogWidth := h.width * 55 / 100
-	if dialogWidth > 70 {
-		dialogWidth = 70
+	dialogWidth := h.width * 65 / 100
+	if dialogWidth > 82 {
+		dialogWidth = 82
 	}
 	if dialogWidth < 40 {
 		dialogWidth = 40
@@ -168,12 +168,13 @@ func (h *HelpOverlay) View() string {
 			{"↻", "Reconcile loop detected"},
 			{"▲ / △", "High / moderate change frequency"},
 			{"★", "Starred resource"},
+			{"+  ~  -", "Added / Modified / Deleted event"},
 			{"[C1] / [C2]", "Compare mark left / right"},
 			{"╭ │ ╰", "Burst group bracket (rapid changes)"},
 			{"▸", "Window anchor position"},
 			{"▲ / ▼", "Scroll indicators (more content above/below)"},
 			{"[AUTO]", "Auto-scroll enabled"},
-			{"[SIM]", "Simulation running"},
+			{"[SIM]", "Simulation mode (not shown in production)"},
 			{"◆ frozen", "View frozen (blue header indicator)"},
 			{"■ paused", "Recording paused (yellow header indicator)"},
 		}},
@@ -220,7 +221,7 @@ func (h *HelpOverlay) View() string {
 	// Scroll
 	allContent := strings.Join(lines, "\n")
 	contentLines := strings.Split(allContent, "\n")
-	maxVisible := h.height - 12
+	maxVisible := h.height - 16
 	if maxVisible < 5 {
 		maxVisible = 5
 	}

@@ -822,7 +822,7 @@ func (rl *RevisionList) View() string {
 		idStr := lipgloss.NewStyle().Foreground(rl.theme.Mauve).Render(rev.ID.String())
 
 		etStyle := rl.theme.EventTypeStyle(rev.EventType)
-		etStr := etStyle.Render(string(rev.EventType)[:3])
+		etStr := etStyle.Render(rev.EventType.Symbol())
 
 		timeStr := lipgloss.NewStyle().Foreground(timeColor(rl.theme, rev.Time)).Render(RelativeTime(rev.Time))
 
@@ -962,7 +962,7 @@ func (dv *DetailView) renderContent() {
 	title := fmt.Sprintf("%s  %s  %s  %s",
 		dv.resource.Resource.KindName(),
 		lipgloss.NewStyle().Foreground(dv.theme.Mauve).Render(rev.ID.String()),
-		dv.theme.EventTypeStyle(rev.EventType).Render(string(rev.EventType)),
+		dv.theme.EventTypeStyle(rev.EventType).Render(rev.EventType.Symbol()),
 		lipgloss.NewStyle().Foreground(dv.theme.Overlay1).Render(FormatTimestamp(rev.Time)),
 	)
 	titleLine := lipgloss.NewStyle().Bold(true).Render(title)
@@ -1539,7 +1539,7 @@ func (tl *TimelineList) View() string {
 			Truncate(e.Resource.KindName(), nameMaxW))
 
 		etStyle := tl.theme.EventTypeStyle(e.Revision.EventType)
-		etStr := etStyle.Render(string(e.Revision.EventType)[:3])
+		etStr := etStyle.Render(e.Revision.EventType.Symbol())
 
 		star := ""
 		if e.Resource.Starred {

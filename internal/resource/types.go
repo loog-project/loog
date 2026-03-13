@@ -23,6 +23,20 @@ const (
 	EventDeleted  EventType = "DELETED"
 )
 
+// Symbol returns a compact single-character symbol for the event type.
+func (et EventType) Symbol() string {
+	switch et {
+	case EventAdded:
+		return "+"
+	case EventModified:
+		return "~"
+	case EventDeleted:
+		return "-"
+	default:
+		return "?"
+	}
+}
+
 // Resource represents a tracked Kubernetes resource instance.
 type Resource struct {
 	UID       string

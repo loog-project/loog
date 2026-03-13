@@ -172,6 +172,7 @@ func NewApp(store Store, opts ...AppOption) *App {
 		len(store.StarredResources()),
 	)
 	app.statusBar.SetSimulating(app.simulating)
+	app.statusBar.SetSimMode(app.simulator != nil)
 
 	debugLog.Info("app", "loog TUI started with %d resources, %d revisions",
 		store.TotalResourceCount(), store.TotalRevisionCount())
@@ -671,27 +672,27 @@ func (a *App) View() string {
 	// Overlay rendering
 	if a.commandPalette.IsVisible() {
 		paletteView := a.commandPalette.View()
-		mainView = PlaceOverlay(paletteView, mainView)
+		mainView = ModalOverlay(paletteView, mainView, a.theme)
 	}
 	if a.helpOverlay.IsVisible() {
 		helpView := a.helpOverlay.View()
-		mainView = PlaceOverlay(helpView, mainView)
+		mainView = ModalOverlay(helpView, mainView, a.theme)
 	}
 	if a.quickSearch.IsVisible() {
 		qsView := a.quickSearch.View()
-		mainView = PlaceOverlay(qsView, mainView)
+		mainView = ModalOverlay(qsView, mainView, a.theme)
 	}
 	if a.watchManager.IsVisible() {
 		wmView := a.watchManager.View()
-		mainView = PlaceOverlay(wmView, mainView)
+		mainView = ModalOverlay(wmView, mainView, a.theme)
 	}
 	if a.debugLogViewer.IsVisible() {
 		dlView := a.debugLogViewer.View()
-		mainView = PlaceOverlay(dlView, mainView)
+		mainView = ModalOverlay(dlView, mainView, a.theme)
 	}
 	if a.devConsole.IsVisible() {
 		dcView := a.devConsole.View()
-		mainView = PlaceOverlay(dcView, mainView)
+		mainView = ModalOverlay(dcView, mainView, a.theme)
 	}
 
 	return mainView

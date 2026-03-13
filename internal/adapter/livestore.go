@@ -289,6 +289,11 @@ func (s *LiveStore) ToggleStar(uid string) bool {
 		return false
 	}
 	rd.Resource.Starred = !rd.Resource.Starred
+	for i := range s.timeline {
+		if s.timeline[i].Resource.UID == uid {
+			s.timeline[i].Resource.Starred = rd.Resource.Starred
+		}
+	}
 	return rd.Resource.Starred
 }
 

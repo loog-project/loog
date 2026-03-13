@@ -131,6 +131,7 @@ type StatusBar struct {
 	autoScroll     bool
 	windowMode     WindowMode
 	simulating     bool
+	isSimMode      bool // true only in simulation mode (not production recording)
 }
 
 func NewStatusBar(theme Theme) *StatusBar {
@@ -177,6 +178,10 @@ func (sb *StatusBar) SetSimulating(on bool) {
 	sb.simulating = on
 }
 
+func (sb *StatusBar) SetSimMode(on bool) {
+	sb.isSimMode = on
+}
+
 func (sb *StatusBar) View() string {
 	if sb.width <= 0 {
 		return ""
@@ -208,7 +213,7 @@ func (sb *StatusBar) View() string {
 	if sb.windowMode != WindowAll {
 		leftParts = append(leftParts, lipgloss.NewStyle().Foreground(sb.theme.Sky).Render("[W:"+sb.windowMode.String()+"]"))
 	}
-	if sb.simulating {
+	if sb.isSimMode {
 		leftParts = append(leftParts, lipgloss.NewStyle().Foreground(sb.theme.Green).Render("[SIM]"))
 	}
 

@@ -44,6 +44,12 @@ type Theme struct {
 	DiffAddedBg    lipgloss.Color
 	DiffRemovedBg  lipgloss.Color
 	DiffModifiedBg lipgloss.Color
+
+	// Modal overlay colors
+	ModalDimFg    lipgloss.Color // dimmed background text color
+	ModalDimBg    lipgloss.Color // dimmed background fill
+	ModalShadowFg lipgloss.Color // drop shadow text
+	ModalShadowBg lipgloss.Color // drop shadow fill
 }
 
 // CatppuccinMocha is the default dark theme.
@@ -79,6 +85,11 @@ var CatppuccinMocha = Theme{
 	DiffAddedBg:    lipgloss.Color("#1a3a1a"),
 	DiffRemovedBg:  lipgloss.Color("#3a1a1a"),
 	DiffModifiedBg: lipgloss.Color("#3a2a1a"),
+
+	ModalDimFg:    lipgloss.Color("#45475a"),
+	ModalDimBg:    lipgloss.Color("#11111b"),
+	ModalShadowFg: lipgloss.Color("#181825"),
+	ModalShadowBg: lipgloss.Color("#0a0a14"),
 }
 
 // --- Style Factories ---
