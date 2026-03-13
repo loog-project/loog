@@ -6,18 +6,19 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/loog-project/loog/internal/simulation"
 	"github.com/loog-project/loog/internal/tui"
 )
 
 func main() {
-	// Generate dummy Kubernetes resource data
-	store := tui.GenerateDummyData()
+	// Generate simulated Kubernetes resource data
+	store := simulation.New()
 
 	fmt.Fprintf(os.Stderr, "loog prototype: %d resources, %d revisions\n",
 		store.TotalResourceCount(), store.TotalRevisionCount())
 
-	// Create the app
-	app := tui.NewApp(store)
+	// Create the app with simulation enabled
+	app := tui.NewApp(store, tui.WithSimulator(store))
 
 	// Run the program
 	p := tea.NewProgram(app, tea.WithAltScreen())

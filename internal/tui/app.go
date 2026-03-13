@@ -2,19 +2,20 @@ package tui
 
 import (
 	"fmt"
-	"sort"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/loog-project/loog/internal/adapter"
 )
 
 // App is the root tea.Model that wires everything together.
 type App struct {
 	width, height int
 	theme         Theme
-	store         *DummyStore
+	store         Store
 
 	// Chrome
 	header    *Header
@@ -57,7 +58,12 @@ type App struct {
 	windowAnchor time.Time // timestamp the window is centered on
 
 	// Simulation
+	simulator  Simulator // nil when running against a production store
 	simulating bool
+
+	// Recording: live data arriving from production watcher.
+	// When true, the TUI is in "recording" mode (not simulation).
+	recording bool
 
 	// Freeze: data keeps arriving but the UI doesn't update.
 	// Buffered revisions are flushed when unfrozen.
@@ -74,8 +80,30 @@ type pendingRevision struct {
 	Revision    Revision
 }
 
+// AppOption configures optional behavior for the App.
+type AppOption func(*App)
+
+// WithSimulator enables live simulation data generation.
+// When a Simulator is provided, the TUI starts generating new revisions automatically.
+func WithSimulator(sim Simulator) AppOption {
+	return func(a *App) {
+		a.simulator = sim
+		a.simulating = true
+	}
+}
+
+// WithRecording marks the app as receiving live data from a production watcher.
+// The TUI starts in "recording" mode: the status bar shows recording state,
+// and the pause key can pause the watcher.
+func WithRecording() AppOption {
+	return func(a *App) {
+		a.recording = true
+		a.simulating = true // reuse simulating flag for "active data flow" state
+	}
+}
+
 // NewApp creates the root application model.
-func NewApp(store *DummyStore) *App {
+func NewApp(store Store, opts ...AppOption) *App {
 	theme := CatppuccinMocha
 	registry := NewCommandRegistry()
 	debugLog := NewDebugLog(500)
@@ -106,16 +134,18 @@ func NewApp(store *DummyStore) *App {
 		watchManager:   NewWatchManager(theme),
 		debugLogViewer: NewDebugLogViewer(theme, debugLog),
 		devConsole:     NewDevConsole(theme, store, debugLog),
+	}
 
-		// Simulation on by default for demo
-		simulating: true,
+	// Apply options (e.g. WithSimulator)
+	for _, opt := range opts {
+		opt(app)
 	}
 
 	// Initialize views with data
-	app.explorer.SetGroups(store.KindGroups)
+	app.explorer.SetGroups(store.KindGroups())
 	app.explorer.SetFocusPanel(PanelLeft)
 
-	app.timeline.SetEntries(store.Timeline)
+	app.timeline.SetEntries(store.Timeline())
 	app.timeline.SetStore(store)
 	app.timeline.SetFocusPanel(PanelLeft)
 
@@ -143,8 +173,8 @@ func (a *App) Init() tea.Cmd {
 		tickCmd(),
 	}
 	// Start simulation if enabled
-	if a.simulating {
-		cmds = append(cmds, SimulateNewRevisionCmd(a.store))
+	if a.simulating && a.simulator != nil {
+		cmds = append(cmds, a.simulator.ScheduleNextTick())
 	}
 	return tea.Batch(cmds...)
 }
@@ -455,8 +485,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case AddWatchKindMsg:
 		created := a.store.AddWatchKind(msg.Kind)
-		a.store.KindGroups = BuildKindGroups(a.store.AllResources())
-		a.explorer.SetGroups(a.store.KindGroups)
+		a.store.RebuildKindGroups()
+		a.explorer.SetGroups(a.store.KindGroups())
 		a.refreshTimeline()
 		a.watchlist.RefreshStarredFiltered(a.filterExpr)
 		a.statusBar.SetCounts(
@@ -471,13 +501,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Check if the currently selected resource is of this kind
 		selectedUID := a.explorer.tree.SelectedUID()
 		selectedIsOfKind := false
-		if rd, ok := a.store.Resources[selectedUID]; ok && rd.Resource.Kind == msg.Kind {
+		if rd := a.store.GetResource(selectedUID); rd != nil && rd.Resource.Kind == msg.Kind {
 			selectedIsOfKind = true
 		}
 
 		a.store.RemoveWatchKind(msg.Kind)
-		a.store.KindGroups = BuildKindGroups(a.store.AllResources())
-		a.explorer.SetGroups(a.store.KindGroups)
+		a.store.RebuildKindGroups()
+		a.explorer.SetGroups(a.store.KindGroups())
 		a.refreshTimeline()
 		a.watchlist.RefreshStarredFiltered(a.filterExpr)
 		a.statusBar.SetCounts(
@@ -539,8 +569,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.statusBar.SetSimulating(a.simulating)
 		if a.simulating {
 			a.setStatus("Recording resumed", false)
-			// Schedule a new simulation tick to restart generation
-			cmds = append(cmds, SimulateNewRevisionCmd(a.store))
+			// Schedule a new simulation tick to restart generation (simulation mode only)
+			if a.simulator != nil {
+				cmds = append(cmds, a.simulator.ScheduleNextTick())
+			}
 		} else {
 			a.setStatus("Recording paused", false)
 		}
@@ -562,9 +594,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case SimulationTickMsg:
 		a.handleSimulationTick(msg.ResourceUID)
 		// Schedule next tick
-		if a.simulating {
-			cmds = append(cmds, SimulateNewRevisionCmd(a.store))
+		if a.simulating && a.simulator != nil {
+			cmds = append(cmds, a.simulator.ScheduleNextTick())
 		}
+
+	case adapter.LiveRevisionMsg:
+		a.handleLiveRevision(msg.ResourceUID)
 	}
 
 	return a, Batch(cmds...)
@@ -730,31 +765,26 @@ func (a *App) updateActiveView(msg tea.Msg) tea.Cmd {
 }
 
 func (a *App) toggleStar(uid string) {
-	if rd, ok := a.store.Resources[uid]; ok {
-		rd.Resource.Starred = !rd.Resource.Starred
+	starred := a.store.ToggleStar(uid)
+	rd := a.store.GetResource(uid)
+	if rd == nil {
+		return
+	}
 
-		// Also update the starred flag in timeline entries (they carry a snapshot)
-		for i := range a.store.Timeline {
-			if a.store.Timeline[i].Resource.UID == uid {
-				a.store.Timeline[i].Resource.Starred = rd.Resource.Starred
-			}
-		}
-
-		// Refresh kind groups (to update star indicators)
-		a.store.KindGroups = BuildKindGroups(a.store.AllResources())
-		a.explorer.SetGroups(a.store.KindGroups)
-		a.watchlist.RefreshStarredFiltered(a.filterExpr)
-		a.refreshTimeline()
-		a.statusBar.SetCounts(
-			a.store.TotalResourceCount(),
-			a.store.TotalRevisionCount(),
-			len(a.store.StarredResources()),
-		)
-		if rd.Resource.Starred {
-			a.setStatus("Starred: "+rd.Resource.KindName(), false)
-		} else {
-			a.setStatus("Unstarred: "+rd.Resource.KindName(), false)
-		}
+	// Refresh kind groups (to update star indicators)
+	a.store.RebuildKindGroups()
+	a.explorer.SetGroups(a.store.KindGroups())
+	a.watchlist.RefreshStarredFiltered(a.filterExpr)
+	a.refreshTimeline()
+	a.statusBar.SetCounts(
+		a.store.TotalResourceCount(),
+		a.store.TotalRevisionCount(),
+		len(a.store.StarredResources()),
+	)
+	if starred {
+		a.setStatus("Starred: "+rd.Resource.KindName(), false)
+	} else {
+		a.setStatus("Unstarred: "+rd.Resource.KindName(), false)
 	}
 }
 
@@ -812,7 +842,7 @@ func (a *App) syncAnalysisTags() {
 	// Build per-resource tag summary (just the latest revision tags for tree display)
 	resourceTags := make(map[string][]ChangeTag)
 	for uid, result := range a.analysisResults {
-		if rd, ok := a.store.Resources[uid]; ok && len(rd.Revisions) > 0 {
+		if rd := a.store.GetResource(uid); rd != nil && len(rd.Revisions) > 0 {
 			latest := rd.Revisions[len(rd.Revisions)-1]
 			if tags, ok := result.Tags[latest.ID]; ok {
 				resourceTags[uid] = tags
@@ -852,24 +882,18 @@ func (a *App) updateHint() {
 
 // handleSimulationTick processes a simulation tick by generating a new revision.
 func (a *App) handleSimulationTick(resourceUID string) {
-	rd, ok := a.store.Resources[resourceUID]
-	if !ok {
+	if a.simulator == nil {
+		return
+	}
+	rd := a.store.GetResource(resourceUID)
+	if rd == nil {
 		return
 	}
 
 	// Generate and add the new revision to the store (always — even when frozen)
-	newRev := GenerateSimulatedRevision(rd)
-	rd.Revisions = append(rd.Revisions, newRev)
+	newRev := a.simulator.GenerateRevision(rd)
+	a.store.AddRevision(resourceUID, newRev)
 	a.debugLog.Debug("sim", "new rev %s for %s (%s)", newRev.ID, rd.Resource.KindName(), newRev.EventType)
-
-	// Rebuild timeline in the store (always — keeps store consistent)
-	a.store.Timeline = append([]TimelineEntry{{
-		Resource: rd.Resource,
-		Revision: newRev,
-	}}, a.store.Timeline...)
-	sort.Slice(a.store.Timeline, func(i, j int) bool {
-		return a.store.Timeline[i].Revision.Time.After(a.store.Timeline[j].Revision.Time)
-	})
 
 	// If frozen, buffer the revision for later replay instead of updating views
 	if a.frozen {
@@ -890,11 +914,34 @@ func (a *App) handleSimulationTick(resourceUID string) {
 	a.refreshViewsAfterNewRevision(resourceUID)
 }
 
+// handleLiveRevision processes a live revision from the production watcher.
+// Unlike handleSimulationTick, data is already in the store (added by the adapter handler).
+// We just need to refresh the UI.
+func (a *App) handleLiveRevision(resourceUID string) {
+	a.debugLog.Debug("live", "new revision for %s", resourceUID)
+
+	// If frozen, just buffer for later and update the count
+	if a.frozen {
+		a.pendingBuffer = append(a.pendingBuffer, pendingRevision{
+			ResourceUID: resourceUID,
+		})
+		a.statusBar.SetCounts(
+			a.store.TotalResourceCount(),
+			a.store.TotalRevisionCount(),
+			len(a.store.StarredResources()),
+		)
+		return
+	}
+
+	// Not frozen — refresh all views
+	a.refreshViewsAfterNewRevision(resourceUID)
+}
+
 // refreshViewsAfterNewRevision updates all view components after new data has been added to the store.
 func (a *App) refreshViewsAfterNewRevision(resourceUID string) {
 	// Rebuild kind groups and refresh all views
-	a.store.KindGroups = BuildKindGroups(a.store.AllResources())
-	a.explorer.SetGroups(a.store.KindGroups)
+	a.store.RebuildKindGroups()
+	a.explorer.SetGroups(a.store.KindGroups())
 	a.refreshTimeline()
 	a.watchlist.RefreshStarredFiltered(a.filterExpr)
 
@@ -907,8 +954,8 @@ func (a *App) refreshViewsAfterNewRevision(resourceUID string) {
 
 	// Auto-scroll: jump to newest if enabled
 	if a.autoScroll {
-		rd, ok := a.store.Resources[resourceUID]
-		if ok {
+		rd := a.store.GetResource(resourceUID)
+		if rd != nil {
 			// Explorer: update revList + detail if the selected resource got a new rev
 			selectedUID := a.explorer.tree.SelectedUID()
 			if selectedUID == resourceUID {

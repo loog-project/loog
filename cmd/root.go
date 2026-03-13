@@ -22,11 +22,13 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
 
+	"github.com/loog-project/loog/internal/adapter"
 	"github.com/loog-project/loog/internal/dynamicmux"
 	"github.com/loog-project/loog/internal/service"
+	"github.com/loog-project/loog/internal/simulation"
 	"github.com/loog-project/loog/internal/store"
 	bboltStore "github.com/loog-project/loog/internal/store/bbolt"
-	"github.com/loog-project/loog/internal/ui"
+	"github.com/loog-project/loog/internal/tui"
 	"github.com/loog-project/loog/internal/util"
 	"github.com/loog-project/loog/pkg/diffmap"
 )
@@ -45,6 +47,7 @@ var (
 	snapshotInterval uint64
 	filterExpr       string
 	headlessMode     bool
+	simulateMode     bool
 )
 
 var rootCmd = &cobra.Command{
@@ -97,6 +100,8 @@ func init() {
 		"Disable in‑memory cache layer for the revision store")
 	rootCmd.Flags().Uint64VarP(&snapshotInterval, "snapshot-interval", "s", 8,
 		"Create a full snapshot after this many patches (default 8)")
+	rootCmd.Flags().BoolVar(&simulateMode, "simulate", false,
+		"Run with simulated data instead of connecting to Kubernetes")
 
 	// allow some flags to be set via environment variables / config file
 	mustBind("kubeconfig",
@@ -173,6 +178,21 @@ func run(ctx context.Context, args []string) error {
 		// by default, we shouldn't log anything as this would break our TUI.
 		log.Logger = zerolog.Nop()
 	}
+
+	// ── Simulate mode: skip Kubernetes entirely, use simulated data ──
+	if simulateMode {
+		setupLog.Info().Msg("Running in simulate mode with generated data")
+
+		store := simulation.New()
+		app := tui.NewApp(store, tui.WithSimulator(store))
+		p := tea.NewProgram(app, tea.WithAltScreen())
+		if _, err := p.Run(); err != nil {
+			setupLog.Error().Err(err).Msg("Error running TUI program")
+		}
+		return nil
+	}
+
+	// ── Production mode: connect to Kubernetes ──
 
 	if outputFile == "" {
 		file, err := os.CreateTemp("", "loog-output-*.loog")
@@ -258,14 +278,16 @@ func run(ctx context.Context, args []string) error {
 		setupLog.Info().Msg("Received interrupt signal, stopping collector...")
 		cancel()
 	} else {
-		// interactive mode: we will use the UI to display revisions and allow user interaction
-		setupLog.Info().Msg("Running in interactive mode, using UI revision handler")
+		// interactive mode: new TUI backed by LiveStore + adapter handler
+		setupLog.Info().Msg("Running in interactive mode with new TUI")
 
-		root := ui.NewRoot(ui.DarkTheme, ui.NewListView(trackerService, rps))
-		program := tea.NewProgram(root)
+		liveStore := adapter.NewLiveStore()
+		app := tui.NewApp(liveStore, tui.WithRecording())
+		program := tea.NewProgram(app, tea.WithAltScreen())
 
-		handler := &uiRevisionHandler{
-			program: program,
+		handler := &adapter.TUIRevisionHandler{
+			Store:   liveStore,
+			Program: program,
 		}
 
 		// run collector
@@ -333,32 +355,6 @@ func (n noOpRevisionHandler) HandleRevision(
 		Msg("Storing revision...")
 
 	// nothing to do in headless mode, as we are just storing revisions in the collector
-	return nil
-}
-
-var _ revisionHandler = (*uiRevisionHandler)(nil)
-
-// uiRevisionHandler is an implementation of the revisionHandler that sends
-// a command to the TUI program to display the revision in the UI.
-type uiRevisionHandler struct {
-	program *tea.Program
-}
-
-func (u *uiRevisionHandler) HandleRevision(
-	obj *unstructured.Unstructured,
-	revisionID store.RevisionID,
-	snapshot *store.Snapshot,
-	patch *store.Patch,
-) error {
-	u.program.Send(ui.NewCommitCommand(
-		string(obj.GetUID()),
-		obj.GetKind(),
-		obj.GetName(),
-		obj.GetNamespace(),
-		revisionID,
-		snapshot,
-		patch,
-	))
 	return nil
 }
 
@@ -492,6 +488,11 @@ func loadHistoryFromDB(
 }
 
 func validateArgsAndFlags(cmd *cobra.Command, args []string) error {
+	// Simulate mode doesn't need resource args or output file
+	if simulateMode {
+		return nil
+	}
+
 	if len(args) == 0 && outputFile == "" {
 		return fmt.Errorf(
 			"at least one resource argument or the --output flag must be provided (you may provide both)")

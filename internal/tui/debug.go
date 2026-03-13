@@ -327,12 +327,12 @@ type DevConsole struct {
 	historyIdx    int
 	output        []string // rendered output lines
 	viewport      viewport.Model
-	store         *DummyStore
+	store         Store
 	log           *DebugLog
 	pendingCmd    tea.Cmd // command to return from Update after execute()
 }
 
-func NewDevConsole(theme Theme, store *DummyStore, log *DebugLog) *DevConsole {
+func NewDevConsole(theme Theme, store Store, log *DebugLog) *DevConsole {
 	vp := viewport.New(0, 0)
 	return &DevConsole{
 		theme:      theme,
@@ -407,21 +407,21 @@ func (dc *DevConsole) execute(cmd string) {
 		dc.outputLines([]string{
 			fmt.Sprintf("Resources:  %d", dc.store.TotalResourceCount()),
 			fmt.Sprintf("Revisions:  %d", dc.store.TotalRevisionCount()),
-			fmt.Sprintf("Timeline:   %d entries", len(dc.store.Timeline)),
+			fmt.Sprintf("Timeline:   %d entries", len(dc.store.Timeline())),
 			fmt.Sprintf("Starred:    %d", len(dc.store.StarredResources())),
 			fmt.Sprintf("Watched:    %d kinds", len(dc.store.WatchedKinds())),
 			fmt.Sprintf("Log buffer: %d entries", dc.log.Len()),
 		})
 
 	case "resources":
-		for uid, rd := range dc.store.Resources {
+		dc.store.ForEachResource(func(uid string, rd *ResourceData) {
 			star := " "
 			if rd.Resource.Starred {
 				star = "★"
 			}
 			dc.output = append(dc.output, lipgloss.NewStyle().Foreground(dc.theme.Overlay1).Render(
 				fmt.Sprintf("  %s %s  %-30s  %d revs", star, uid[:12], rd.Resource.KindName(), len(rd.Revisions))))
-		}
+		})
 
 	case "revisions":
 		if len(parts) < 2 {
@@ -430,7 +430,7 @@ func (dc *DevConsole) execute(cmd string) {
 		}
 		prefix := parts[1]
 		found := false
-		for uid, rd := range dc.store.Resources {
+		dc.store.ForEachResource(func(uid string, rd *ResourceData) {
 			if strings.HasPrefix(uid, prefix) {
 				found = true
 				dc.output = append(dc.output, lipgloss.NewStyle().Foreground(dc.theme.Blue).Bold(true).Render(
@@ -441,7 +441,7 @@ func (dc *DevConsole) execute(cmd string) {
 							i, rev.ID.String(), rev.EventType, rev.Time.Format("15:04:05.000"), len(rev.Object))))
 				}
 			}
-		}
+		})
 		if !found {
 			dc.outputError("No resource found with UID prefix: " + prefix)
 		}
@@ -450,16 +450,16 @@ func (dc *DevConsole) execute(cmd string) {
 		dc.outputLines([]string{
 			fmt.Sprintf("Total resources: %d", dc.store.TotalResourceCount()),
 			fmt.Sprintf("Total revisions: %d", dc.store.TotalRevisionCount()),
-			fmt.Sprintf("Kind groups:     %d", len(dc.store.KindGroups)),
-			fmt.Sprintf("Timeline events: %d", len(dc.store.Timeline)),
+			fmt.Sprintf("Kind groups:     %d", len(dc.store.KindGroups())),
+			fmt.Sprintf("Timeline events: %d", len(dc.store.Timeline())),
 			fmt.Sprintf("Watched kinds:   %v", dc.store.WatchedKinds()),
 		})
 
 	case "kinds":
 		kindCounts := make(map[string]int)
-		for _, rd := range dc.store.Resources {
+		dc.store.ForEachResource(func(_ string, rd *ResourceData) {
 			kindCounts[rd.Resource.Kind]++
-		}
+		})
 		for kind, count := range kindCounts {
 			dc.output = append(dc.output, lipgloss.NewStyle().Foreground(dc.theme.Overlay1).Render(
 				fmt.Sprintf("  %-20s %d", kind, count)))
@@ -510,19 +510,20 @@ func (dc *DevConsole) execute(cmd string) {
 			fmt.Sscanf(parts[2], "%d", &revIdx)
 		}
 		found := false
-		for uid, rd := range dc.store.Resources {
+		dc.store.ForEachResource(func(uid string, rd *ResourceData) {
 			if strings.HasPrefix(uid, prefix) {
 				found = true
-				if revIdx < 0 {
-					revIdx = len(rd.Revisions) - 1
+				idx := revIdx
+				if idx < 0 {
+					idx = len(rd.Revisions) - 1
 				}
-				if revIdx >= len(rd.Revisions) {
-					dc.outputError(fmt.Sprintf("Revision index %d out of range (0-%d)", revIdx, len(rd.Revisions)-1))
-					break
+				if idx >= len(rd.Revisions) {
+					dc.outputError(fmt.Sprintf("Revision index %d out of range (0-%d)", idx, len(rd.Revisions)-1))
+					return
 				}
-				rev := rd.Revisions[revIdx]
+				rev := rd.Revisions[idx]
 				dc.output = append(dc.output, lipgloss.NewStyle().Foreground(dc.theme.Blue).Bold(true).Render(
-					fmt.Sprintf("  %s  rev[%d] = %s", rd.Resource.KindName(), revIdx, rev.ID.String())))
+					fmt.Sprintf("  %s  rev[%d] = %s", rd.Resource.KindName(), idx, rev.ID.String())))
 				dc.output = append(dc.output, lipgloss.NewStyle().Foreground(dc.theme.Overlay1).Render(
 					fmt.Sprintf("  UID:       %s", uid)))
 				dc.output = append(dc.output, lipgloss.NewStyle().Foreground(dc.theme.Overlay1).Render(
@@ -554,7 +555,7 @@ func (dc *DevConsole) execute(cmd string) {
 						fmt.Sprintf("    %-20s %s", k+":", valStr)))
 				}
 			}
-		}
+		})
 		if !found {
 			dc.outputError("No resource found with UID prefix: " + prefix)
 		}

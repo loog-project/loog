@@ -206,7 +206,7 @@ type TimelineViewComponent struct {
 
 	timeline *TimelineList
 	detail   *DetailView
-	store    *DummyStore
+	store    Store
 
 	listOuterW, detailOuterW int
 }
@@ -247,7 +247,7 @@ func (tv *TimelineViewComponent) ScrollToEntry(entry TimelineEntry) {
 	tv.timeline.ScrollToRevision(entry.Revision.ID)
 	// Also update the detail view
 	if sel := tv.timeline.SelectedEntry(); sel != nil {
-		if rd, ok := tv.store.Resources[sel.Resource.UID]; ok {
+		if rd := tv.store.GetResource(sel.Resource.UID); rd != nil {
 			for i, rev := range rd.Revisions {
 				if rev.ID == sel.Revision.ID {
 					tv.detail.SetRevision(rd, i)
@@ -258,7 +258,7 @@ func (tv *TimelineViewComponent) ScrollToEntry(entry TimelineEntry) {
 	}
 }
 
-func (tv *TimelineViewComponent) SetStore(store *DummyStore) {
+func (tv *TimelineViewComponent) SetStore(store Store) {
 	tv.store = store
 }
 
@@ -286,7 +286,7 @@ func (tv *TimelineViewComponent) PrevPanel() {
 
 func (tv *TimelineViewComponent) SelectEntry(entry TimelineEntry) {
 	if tv.store != nil {
-		if rd, ok := tv.store.Resources[entry.Resource.UID]; ok {
+		if rd := tv.store.GetResource(entry.Resource.UID); rd != nil {
 			for i, rev := range rd.Revisions {
 				if rev.ID == entry.Revision.ID {
 					tv.detail.SetRevision(rd, i)
@@ -328,7 +328,7 @@ func (tv *TimelineViewComponent) Update(msg tea.Msg) tea.Cmd {
 		// so we resolve the TimelineEntry → ResourceData + revision index here.
 		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "c" {
 			if entry := tv.timeline.SelectedEntry(); entry != nil && tv.store != nil {
-				if rd, ok := tv.store.Resources[entry.Resource.UID]; ok {
+				if rd := tv.store.GetResource(entry.Resource.UID); rd != nil {
 					for i, rev := range rd.Revisions {
 						if rev.ID == entry.Revision.ID {
 							return Cmd(CompareMarkMsg{Resource: rd, Index: i})
@@ -382,7 +382,7 @@ type WatchlistViewComponent struct {
 	tree    *ResourceTree
 	revList *RevisionList
 	detail  *DetailView
-	store   *DummyStore
+	store   Store
 
 	treeOuterW, revOuterW, detailOuterW int
 }
@@ -419,7 +419,7 @@ func (wv *WatchlistViewComponent) SetSize(w, h int) {
 	wv.detail.SetSize(wv.detailOuterW-2, h-2)
 }
 
-func (wv *WatchlistViewComponent) SetStore(store *DummyStore) {
+func (wv *WatchlistViewComponent) SetStore(store Store) {
 	wv.store = store
 	wv.RefreshStarred()
 }

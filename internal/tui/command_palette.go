@@ -572,7 +572,7 @@ func (wm *WatchManager) IsVisible() bool  { return wm.visible }
 // watchedKinds: unique kind names currently tracked.
 // store: used to get resource/revision counts per kind.
 // unwatchedKinds: resource types available but not yet watched.
-func (wm *WatchManager) Show(store *DummyStore, unwatchedKinds []ResourceKind) {
+func (wm *WatchManager) Show(store Store, unwatchedKinds []ResourceKind) {
 	wm.visible = true
 	wm.tab = wmTabWatching
 	wm.watchCursor = 0
