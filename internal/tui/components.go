@@ -54,8 +54,15 @@ func NewResourceTree(theme Theme) *ResourceTree {
 	return &ResourceTree{theme: theme, expandState: make(map[string]bool)}
 }
 
-func (rt *ResourceTree) SetSize(w, h int) { rt.width = w; rt.height = h; rt.buildItems() }
-func (rt *ResourceTree) SetFocus(f bool)  { rt.focused = f }
+func (rt *ResourceTree) SetSize(w, h int) {
+	rt.width = w
+	rt.height = h
+	rt.buildItems()
+}
+
+func (rt *ResourceTree) SetFocus(f bool) {
+	rt.focused = f
+}
 func (rt *ResourceTree) SetGroups(groups []*KindGroup) {
 	// Apply persistent expand state: if the user has previously collapsed a kind,
 	// carry that forward. New kinds default to expanded.
@@ -67,7 +74,9 @@ func (rt *ResourceTree) SetGroups(groups []*KindGroup) {
 	rt.groups = groups
 	rt.buildItems()
 }
-func (rt *ResourceTree) SelectedUID() string { return rt.selected }
+func (rt *ResourceTree) SelectedUID() string {
+	return rt.selected
+}
 
 // SelectByUID selects a resource by its UID, expanding the kind group if needed
 // and moving the cursor to the matching item.
@@ -105,7 +114,9 @@ func (rt *ResourceTree) SelectByUID(uid string) {
 }
 
 // CursorInfo returns cursor position and total item count.
-func (rt *ResourceTree) CursorInfo() (int, int) { return rt.cursor, len(rt.items) }
+func (rt *ResourceTree) CursorInfo() (int, int) {
+	return rt.cursor, len(rt.items)
+}
 
 // CanScrollUp returns true if there are items above the visible window.
 func (rt *ResourceTree) CanScrollUp() bool {
@@ -208,6 +219,16 @@ func (rt *ResourceTree) Update(msg tea.Msg) tea.Cmd {
 					return Cmd(ToggleStarMsg{UID: item.Resource.Resource.UID})
 				}
 			}
+		case "c":
+			if rt.cursor < len(rt.items) {
+				item := rt.items[rt.cursor]
+				if item.Type == treeItemResource && item.Resource != nil {
+					latestIdx := len(item.Resource.Revisions) - 1
+					if latestIdx >= 0 {
+						return Cmd(CompareMarkMsg{Resource: item.Resource, Index: latestIdx})
+					}
+				}
+			}
 		case "g", "home":
 			rt.cursor = 0
 			return rt.selectCurrent()
@@ -261,7 +282,7 @@ func (rt *ResourceTree) CurrentHint() string {
 	item := rt.items[rt.cursor]
 	switch item.Type {
 	case treeItemKind:
-		return "Enter: expand/collapse  s: star  ctrl+d/u: page"
+		return "Enter: expand/collapse  ctrl+d/u: page"
 	case treeItemResource:
 		if item.Resource == nil {
 			return ""
@@ -456,8 +477,14 @@ func NewRevisionList(theme Theme) *RevisionList {
 	return &RevisionList{theme: theme}
 }
 
-func (rl *RevisionList) SetSize(w, h int) { rl.width = w; rl.height = h }
-func (rl *RevisionList) SetFocus(f bool)  { rl.focused = f }
+func (rl *RevisionList) SetSize(w, h int) {
+	rl.width = w
+	rl.height = h
+}
+
+func (rl *RevisionList) SetFocus(f bool) {
+	rl.focused = f
+}
 
 func (rl *RevisionList) SetResource(rd *ResourceData) {
 	oldResource := rl.resource
@@ -692,7 +719,7 @@ func (rl *RevisionList) CurrentHint() string {
 	if len(parts) > 0 {
 		return strings.Join(parts, "  ")
 	}
-	return "c: compare  [/]: prev/next  d/o/p/J: view modes  ctrl+d/u: page"
+	return "c: compare  s: star  ctrl+d/u: page"
 }
 
 func (rl *RevisionList) View() string {
@@ -884,7 +911,9 @@ func (dv *DetailView) SetSize(w, h int) {
 	dv.renderContent()
 }
 
-func (dv *DetailView) SetFocus(f bool) { dv.focused = f }
+func (dv *DetailView) SetFocus(f bool) {
+	dv.focused = f
+}
 
 func (dv *DetailView) SetRevision(rd *ResourceData, index int) {
 	dv.resource = rd
@@ -897,13 +926,19 @@ func (dv *DetailView) SetViewMode(mode ViewMode) {
 	dv.renderContent()
 }
 
-func (dv *DetailView) ViewMode() ViewMode { return dv.viewMode }
+func (dv *DetailView) ViewMode() ViewMode {
+	return dv.viewMode
+}
 
 // CanScrollUp returns true if the viewport has content above the visible area.
-func (dv *DetailView) CanScrollUp() bool { return !dv.viewport.AtTop() }
+func (dv *DetailView) CanScrollUp() bool {
+	return !dv.viewport.AtTop()
+}
 
 // CanScrollDown returns true if the viewport has content below the visible area.
-func (dv *DetailView) CanScrollDown() bool { return !dv.viewport.AtBottom() }
+func (dv *DetailView) CanScrollDown() bool {
+	return !dv.viewport.AtBottom()
+}
 
 // CurrentHint returns a context-sensitive hint for the status bar.
 func (dv *DetailView) CurrentHint() string {
@@ -976,16 +1011,7 @@ func (dv *DetailView) renderDiff(rev Revision) string {
 		return RenderYAMLObject(rev.Object, dv.theme, 2)
 	}
 
-	dpTheme := diffpreview.Theme{
-		KeyStyle:    lipgloss.NewStyle().Foreground(dv.theme.Blue),
-		StringStyle: lipgloss.NewStyle().Foreground(dv.theme.Green),
-		NumberStyle: lipgloss.NewStyle().Foreground(dv.theme.Peach),
-		BoolStyle:   lipgloss.NewStyle().Foreground(dv.theme.Yellow),
-		NullStyle:   lipgloss.NewStyle().Foreground(dv.theme.Overlay0).Italic(true),
-		AddedBg:     lipgloss.NewStyle().Background(dv.theme.DiffAddedBg).Foreground(dv.theme.Green),
-		RemovedBg:   lipgloss.NewStyle().Background(dv.theme.DiffRemovedBg).Foreground(dv.theme.Red),
-		ModifiedBg:  lipgloss.NewStyle().Background(dv.theme.DiffModifiedBg).Foreground(dv.theme.Peach),
-	}
+	dpTheme := dv.theme.DiffPreviewTheme()
 
 	node := diffpreview.DiffRecursive(prevObj, rev.Object)
 	return diffpreview.RenderYAML(node, dpTheme, diffpreview.RenderOptions{
@@ -1086,13 +1112,17 @@ func (dv *DetailView) Update(msg tea.Msg) tea.Cmd {
 		case "r":
 			dv.SetViewMode(RawMode)
 			return Cmd(ViewModeChangedMsg{Mode: RawMode})
-		case "e":
-			return Cmd(StatusMsg{Text: "Export: would save YAML to file (not implemented in prototype)", IsError: false})
-		case "y":
-			return Cmd(StatusMsg{Text: "Copied to clipboard (not implemented in prototype)", IsError: false})
 		case "c":
 			if dv.resource != nil {
 				return Cmd(CompareMarkMsg{Resource: dv.resource, Index: dv.revIndex})
+			}
+		case "e":
+			if dv.resource != nil {
+				return Cmd(ExportYAMLMsg{Resource: dv.resource, RevIndex: dv.revIndex})
+			}
+		case "y":
+			if dv.resource != nil {
+				return Cmd(CopyToClipboardMsg{Resource: dv.resource, RevIndex: dv.revIndex})
 			}
 		case "t":
 			if dv.resource != nil && dv.revIndex < len(dv.resource.Revisions) {
@@ -1163,8 +1193,14 @@ func NewTimelineList(theme Theme) *TimelineList {
 	return &TimelineList{theme: theme}
 }
 
-func (tl *TimelineList) SetSize(w, h int) { tl.width = w; tl.height = h }
-func (tl *TimelineList) SetFocus(f bool)  { tl.focused = f }
+func (tl *TimelineList) SetSize(w, h int) {
+	tl.width = w
+	tl.height = h
+}
+
+func (tl *TimelineList) SetFocus(f bool) {
+	tl.focused = f
+}
 
 func (tl *TimelineList) SetCompareMarks(left, right *CompareItem) {
 	tl.compareLeft = left
@@ -1245,7 +1281,9 @@ func (tl *TimelineList) SelectedEntry() *TimelineEntry {
 }
 
 // CursorInfo returns cursor position and total count.
-func (tl *TimelineList) CursorInfo() (int, int) { return tl.cursor, len(tl.flatItems) }
+func (tl *TimelineList) CursorInfo() (int, int) {
+	return tl.cursor, len(tl.flatItems)
+}
 
 // CanScrollUp returns true if there are items above the visible window.
 func (tl *TimelineList) CanScrollUp() bool {
@@ -1597,16 +1635,7 @@ func (cp *ComparePanel) CanScrollDown() bool {
 }
 
 func (cp *ComparePanel) renderContent() {
-	dpTheme := diffpreview.Theme{
-		KeyStyle:    lipgloss.NewStyle().Foreground(cp.theme.Blue),
-		StringStyle: lipgloss.NewStyle().Foreground(cp.theme.Green),
-		NumberStyle: lipgloss.NewStyle().Foreground(cp.theme.Peach),
-		BoolStyle:   lipgloss.NewStyle().Foreground(cp.theme.Yellow),
-		NullStyle:   lipgloss.NewStyle().Foreground(cp.theme.Overlay0).Italic(true),
-		AddedBg:     lipgloss.NewStyle().Background(cp.theme.DiffAddedBg).Foreground(cp.theme.Green),
-		RemovedBg:   lipgloss.NewStyle().Background(cp.theme.DiffRemovedBg).Foreground(cp.theme.Red),
-		ModifiedBg:  lipgloss.NewStyle().Background(cp.theme.DiffModifiedBg).Foreground(cp.theme.Peach),
-	}
+	dpTheme := cp.theme.DiffPreviewTheme()
 	renderOpts := diffpreview.RenderOptions{
 		IndentSize:                2,
 		EnableBackgroundHighlight: true,

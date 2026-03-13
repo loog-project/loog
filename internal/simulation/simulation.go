@@ -1,4 +1,4 @@
-// Package simulation provides simulated Kubernetes resource data for the TUI prototype.
+// Package simulation provides simulated Kubernetes resource data for the TUI.
 // It creates realistic resource histories with various scenarios (rollouts, CrashLoopBackOff,
 // operator reconcile bursts, reconcile loops, configuration drift) and provides live
 // simulation via tea.Cmd that generates new revisions at random intervals.
@@ -16,7 +16,7 @@ import (
 )
 
 // New creates a realistic set of Kubernetes resources with revision histories
-// for prototyping. The returned Store implements tui.Store and tui.Simulator.
+// for the --simulate mode. The returned Store implements tui.Store and tui.Simulator.
 func New() *Store {
 	now := time.Now()
 	resources := make(map[string]*resource.ResourceData)

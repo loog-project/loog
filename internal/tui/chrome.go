@@ -6,31 +6,14 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/expr-lang/expr"
+
+	"github.com/loog-project/loog/internal/resource"
 )
-
-// filterEnv mirrors internal/util.EventEntryEnv method signatures without k8s
-// imports. Used solely for expr.Compile type-checking in the TUI prototype.
-type filterEnv struct{}
-
-func (filterEnv) All() bool                    { return true }
-func (filterEnv) None() bool                   { return false }
-func (filterEnv) Namespaces(_ ...string) bool  { return true }
-func (filterEnv) Namespace(_ ...string) bool   { return true }
-func (filterEnv) Names(_ ...string) bool       { return true }
-func (filterEnv) Name(_ ...string) bool        { return true }
-func (filterEnv) Namespaced(_, _ string) bool  { return true }
-func (filterEnv) LabelExists(_ ...string) bool { return true }
-func (filterEnv) Label(_, _ string) bool       { return true }
 
 // validateFilterExpr returns true if the expression compiles as a valid
 // expr-lang expression against the filter DSL environment.
 func validateFilterExpr(expression string) bool {
-	if expression == "" {
-		return false
-	}
-	_, err := expr.Compile(expression, expr.Env(filterEnv{}), expr.AsBool())
-	return err == nil
+	return expression != "" && resource.CompileFilter(expression) != nil
 }
 
 // Header renders the top bar: logo, view tabs, and recording status.
@@ -38,23 +21,32 @@ type Header struct {
 	width      int
 	theme      Theme
 	activeView ViewID
-	recording  bool // simulation is running (generating new data)
-	frozen     bool // view is frozen (data arrives but UI doesn't update)
-	startTime  time.Time
+	recording  bool
+	frozen     bool
 }
 
 func NewHeader(theme Theme) *Header {
 	return &Header{
 		theme:     theme,
 		recording: true,
-		startTime: time.Now(),
 	}
 }
 
-func (h *Header) SetSize(width int)     { h.width = width }
-func (h *Header) SetView(v ViewID)      { h.activeView = v }
-func (h *Header) SetRecording(on bool)  { h.recording = on }
-func (h *Header) SetFrozen(frozen bool) { h.frozen = frozen }
+func (h *Header) SetSize(width int) {
+	h.width = width
+}
+
+func (h *Header) SetView(v ViewID) {
+	h.activeView = v
+}
+
+func (h *Header) SetRecording(on bool) {
+	h.recording = on
+}
+
+func (h *Header) SetFrozen(frozen bool) {
+	h.frozen = frozen
+}
 
 func (h *Header) View() string {
 	if h.width <= 0 {
@@ -127,7 +119,6 @@ func (h *Header) View() string {
 type StatusBar struct {
 	width          int
 	theme          Theme
-	filterExpr     string
 	resourceInfo   string
 	revisionInfo   string
 	viewMode       ViewMode
@@ -136,7 +127,7 @@ type StatusBar struct {
 	starredCount   int
 	statusMsg      string
 	statusIsError  bool
-	hint           string // context-sensitive hint from focused component
+	hint           string
 	autoScroll     bool
 	windowMode     WindowMode
 	simulating     bool
@@ -146,11 +137,21 @@ func NewStatusBar(theme Theme) *StatusBar {
 	return &StatusBar{theme: theme, viewMode: DiffMode}
 }
 
-func (sb *StatusBar) SetSize(width int)           { sb.width = width }
-func (sb *StatusBar) SetFilter(expr string)       { sb.filterExpr = expr }
-func (sb *StatusBar) SetResourceInfo(info string) { sb.resourceInfo = info }
-func (sb *StatusBar) SetRevisionInfo(info string) { sb.revisionInfo = info }
-func (sb *StatusBar) SetViewMode(mode ViewMode)   { sb.viewMode = mode }
+func (sb *StatusBar) SetSize(width int) {
+	sb.width = width
+}
+
+func (sb *StatusBar) SetResourceInfo(info string) {
+	sb.resourceInfo = info
+}
+
+func (sb *StatusBar) SetRevisionInfo(info string) {
+	sb.revisionInfo = info
+}
+
+func (sb *StatusBar) SetViewMode(mode ViewMode) {
+	sb.viewMode = mode
+}
 func (sb *StatusBar) SetCounts(res, revs, starred int) {
 	sb.totalResources = res
 	sb.totalRevisions = revs
@@ -160,10 +161,21 @@ func (sb *StatusBar) SetStatus(text string, isErr bool) {
 	sb.statusMsg = text
 	sb.statusIsError = isErr
 }
-func (sb *StatusBar) SetHint(hint string)         { sb.hint = hint }
-func (sb *StatusBar) SetAutoScroll(on bool)       { sb.autoScroll = on }
-func (sb *StatusBar) SetWindowMode(wm WindowMode) { sb.windowMode = wm }
-func (sb *StatusBar) SetSimulating(on bool)       { sb.simulating = on }
+func (sb *StatusBar) SetHint(hint string) {
+	sb.hint = hint
+}
+
+func (sb *StatusBar) SetAutoScroll(on bool) {
+	sb.autoScroll = on
+}
+
+func (sb *StatusBar) SetWindowMode(wm WindowMode) {
+	sb.windowMode = wm
+}
+
+func (sb *StatusBar) SetSimulating(on bool) {
+	sb.simulating = on
+}
 
 func (sb *StatusBar) View() string {
 	if sb.width <= 0 {
@@ -260,20 +272,35 @@ func NewFilterBar(theme Theme) *FilterBar {
 	return &FilterBar{theme: theme}
 }
 
-func (fb *FilterBar) SetSize(width int)         { fb.width = width }
-func (fb *FilterBar) SetExpression(expr string) { fb.expression = expr }
-func (fb *FilterBar) IsEditing() bool           { return fb.editing }
+func (fb *FilterBar) SetSize(width int) {
+	fb.width = width
+}
+
+func (fb *FilterBar) SetExpression(expr string) {
+	fb.expression = expr
+}
+
+func (fb *FilterBar) IsEditing() bool {
+	return fb.editing
+}
 func (fb *FilterBar) StartEditing() {
 	fb.savedExpr = fb.expression
 	fb.editing = true
 	fb.cursor = len(fb.expression)
 }
-func (fb *FilterBar) StopEditing()       { fb.editing = false }
-func (fb *FilterBar) Expression() string { return fb.expression }
+func (fb *FilterBar) StopEditing() {
+	fb.editing = false
+}
+
+func (fb *FilterBar) Expression() string {
+	return fb.expression
+}
 
 // IsUnmodified returns true if the user hasn't typed anything since editing started.
 // Used to detect the // quick-search shortcut even when a previous filter is active.
-func (fb *FilterBar) IsUnmodified() bool { return fb.expression == fb.savedExpr }
+func (fb *FilterBar) IsUnmodified() bool {
+	return fb.expression == fb.savedExpr
+}
 
 func (fb *FilterBar) HandleKey(keyStr string) (string, bool) {
 	switch keyStr {

@@ -12,13 +12,14 @@ import (
 	"github.com/loog-project/loog/internal/tui"
 )
 
-// Store is an in-memory tui.Store implementation for prototyping and testing.
+// Store is an in-memory tui.Store implementation for simulation and testing.
 // It also implements tui.Simulator so it can generate live data.
 type Store struct {
 	resources            map[string]*resource.ResourceData
 	timeline             []resource.TimelineEntry
 	kindGroups           []*resource.KindGroup
 	clusterResourceTypes []resource.ResourceKind
+	totalRevisions       int // cached count of all revisions across resources
 }
 
 // Compile-time check that Store implements both interfaces.
@@ -34,11 +35,16 @@ func NewStore(
 	kindGroups []*resource.KindGroup,
 	clusterResourceTypes []resource.ResourceKind,
 ) *Store {
+	totalRevs := 0
+	for _, rd := range resources {
+		totalRevs += len(rd.Revisions)
+	}
 	return &Store{
 		resources:            resources,
 		timeline:             timeline,
 		kindGroups:           kindGroups,
 		clusterResourceTypes: clusterResourceTypes,
+		totalRevisions:       totalRevs,
 	}
 }
 
@@ -72,14 +78,12 @@ func (s *Store) GetResource(uid string) *resource.ResourceData {
 	return s.resources[uid]
 }
 
-func (s *Store) TotalResourceCount() int { return len(s.resources) }
+func (s *Store) TotalResourceCount() int {
+	return len(s.resources)
+}
 
 func (s *Store) TotalRevisionCount() int {
-	total := 0
-	for _, rd := range s.resources {
-		total += len(rd.Revisions)
-	}
-	return total
+	return s.totalRevisions
 }
 
 func (s *Store) FilterResources(expr string) []*resource.ResourceData {
@@ -116,8 +120,13 @@ func (s *Store) FilterTimeline(expr string, starredOnly bool) []resource.Timelin
 	return result
 }
 
-func (s *Store) Timeline() []resource.TimelineEntry { return s.timeline }
-func (s *Store) KindGroups() []*resource.KindGroup  { return s.kindGroups }
+func (s *Store) Timeline() []resource.TimelineEntry {
+	return s.timeline
+}
+
+func (s *Store) KindGroups() []*resource.KindGroup {
+	return s.kindGroups
+}
 
 func (s *Store) WatchedKinds() []string {
 	kindSet := make(map[string]bool)
@@ -198,12 +207,13 @@ func (s *Store) AddWatchKind(rk resource.ResourceKind) []*resource.ResourceData 
 			Revisions: []resource.Revision{initRev},
 		}
 		s.resources[r.uid] = rd
+		s.totalRevisions++
 		created = append(created, rd)
 
-		s.timeline = append([]resource.TimelineEntry{{
+		s.timeline = append(s.timeline, resource.TimelineEntry{
 			Resource: rd.Resource,
 			Revision: initRev,
-		}}, s.timeline...)
+		})
 	}
 
 	sort.Slice(s.timeline, func(i, j int) bool {
@@ -216,6 +226,7 @@ func (s *Store) RemoveWatchKind(kind string) {
 	var toRemove []string
 	for uid, rd := range s.resources {
 		if rd.Resource.Kind == kind {
+			s.totalRevisions -= len(rd.Revisions)
 			toRemove = append(toRemove, uid)
 		}
 	}
@@ -256,14 +267,16 @@ func (s *Store) AddRevision(resourceUID string, rev resource.Revision) {
 		return
 	}
 	rd.Revisions = append(rd.Revisions, rev)
+	s.totalRevisions++
 
-	s.timeline = append([]resource.TimelineEntry{{
+	// Timeline is sorted newest-first. New simulation revisions are always
+	// the most recent, so prepending maintains sort order without re-sorting.
+	s.timeline = append(s.timeline, resource.TimelineEntry{})
+	copy(s.timeline[1:], s.timeline)
+	s.timeline[0] = resource.TimelineEntry{
 		Resource: rd.Resource,
 		Revision: rev,
-	}}, s.timeline...)
-	sort.Slice(s.timeline, func(i, j int) bool {
-		return s.timeline[i].Revision.Time.After(s.timeline[j].Revision.Time)
-	})
+	}
 }
 
 func (s *Store) RebuildKindGroups() {

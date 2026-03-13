@@ -156,7 +156,7 @@ func (ev *ExplorerViewComponent) Update(msg tea.Msg) tea.Cmd {
 		}
 	}
 
-	return Batch(cmds...)
+	return tea.Batch(cmds...)
 }
 
 func (ev *ExplorerViewComponent) View() string {
@@ -176,7 +176,7 @@ func (ev *ExplorerViewComponent) View() string {
 	revContent := PanelBorderEx(ev.revList.View(), revTitle, ev.revOuterW, ev.height, ev.focusPanel == PanelMiddle, ev.theme, ev.revList.CanScrollUp(), ev.revList.CanScrollDown())
 	detailContent := PanelBorderEx(ev.detail.View(), modeLabel, ev.detailOuterW, ev.height, ev.focusPanel == PanelRight, ev.theme, ev.detail.CanScrollUp(), ev.detail.CanScrollDown())
 
-	return SplitThreeColumns(treeContent, revContent, detailContent, ev.treeOuterW, ev.revOuterW, ev.width, ev.height)
+	return SplitThreeColumns(treeContent, revContent, detailContent, ev.height)
 }
 
 // ViewFullscreen renders only the focused panel at full width.
@@ -355,7 +355,7 @@ func (tv *TimelineViewComponent) View() string {
 	listContent := PanelBorderEx(tv.timeline.View(), listTitle, tv.listOuterW, tv.height, tv.focusPanel == PanelLeft, tv.theme, tv.timeline.CanScrollUp(), tv.timeline.CanScrollDown())
 	detailContent := PanelBorderEx(tv.detail.View(), modeLabel, tv.detailOuterW, tv.height, tv.focusPanel == PanelRight, tv.theme, tv.detail.CanScrollUp(), tv.detail.CanScrollDown())
 
-	return SplitHorizontal(listContent, detailContent, tv.listOuterW, tv.width, tv.height)
+	return SplitHorizontal(listContent, detailContent, tv.height)
 }
 
 // ViewFullscreen renders only the focused panel at full width.
@@ -457,7 +457,9 @@ func (wv *WatchlistViewComponent) SetFocusPanel(p PanelID) {
 	wv.detail.SetFocus(p == PanelRight)
 }
 
-func (wv *WatchlistViewComponent) FocusPanel() PanelID { return wv.focusPanel }
+func (wv *WatchlistViewComponent) FocusPanel() PanelID {
+	return wv.focusPanel
+}
 
 func (wv *WatchlistViewComponent) NextPanel() {
 	switch wv.focusPanel {
@@ -546,7 +548,7 @@ func (wv *WatchlistViewComponent) View() string {
 	revContent := PanelBorderEx(wv.revList.View(), revTitle, wv.revOuterW, wv.height, wv.focusPanel == PanelMiddle, wv.theme, wv.revList.CanScrollUp(), wv.revList.CanScrollDown())
 	detailContent := PanelBorderEx(wv.detail.View(), modeLabel, wv.detailOuterW, wv.height, wv.focusPanel == PanelRight, wv.theme, wv.detail.CanScrollUp(), wv.detail.CanScrollDown())
 
-	return SplitThreeColumns(treeContent, revContent, detailContent, wv.treeOuterW, wv.revOuterW, wv.width, wv.height)
+	return SplitThreeColumns(treeContent, revContent, detailContent, wv.height)
 }
 
 // ViewFullscreen renders only the focused panel at full width.

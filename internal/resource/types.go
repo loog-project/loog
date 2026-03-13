@@ -32,14 +32,6 @@ type Resource struct {
 	Starred   bool
 }
 
-// QualifiedName returns "namespace/name" or just "name" for cluster-scoped resources.
-func (r Resource) QualifiedName() string {
-	if r.Namespace != "" {
-		return r.Namespace + "/" + r.Name
-	}
-	return r.Name
-}
-
 // KindName returns "Kind/name" (e.g., "Pod/nginx-abc").
 func (r Resource) KindName() string {
 	return r.Kind + "/" + r.Name
@@ -98,7 +90,6 @@ func (rd *ResourceData) LatestRevision() *Revision {
 	return &rd.Revisions[len(rd.Revisions)-1]
 }
 
-// RevisionCount returns the number of revisions.
 func (rd *ResourceData) RevisionCount() int {
 	return len(rd.Revisions)
 }
@@ -124,15 +115,6 @@ type KindGroup struct {
 	Expanded  bool
 }
 
-// TotalRevisions returns the total revision count across all resources in the group.
-func (kg *KindGroup) TotalRevisions() int {
-	total := 0
-	for _, rd := range kg.Resources {
-		total += len(rd.Revisions)
-	}
-	return total
-}
-
 // ResourceKind represents a Kubernetes resource type (CRD or built-in)
 // available on the cluster.
 type ResourceKind struct {
@@ -156,54 +138,6 @@ func (rk ResourceKind) GVR() string {
 // a short window, likely from a single operator reconciliation cycle.
 type BurstGroup struct {
 	Entries []TimelineEntry
-}
-
-// KindIcon returns a Unicode icon for common Kubernetes resource kinds.
-func KindIcon(kind string) string {
-	switch kind {
-	case "Pod":
-		return "◎"
-	case "Deployment":
-		return "◈"
-	case "ReplicaSet":
-		return "◇"
-	case "StatefulSet":
-		return "◆"
-	case "DaemonSet":
-		return "◉"
-	case "Service":
-		return "◎"
-	case "Ingress":
-		return "⇋"
-	case "ConfigMap":
-		return "☰"
-	case "Secret":
-		return "⚿"
-	case "Namespace":
-		return "▣"
-	case "Node":
-		return "⬡"
-	case "PersistentVolumeClaim", "PersistentVolume":
-		return "▤"
-	case "Job":
-		return "⚙"
-	case "CronJob":
-		return "⏱"
-	case "ServiceAccount":
-		return "⊕"
-	case "Role", "ClusterRole":
-		return "⛊"
-	case "RoleBinding", "ClusterRoleBinding":
-		return "⛓"
-	case "NetworkPolicy":
-		return "⊞"
-	case "HorizontalPodAutoscaler":
-		return "⇕"
-	case "Endpoints":
-		return "⊙"
-	default:
-		return "□"
-	}
 }
 
 // RelativeTime formats a time as a human-readable relative string (e.g., "5m", "2h").

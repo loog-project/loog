@@ -15,7 +15,7 @@ type ToggleFullscreenMsg struct{}
 type ResourceSelectedMsg struct{ Resource *ResourceData }
 type RevisionSelectedMsg struct {
 	Resource *ResourceData
-	Index    int // index into ResourceData.Revisions
+	Index    int
 }
 type TimelineEntrySelectedMsg struct{ Entry TimelineEntry }
 
@@ -43,64 +43,48 @@ type ShowDevConsoleMsg struct{}
 
 // --- Watch Management Messages ---
 
-// AddWatchKindMsg requests adding a resource type (kind) to active watching.
 type AddWatchKindMsg struct{ Kind ResourceKind }
-
-// RemoveWatchKindMsg requests removing all resources of a kind from active watching.
 type RemoveWatchKindMsg struct{ Kind string }
 
 // --- Action Messages ---
 
-type ExportYAMLMsg struct{}
-type CopyToClipboardMsg struct{}
 type StatusMsg struct {
 	Text    string
 	IsError bool
 }
 
-// --- Tree Messages ---
+// ExportYAMLMsg requests exporting the current revision's object as a YAML file.
+type ExportYAMLMsg struct {
+	Resource *ResourceData
+	RevIndex int
+}
 
-// ToggleExpandMsg is reserved for future use (tree expand/collapse is handled inline).
-// type ToggleExpandMsg struct{ Kind string }
+// CopyToClipboardMsg requests copying the current revision's object as YAML to the system clipboard.
+type CopyToClipboardMsg struct {
+	Resource *ResourceData
+	RevIndex int
+}
 
 // --- Analysis / Simulation Messages ---
 
-// AnalysisCompleteMsg is sent when background analysis finishes.
 type AnalysisCompleteMsg struct {
 	Result AnalysisResult
 }
 
-// SimulationTickMsg requests generating a new revision for a resource.
 type SimulationTickMsg struct {
 	ResourceUID string
 }
 
-// ToggleAutoScrollMsg toggles auto-scroll mode.
 type ToggleAutoScrollMsg struct{}
-
-// ToggleWindowModeMsg cycles the rolling window filter.
 type ToggleWindowModeMsg struct{}
-
-// TogglePauseMsg pauses/resumes recording (simulation stops generating new data).
 type TogglePauseMsg struct{}
-
-// ToggleFreezeMsg freezes/unfreezes the view (data keeps arriving but UI doesn't update).
 type ToggleFreezeMsg struct{}
-
-// ToggleTimelineStarredMsg toggles the timeline starred-only filter.
 type ToggleTimelineStarredMsg struct{}
-
-// CompareClearMsg clears the compare selection.
 type CompareClearMsg struct{}
 
-// --- Utility ---
-
-// Cmd wraps a message as a tea.Cmd for convenience.
+// Cmd wraps a message as a tea.Cmd.
 func Cmd(msg tea.Msg) tea.Cmd {
-	return func() tea.Msg { return msg }
-}
-
-// Batch combines multiple tea.Cmd into one.
-func Batch(cmds ...tea.Cmd) tea.Cmd {
-	return tea.Batch(cmds...)
+	return func() tea.Msg {
+		return msg
+	}
 }

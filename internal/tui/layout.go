@@ -9,8 +9,7 @@ import (
 // --- Overlay ---
 
 // PlaceOverlay renders `fg` centered on `bg`.
-// Uses lipgloss.Place for correct ANSI-aware centering.
-func PlaceOverlay(fg, bg string, shadow bool) string {
+func PlaceOverlay(fg, bg string) string {
 	bgW := lipgloss.Width(bg)
 	bgH := lipgloss.Height(bg)
 
@@ -23,9 +22,8 @@ func PlaceOverlay(fg, bg string, shadow bool) string {
 // --- Split Pane ---
 
 // SplitHorizontal renders two pre-rendered content blocks side by side
-// with a thin vertical separator. The content blocks must already be
-// sized and rendered to the correct dimensions.
-func SplitHorizontal(left, right string, leftWidth, totalWidth, height int) string {
+// with a thin vertical separator.
+func SplitHorizontal(left, right string, height int) string {
 	// Build vertical separator
 	var sepLines []string
 	for i := 0; i < height; i++ {
@@ -38,9 +36,8 @@ func SplitHorizontal(left, right string, leftWidth, totalWidth, height int) stri
 }
 
 // SplitThreeColumns renders three pre-rendered content blocks side by side
-// with thin vertical separators. The content blocks must already be
-// sized and rendered to the correct dimensions.
-func SplitThreeColumns(left, middle, right string, leftW, midW, totalW, height int) string {
+// with thin vertical separators.
+func SplitThreeColumns(left, middle, right string, height int) string {
 	var sepLines []string
 	for i := 0; i < height; i++ {
 		sepLines = append(sepLines, "│")

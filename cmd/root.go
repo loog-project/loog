@@ -140,7 +140,6 @@ func initConfig() {
 
 	viper.AutomaticEnv()
 
-	// If a config file is found, read it in.
 	if err := viper.ReadInConfig(); err == nil {
 		setupLog.Info().Msgf("Using config file: %s", viper.ConfigFileUsed())
 	}
@@ -148,7 +147,38 @@ func initConfig() {
 
 // run is the main entry point for the command execution.
 func run(ctx context.Context, args []string) error {
+	setupDebugLogger()
 
+	// ── Simulate mode: skip Kubernetes entirely, use simulated data ──
+	if simulateMode {
+		return runSimulateMode()
+	}
+
+	// ── Production mode: connect to Kubernetes ──
+	cleanup, prog, trackerService, rps, mux, err := setupProduction(ctx, args)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var wg sync.WaitGroup
+
+	if headlessMode {
+		runHeadless(ctx, cancel, &wg, mux, trackerService, rps, prog)
+	} else {
+		runInteractive(ctx, cancel, &wg, mux, trackerService, rps, prog)
+	}
+
+	wg.Wait()
+	setupLog.Info().Msg("Collector stopped, bye!")
+	return nil
+}
+
+// setupDebugLogger configures the global zerolog logger.
+func setupDebugLogger() {
 	if enableDebugMode {
 		setupLog.Info().Msg("Debug mode is enabled, setting up debug logger...")
 
@@ -162,12 +192,8 @@ func run(ctx context.Context, args []string) error {
 		if logError != nil {
 			setupLog.Fatal().Err(logError).Msg("Error opening debug log file")
 		}
-		defer func(logFile *os.File) {
-			err := logFile.Close()
-			if err != nil {
-				setupLog.Error().Err(err).Msg("Error closing debug log file")
-			}
-		}(logFile)
+		// Note: logFile is intentionally not closed here; it lives for the process lifetime.
+		// Go's runtime will close it on exit.
 
 		log.Logger = zerolog.New(logFile).With().
 			Timestamp().
@@ -175,45 +201,59 @@ func run(ctx context.Context, args []string) error {
 			Logger().
 			Level(zerolog.DebugLevel)
 	} else {
-		// by default, we shouldn't log anything as this would break our TUI.
 		log.Logger = zerolog.Nop()
 	}
+}
 
-	// ── Simulate mode: skip Kubernetes entirely, use simulated data ──
-	if simulateMode {
-		setupLog.Info().Msg("Running in simulate mode with generated data")
+// runSimulateMode starts the TUI with simulated data.
+func runSimulateMode() error {
+	setupLog.Info().Msg("Running in simulate mode with generated data")
 
-		store := simulation.New()
-		app := tui.NewApp(store, tui.WithSimulator(store))
-		p := tea.NewProgram(app, tea.WithAltScreen())
-		if _, err := p.Run(); err != nil {
-			setupLog.Error().Err(err).Msg("Error running TUI program")
+	store := simulation.New()
+	app := tui.NewApp(store, tui.WithSimulator(store))
+	p := tea.NewProgram(app, tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		setupLog.Error().Err(err).Msg("Error running TUI program")
+	}
+	return nil
+}
+
+// setupProduction initializes the output file, filter, store, kube client, and mux.
+// It returns a cleanup function, the compiled filter, tracker service, store, and mux.
+func setupProduction(ctx context.Context, args []string) (
+	cleanup func(),
+	prog *vm.Program,
+	trackerService *service.TrackerService,
+	rps store.ResourcePatchStore,
+	mux *dynamicmux.Mux,
+	err error,
+) {
+	var cleanups []func()
+	cleanup = func() {
+		for i := len(cleanups) - 1; i >= 0; i-- {
+			cleanups[i]()
 		}
-		return nil
 	}
 
-	// ── Production mode: connect to Kubernetes ──
-
 	if outputFile == "" {
-		file, err := os.CreateTemp("", "loog-output-*.loog")
-		if err != nil {
-			setupLog.Fatal().Err(err).Msg("Cannot create temp file")
+		file, fileErr := os.CreateTemp("", "loog-output-*.loog")
+		if fileErr != nil {
+			setupLog.Fatal().Err(fileErr).Msg("Cannot create temp file")
 		}
-		defer func() {
+		cleanups = append(cleanups, func() {
 			_ = file.Close()
 			if removeErr := os.Remove(file.Name()); removeErr != nil {
 				setupLog.Err(removeErr).Msg("Cannot remove temp file")
 			}
-		}()
+		})
 		outputFile = file.Name()
-
 		setupLog.Info().Msgf("No output file specified, using temporary file: %s", outputFile)
 	}
 
 	setupLog.Info().
 		Str("expression", filterExpr).
 		Msg("Compiling filter expression...")
-	prog, err := expr.Compile(filterExpr, expr.Env(util.EventEntryEnv{}), expr.AsBool())
+	prog, err = expr.Compile(filterExpr, expr.Env(util.EventEntryEnv{}), expr.AsBool())
 	if err != nil {
 		setupLog.Fatal().Err(err).Msg("Error compiling filter expression")
 	}
@@ -221,33 +261,28 @@ func run(ctx context.Context, args []string) error {
 	setupLog.Info().
 		Str("store-file", outputFile).
 		Msg("Preparing object revision store...")
-	rps, err := bboltStore.New(outputFile, nil, !noDurableSync)
+	rps, err = bboltStore.New(outputFile, nil, !noDurableSync)
 	if err != nil {
 		setupLog.Fatal().Err(err).Msg("Error preparing store")
 	}
-	trackerService := service.NewTrackerService(rps, snapshotInterval, !disableCache)
+	trackerService = service.NewTrackerService(rps, snapshotInterval, !disableCache)
 
 	setupLog.Info().Msg("Preparing dynamic Kubernetes watch client...")
-	cfg, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
-	if err != nil {
-		setupLog.Fatal().Err(err).Msg("Error loading kubeconfig")
+	cfg, cfgErr := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
+	if cfgErr != nil {
+		setupLog.Fatal().Err(cfgErr).Msg("Error loading kubeconfig")
 	}
-	dyn, err := dynamic.NewForConfig(cfg)
-	if err != nil {
-		setupLog.Fatal().Err(err).Msg("Error creating dynamic watch client")
+	dyn, dynErr := dynamic.NewForConfig(cfg)
+	if dynErr != nil {
+		setupLog.Fatal().Err(dynErr).Msg("Error creating dynamic watch client")
 	}
 
-	// closing this context will stop the dynamic mux and the collector
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	mux, err := dynamicmux.New(ctx, dyn)
+	mux, err = dynamicmux.New(ctx, dyn)
 	if err != nil {
 		setupLog.Fatal().Err(err).Msg("Error creating dynamic mux")
 	}
-	defer mux.Stop()
+	cleanups = append(cleanups, func() { mux.Stop() })
 
-	// add default resources from the arguments
 	for _, r := range args {
 		gvr, gvrParseErr := util.ParseGroupVersionResource(r)
 		if gvrParseErr != nil {
@@ -258,71 +293,108 @@ func run(ctx context.Context, args []string) error {
 		}
 	}
 
-	var wg sync.WaitGroup
+	return cleanup, prog, trackerService, rps, mux, nil
+}
 
-	if headlessMode {
-		// headless mode: we will not use the UI, but just collect revisions and store them in the store.
-		setupLog.Info().Msg("Running in headless mode, using no-op revision handler")
+// runHeadless runs the collector without a TUI, waiting for SIGINT.
+func runHeadless(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	wg *sync.WaitGroup,
+	mux *dynamicmux.Mux,
+	trackerService *service.TrackerService,
+	rps store.ResourcePatchStore,
+	prog *vm.Program,
+) {
+	setupLog.Info().Msg("Running in headless mode, using no-op revision handler")
 
-		wg.Add(1)
+	wg.Add(1)
+	go func() {
+		runCollector(ctx, mux, trackerService, rps, prog, &noOpRevisionHandler{})
+		wg.Done()
+	}()
+
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	<-c
+
+	setupLog.Info().Msg("Received interrupt signal, stopping collector...")
+	cancel()
+}
+
+// runInteractive starts the TUI with a LiveStore and runs the collector in background.
+func runInteractive(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	wg *sync.WaitGroup,
+	mux *dynamicmux.Mux,
+	trackerService *service.TrackerService,
+	rps store.ResourcePatchStore,
+	prog *vm.Program,
+) {
+	setupLog.Info().Msg("Running in interactive mode with new TUI")
+
+	liveStore := adapter.NewLiveStore()
+	app := tui.NewApp(liveStore,
+		tui.WithRecording(),
+		tui.WithWatchCallbacks(
+			func(rk tui.ResourceKind) {
+				gvr, err := util.ParseGroupVersionResource(rk.GVR())
+				if err != nil {
+					log.Error().Err(err).Str("gvr", rk.GVR()).Msg("Cannot parse GVR for watch add")
+					return
+				}
+				if err := mux.Add(gvr); err != nil {
+					log.Error().Err(err).Str("kind", rk.Kind).Msg("Cannot add watch to mux")
+				} else {
+					log.Info().Str("kind", rk.Kind).Str("gvr", rk.GVR()).Msg("Added dynamic watch")
+				}
+			},
+			func(kind string) {
+				log.Info().Str("kind", kind).Msg("Watch kind removed from TUI (mux removal requires GVR)")
+			},
+		),
+	)
+	program := tea.NewProgram(app, tea.WithAltScreen())
+
+	// Discover cluster resource kinds in the background for WatchManager
+	go func() {
+		kinds, err := loadClusterResourceKinds(kubeConfigPath)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to discover cluster resource kinds for WatchManager")
+			return
+		}
+		liveStore.SetUnwatchedKinds(kinds)
+	}()
+
+	handler := &adapter.TUIRevisionHandler{
+		Store:   liveStore,
+		Program: program,
+	}
+
+	wg.Add(2)
+	go func() {
+		program.Send(nil) // wait until program is ready
+
 		go func() {
-			runCollector(ctx, mux, trackerService, rps, prog, &noOpRevisionHandler{})
+			if historyErr := loadHistoryFromDB(trackerService, rps, prog, handler); historyErr != nil {
+				log.Error().Err(historyErr).Msg("Error loading history from database")
+			}
 			wg.Done()
 		}()
 
-		// we use [signal.Notify] instead of [signal.NotifyContext] here so we can re-use the ctx for the TUI.
-		c := make(chan os.Signal, 1)
-		signal.Notify(c, os.Interrupt)
-		<-c
-
-		setupLog.Info().Msg("Received interrupt signal, stopping collector...")
-		cancel()
-	} else {
-		// interactive mode: new TUI backed by LiveStore + adapter handler
-		setupLog.Info().Msg("Running in interactive mode with new TUI")
-
-		liveStore := adapter.NewLiveStore()
-		app := tui.NewApp(liveStore, tui.WithRecording())
-		program := tea.NewProgram(app, tea.WithAltScreen())
-
-		handler := &adapter.TUIRevisionHandler{
-			Store:   liveStore,
-			Program: program,
-		}
-
-		// run collector
-		wg.Add(2) // 2 because we will run two goroutines: one for loading history and one for collecting revisions
 		go func() {
-			// wait until the program is ready to receive commands, so we don't skip any commits
-			program.Send(nil)
-
-			// after the program is ready, we can start load historic data
-			go func() {
-				if historyErr := loadHistoryFromDB(trackerService, rps, prog, handler); historyErr != nil {
-					log.Error().Err(historyErr).Msg("Error loading history from database")
-				}
-				wg.Done()
-			}()
-
-			// and start collecting revisions
-			go func() {
-				runCollector(ctx, mux, trackerService, rps, prog, handler)
-				wg.Done()
-			}()
+			runCollector(ctx, mux, trackerService, rps, prog, handler)
+			wg.Done()
 		}()
+	}()
 
-		if _, teaErr := program.Run(); teaErr != nil {
-			setupLog.Error().Err(teaErr).Msg("Error running TUI program")
-		}
-
-		setupLog.Info().Msg("TUI program exited, stopping collector")
-		cancel()
+	if _, teaErr := program.Run(); teaErr != nil {
+		setupLog.Error().Err(teaErr).Msg("Error running TUI program")
 	}
 
-	wg.Wait()
-	setupLog.Info().Msg("Collector stopped, bye!")
-
-	return nil
+	setupLog.Info().Msg("TUI program exited, stopping collector")
+	cancel()
 }
 
 // revisionHandler is the handler used by the collector to handle revisions.
@@ -354,7 +426,6 @@ func (n noOpRevisionHandler) HandleRevision(
 		Str("kind", obj.GetKind()).
 		Msg("Storing revision...")
 
-	// nothing to do in headless mode, as we are just storing revisions in the collector
 	return nil
 }
 

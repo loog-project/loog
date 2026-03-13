@@ -1,26 +1,22 @@
 package tui
 
-import tea "github.com/charmbracelet/bubbletea"
+import (
+	"bytes"
+	"fmt"
+	"os"
+	"os/exec"
+	"runtime"
 
-// CommandCategory groups related commands in the palette.
-type CommandCategory string
-
-const (
-	CatNavigation CommandCategory = "Navigation"
-	CatView       CommandCategory = "View"
-	CatAction     CommandCategory = "Action"
-	CatFilter     CommandCategory = "Filter"
-	CatSystem     CommandCategory = "System"
-	CatDebug      CommandCategory = "Debug"
+	tea "github.com/charmbracelet/bubbletea"
+	"gopkg.in/yaml.v3"
 )
 
-// Command represents an action that can be executed from the command palette.
+// Command represents an action executable from the command palette.
 type Command struct {
-	Name        string          // display name (used for fuzzy matching)
-	Description string          // secondary text
-	Category    CommandCategory // grouping in the palette
-	Shortcut    string          // keybinding hint (e.g., "F1")
-	Action      func() tea.Cmd  // what to do when selected
+	Name        string
+	Description string
+	Shortcut    string // keybinding hint shown in the palette
+	Action      func() tea.Cmd
 }
 
 // CommandRegistry holds all available commands.
@@ -32,169 +28,116 @@ type CommandRegistry struct {
 func NewCommandRegistry() *CommandRegistry {
 	cr := &CommandRegistry{}
 
-	// Navigation
 	cr.Register(Command{
-		Name: "Switch to Explorer", Description: "Three-column resource browser",
-		Category: CatNavigation, Shortcut: "F1",
+		Name: "Switch to Explorer", Description: "Three-column resource browser", Shortcut: "F1",
 		Action: func() tea.Cmd { return Cmd(SwitchViewMsg{View: ExplorerView}) },
 	})
 	cr.Register(Command{
-		Name: "Switch to Timeline", Description: "Chronological event stream",
-		Category: CatNavigation, Shortcut: "F2",
+		Name: "Switch to Timeline", Description: "Chronological event stream", Shortcut: "F2",
 		Action: func() tea.Cmd { return Cmd(SwitchViewMsg{View: TimelineView}) },
 	})
 	cr.Register(Command{
-		Name: "Switch to Watchlist", Description: "Starred resources only",
-		Category: CatNavigation, Shortcut: "F3",
+		Name: "Switch to Watchlist", Description: "Starred resources only", Shortcut: "F3",
 		Action: func() tea.Cmd { return Cmd(SwitchViewMsg{View: WatchlistView}) },
 	})
 	cr.Register(Command{
-		Name: "Switch to Compare", Description: "Side-by-side YAML comparison",
-		Category: CatNavigation, Shortcut: "F4",
+		Name: "Switch to Compare", Description: "Side-by-side YAML comparison", Shortcut: "F4",
 		Action: func() tea.Cmd { return Cmd(SwitchViewMsg{View: CompareView}) },
 	})
-
-	// Panel focus
 	cr.Register(Command{
-		Name: "Focus Left Panel", Description: "Move focus to the left panel",
-		Category: CatNavigation, Shortcut: "1",
+		Name: "Focus Left Panel", Description: "Move focus to the left panel", Shortcut: "1",
 		Action: func() tea.Cmd { return Cmd(FocusPanelMsg{Panel: PanelLeft}) },
 	})
 	cr.Register(Command{
-		Name: "Focus Middle Panel", Description: "Move focus to the middle panel",
-		Category: CatNavigation, Shortcut: "2",
+		Name: "Focus Middle Panel", Description: "Move focus to the middle panel", Shortcut: "2",
 		Action: func() tea.Cmd { return Cmd(FocusPanelMsg{Panel: PanelMiddle}) },
 	})
 	cr.Register(Command{
-		Name: "Focus Right Panel", Description: "Move focus to the right panel",
-		Category: CatNavigation, Shortcut: "3",
+		Name: "Focus Right Panel", Description: "Move focus to the right panel", Shortcut: "3",
 		Action: func() tea.Cmd { return Cmd(FocusPanelMsg{Panel: PanelRight}) },
 	})
 	cr.Register(Command{
-		Name: "Next Panel", Description: "Cycle focus to next panel",
-		Category: CatNavigation, Shortcut: "Tab",
+		Name: "Next Panel", Description: "Cycle focus to next panel", Shortcut: "Tab",
 		Action: func() tea.Cmd { return Cmd(NextPanelMsg{}) },
 	})
-
-	// View modes
 	cr.Register(Command{
-		Name: "View: Diff Mode", Description: "Show YAML diff with highlights",
-		Category: CatView, Shortcut: "d",
+		Name: "View: Diff Mode", Description: "Show YAML diff with highlights", Shortcut: "d",
 		Action: func() tea.Cmd { return Cmd(ViewModeChangedMsg{Mode: DiffMode}) },
 	})
 	cr.Register(Command{
-		Name: "View: Object Mode", Description: "Show full YAML object",
-		Category: CatView, Shortcut: "o",
+		Name: "View: Object Mode", Description: "Show full YAML object", Shortcut: "o",
 		Action: func() tea.Cmd { return Cmd(ViewModeChangedMsg{Mode: ObjectMode}) },
 	})
 	cr.Register(Command{
-		Name: "View: Patch Mode", Description: "Show only changed fields",
-		Category: CatView, Shortcut: "p",
+		Name: "View: Patch Mode", Description: "Show only changed fields", Shortcut: "p",
 		Action: func() tea.Cmd { return Cmd(ViewModeChangedMsg{Mode: PatchMode}) },
 	})
 	cr.Register(Command{
-		Name: "View: JSON Mode", Description: "Show raw JSON",
-		Category: CatView, Shortcut: "J",
+		Name: "View: JSON Mode", Description: "Show raw JSON", Shortcut: "J",
 		Action: func() tea.Cmd { return Cmd(ViewModeChangedMsg{Mode: JSONMode}) },
 	})
 	cr.Register(Command{
-		Name: "View: Raw Mode", Description: "Show raw database record (debug)",
-		Category: CatView, Shortcut: "r",
+		Name: "View: Raw Mode", Description: "Show raw database record", Shortcut: "r",
 		Action: func() tea.Cmd { return Cmd(ViewModeChangedMsg{Mode: RawMode}) },
 	})
-
-	// Actions
 	cr.Register(Command{
-		Name: "Filter Resources", Description: "Open filter bar to search/filter",
-		Category: CatFilter, Shortcut: "/",
+		Name: "Filter Resources", Description: "Open filter bar to search/filter", Shortcut: "/",
 		Action: func() tea.Cmd { return Cmd(ShowFilterMsg{}) },
 	})
 	cr.Register(Command{
-		Name: "Quick Search", Description: "Fuzzy search for resources by name",
-		Category: CatFilter, Shortcut: "//",
+		Name: "Quick Search", Description: "Fuzzy search for resources by name", Shortcut: "//",
 		Action: func() tea.Cmd { return Cmd(ShowQuickSearchMsg{}) },
 	})
 	cr.Register(Command{
 		Name: "Clear Filter", Description: "Remove current filter",
-		Category: CatFilter,
-		Action:   func() tea.Cmd { return Cmd(FilterChangedMsg{Expression: ""}) },
+		Action: func() tea.Cmd { return Cmd(FilterChangedMsg{Expression: ""}) },
 	})
 	cr.Register(Command{
-		Name: "Export YAML", Description: "Save current view as YAML file",
-		Category: CatAction, Shortcut: "e",
-		Action: func() tea.Cmd { return Cmd(ExportYAMLMsg{}) },
-	})
-	cr.Register(Command{
-		Name: "Copy to Clipboard", Description: "Copy current content",
-		Category: CatAction, Shortcut: "y",
-		Action: func() tea.Cmd { return Cmd(CopyToClipboardMsg{}) },
-	})
-	cr.Register(Command{
-		Name: "Toggle Fullscreen", Description: "Expand focused panel",
-		Category: CatView, Shortcut: "f",
+		Name: "Toggle Fullscreen", Description: "Expand focused panel", Shortcut: "f",
 		Action: func() tea.Cmd { return Cmd(ToggleFullscreenMsg{}) },
 	})
 	cr.Register(Command{
-		Name: "Toggle Auto-Scroll", Description: "Auto-jump to newest entries",
-		Category: CatView, Shortcut: "a",
+		Name: "Toggle Auto-Scroll", Description: "Auto-jump to newest entries", Shortcut: "a",
 		Action: func() tea.Cmd { return Cmd(ToggleAutoScrollMsg{}) },
 	})
 	cr.Register(Command{
-		Name: "Cycle Window Mode", Description: "Filter timeline by time window (all/30s/1m/5m)",
-		Category: CatView, Shortcut: "w",
+		Name: "Cycle Window Mode", Description: "Filter timeline by time window", Shortcut: "w",
 		Action: func() tea.Cmd { return Cmd(ToggleWindowModeMsg{}) },
 	})
 	cr.Register(Command{
-		Name: "Pause Recording", Description: "Pause/resume simulation (no new data generated)",
-		Category: CatAction, Shortcut: "P",
+		Name: "Pause Recording", Description: "Pause/resume data collection", Shortcut: "P",
 		Action: func() tea.Cmd { return Cmd(TogglePauseMsg{}) },
 	})
 	cr.Register(Command{
-		Name: "Freeze View", Description: "Freeze/unfreeze UI (data keeps recording in background)",
-		Category: CatAction, Shortcut: "F5",
+		Name: "Freeze View", Description: "Freeze UI while data keeps recording", Shortcut: "F5",
 		Action: func() tea.Cmd { return Cmd(ToggleFreezeMsg{}) },
 	})
 	cr.Register(Command{
-		Name: "Watch Manager", Description: "Manage watched resources (add/remove)",
-		Category: CatAction, Shortcut: "W",
+		Name: "Watch Manager", Description: "Manage watched resources (add/remove)", Shortcut: "W",
 		Action: func() tea.Cmd { return Cmd(ShowWatchManagerMsg{}) },
 	})
-
-	// System
 	cr.Register(Command{
-		Name: "Show Help", Description: "Display keybinding reference",
-		Category: CatSystem, Shortcut: "?",
+		Name: "Show Help", Description: "Display keybinding reference", Shortcut: "?",
 		Action: func() tea.Cmd { return Cmd(ShowHelpMsg{}) },
 	})
 	cr.Register(Command{
-		Name: "Quit", Description: "Exit loog",
-		Category: CatSystem, Shortcut: "q",
+		Name: "Quit", Description: "Exit loog", Shortcut: "q",
 		Action: func() tea.Cmd { return tea.Quit },
 	})
-
-	// Timeline-specific
 	cr.Register(Command{
-		Name: "Toggle Starred Only", Description: "Show only starred resources in timeline",
-		Category: CatFilter, Shortcut: "S",
+		Name: "Toggle Starred Only", Description: "Show only starred resources in timeline", Shortcut: "S",
 		Action: func() tea.Cmd { return Cmd(ToggleTimelineStarredMsg{}) },
 	})
-
-	// Compare
 	cr.Register(Command{
-		Name: "Clear Compare", Description: "Remove both compare marks",
-		Category: CatAction, Shortcut: "X",
+		Name: "Clear Compare", Description: "Remove both compare marks", Shortcut: "X",
 		Action: func() tea.Cmd { return Cmd(CompareClearMsg{}) },
 	})
-
-	// Debug
 	cr.Register(Command{
-		Name: "Debug Log", Description: "View internal debug log (events, simulation, selection)",
-		Category: CatDebug, Shortcut: "F6",
+		Name: "Debug Log", Description: "View internal debug log", Shortcut: "F6",
 		Action: func() tea.Cmd { return Cmd(ShowDebugLogMsg{}) },
 	})
 	cr.Register(Command{
-		Name: "Developer Console", Description: "Interactive console for inspecting store, resources, revisions",
-		Category: CatDebug, Shortcut: ":",
+		Name: "Developer Console", Description: "Interactive console for inspecting data", Shortcut: ":",
 		Action: func() tea.Cmd { return Cmd(ShowDevConsoleMsg{}) },
 	})
 
@@ -209,11 +152,82 @@ func (cr *CommandRegistry) All() []Command {
 	return cr.commands
 }
 
-// Names returns all command names for fuzzy matching.
 func (cr *CommandRegistry) Names() []string {
 	names := make([]string, len(cr.commands))
 	for i, cmd := range cr.commands {
 		names[i] = cmd.Name
 	}
 	return names
+}
+
+// exportYAMLCmd writes the current revision's object as YAML to a temporary file.
+func exportYAMLCmd(rd *ResourceData, revIdx int) tea.Cmd {
+	if rd == nil || revIdx < 0 || revIdx >= len(rd.Revisions) {
+		return Cmd(StatusMsg{Text: "No revision to export", IsError: true})
+	}
+	rev := rd.Revisions[revIdx]
+	obj := rev.Object
+	if obj == nil {
+		return Cmd(StatusMsg{Text: "Revision has no object data", IsError: true})
+	}
+	return func() tea.Msg {
+		data, err := yaml.Marshal(obj)
+		if err != nil {
+			return StatusMsg{Text: fmt.Sprintf("YAML marshal error: %v", err), IsError: true}
+		}
+
+		filename := fmt.Sprintf("loog-export-%s-%s-%s.yaml",
+			rd.Resource.Kind, rd.Resource.Name, rev.ID.String())
+		if writeErr := os.WriteFile(filename, data, 0o644); writeErr != nil {
+			return StatusMsg{Text: fmt.Sprintf("Write error: %v", writeErr), IsError: true}
+		}
+		return StatusMsg{Text: fmt.Sprintf("Exported to %s", filename)}
+	}
+}
+
+// copyToClipboardCmd copies the current revision's object as YAML to the system clipboard.
+func copyToClipboardCmd(rd *ResourceData, revIdx int) tea.Cmd {
+	if rd == nil || revIdx < 0 || revIdx >= len(rd.Revisions) {
+		return Cmd(StatusMsg{Text: "No revision to copy", IsError: true})
+	}
+	rev := rd.Revisions[revIdx]
+	obj := rev.Object
+	if obj == nil {
+		return Cmd(StatusMsg{Text: "Revision has no object data", IsError: true})
+	}
+	return func() tea.Msg {
+		data, err := yaml.Marshal(obj)
+		if err != nil {
+			return StatusMsg{Text: fmt.Sprintf("YAML marshal error: %v", err), IsError: true}
+		}
+
+		if err := writeClipboard(data); err != nil {
+			return StatusMsg{Text: fmt.Sprintf("Clipboard error: %v", err), IsError: true}
+		}
+		return StatusMsg{Text: "Copied YAML to clipboard"}
+	}
+}
+
+// writeClipboard writes data to the system clipboard using platform-specific tools.
+func writeClipboard(data []byte) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("pbcopy")
+	case "linux":
+		// Try xclip first, fall back to xsel
+		if _, err := exec.LookPath("xclip"); err == nil {
+			cmd = exec.Command("xclip", "-selection", "clipboard")
+		} else if _, err := exec.LookPath("xsel"); err == nil {
+			cmd = exec.Command("xsel", "--clipboard", "--input")
+		} else {
+			return fmt.Errorf("no clipboard tool found (install xclip or xsel)")
+		}
+	case "windows":
+		cmd = exec.Command("clip.exe")
+	default:
+		return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+	}
+	cmd.Stdin = bytes.NewReader(data)
+	return cmd.Run()
 }

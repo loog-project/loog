@@ -19,10 +19,23 @@ func NewHelpOverlay(theme Theme) *HelpOverlay {
 	return &HelpOverlay{theme: theme}
 }
 
-func (h *HelpOverlay) SetSize(w, ht int) { h.width = w; h.height = ht }
-func (h *HelpOverlay) IsVisible() bool   { return h.visible }
-func (h *HelpOverlay) Show()             { h.visible = true; h.scrollOffset = 0 }
-func (h *HelpOverlay) Hide()             { h.visible = false }
+func (h *HelpOverlay) SetSize(w, ht int) {
+	h.width = w
+	h.height = ht
+}
+
+func (h *HelpOverlay) IsVisible() bool {
+	return h.visible
+}
+
+func (h *HelpOverlay) Show() {
+	h.visible = true
+	h.scrollOffset = 0
+}
+
+func (h *HelpOverlay) Hide() {
+	h.visible = false
+}
 
 func (h *HelpOverlay) Update(msg tea.Msg) tea.Cmd {
 	if !h.visible {
@@ -120,10 +133,10 @@ func (h *HelpOverlay) View() string {
 		}},
 		{Title: "Lists (Resources / Revisions / Timeline)", Bindings: []helpBinding{
 			{"j / k", "Move down / up"},
-			{"g / G", "Go to top / bottom"},
+			{"g / G (home / end)", "Go to top / bottom"},
 			{"ctrl+d / pgdn", "Page down"},
 			{"ctrl+u / pgup", "Page up"},
-			{"Enter", "Select / expand"},
+			{"Enter (space)", "Select / expand"},
 			{"s", "Toggle star"},
 			{"c", "Mark for compare"},
 		}},
@@ -132,6 +145,7 @@ func (h *HelpOverlay) View() string {
 			{"w", "Cycle time window around selected revision"},
 		}},
 		{Title: "Compare View", Bindings: []helpBinding{
+			{"Tab", "Switch focus between left and right panes"},
 			{"X", "Clear compare selection (remove both marks)"},
 			{"j / k", "Scroll diff up / down"},
 			{"ctrl+d / pgdn", "Page down in diff"},
@@ -144,8 +158,8 @@ func (h *HelpOverlay) View() string {
 			{"J", "JSON mode"},
 			{"r", "Raw mode (database record for debugging)"},
 			{"[ / ]", "Previous / next revision"},
-			{"e", "Export YAML"},
-			{"y", "Copy to clipboard"},
+			{"e", "Export YAML to file"},
+			{"y", "Copy YAML to clipboard"},
 			{"t", "Jump to timeline"},
 		}},
 		{Title: "Symbols", Bindings: []helpBinding{

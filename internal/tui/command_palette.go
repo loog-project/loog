@@ -32,7 +32,9 @@ func (cp *CommandPalette) SetSize(w, h int) {
 	cp.height = h
 }
 
-func (cp *CommandPalette) IsVisible() bool { return cp.visible }
+func (cp *CommandPalette) IsVisible() bool {
+	return cp.visible
+}
 
 func (cp *CommandPalette) Show() {
 	cp.visible = true
@@ -304,8 +306,14 @@ func NewQuickSearch(theme Theme) *QuickSearch {
 	return &QuickSearch{theme: theme}
 }
 
-func (qs *QuickSearch) SetSize(w, h int) { qs.width = w; qs.height = h }
-func (qs *QuickSearch) IsVisible() bool  { return qs.visible }
+func (qs *QuickSearch) SetSize(w, h int) {
+	qs.width = w
+	qs.height = h
+}
+
+func (qs *QuickSearch) IsVisible() bool {
+	return qs.visible
+}
 
 func (qs *QuickSearch) Show(resources []*ResourceData) {
 	qs.visible = true
@@ -569,8 +577,14 @@ func NewWatchManager(theme Theme) *WatchManager {
 	return &WatchManager{theme: theme}
 }
 
-func (wm *WatchManager) SetSize(w, h int) { wm.width = w; wm.height = h }
-func (wm *WatchManager) IsVisible() bool  { return wm.visible }
+func (wm *WatchManager) SetSize(w, h int) {
+	wm.width = w
+	wm.height = h
+}
+
+func (wm *WatchManager) IsVisible() bool {
+	return wm.visible
+}
 
 // Show populates the watch manager with current state.
 // watchedKinds: unique kind names currently tracked.

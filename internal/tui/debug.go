@@ -51,12 +51,14 @@ type DebugLog struct {
 	mu      sync.Mutex
 	entries []LogEntry
 	maxSize int
+	head    int // index of the oldest entry
+	count   int // number of entries currently stored
 }
 
 // NewDebugLog creates a ring buffer with the given capacity.
 func NewDebugLog(maxSize int) *DebugLog {
 	return &DebugLog{
-		entries: make([]LogEntry, 0, maxSize),
+		entries: make([]LogEntry, maxSize),
 		maxSize: maxSize,
 	}
 }
@@ -73,56 +75,46 @@ func (dl *DebugLog) Log(level LogLevel, source, format string, args ...any) {
 		Message: fmt.Sprintf(format, args...),
 	}
 
-	if len(dl.entries) >= dl.maxSize {
-		// Shift out oldest
-		copy(dl.entries, dl.entries[1:])
-		dl.entries[len(dl.entries)-1] = entry
+	idx := (dl.head + dl.count) % dl.maxSize
+	if dl.count < dl.maxSize {
+		dl.count++
 	} else {
-		dl.entries = append(dl.entries, entry)
+		// Buffer is full — overwrite oldest and advance head
+		dl.head = (dl.head + 1) % dl.maxSize
 	}
+	dl.entries[idx] = entry
 }
 
-// Debug logs at debug level.
 func (dl *DebugLog) Debug(source, format string, args ...any) {
 	dl.Log(LogDebug, source, format, args...)
 }
 
-// Info logs at info level.
 func (dl *DebugLog) Info(source, format string, args ...any) {
 	dl.Log(LogInfo, source, format, args...)
 }
 
-// Warn logs at warn level.
-func (dl *DebugLog) Warn(source, format string, args ...any) {
-	dl.Log(LogWarn, source, format, args...)
-}
-
-// Error logs at error level.
-func (dl *DebugLog) Error(source, format string, args ...any) {
-	dl.Log(LogError, source, format, args...)
-}
-
-// Entries returns a snapshot of all entries.
+// Entries returns a snapshot of all entries in chronological order.
 func (dl *DebugLog) Entries() []LogEntry {
 	dl.mu.Lock()
 	defer dl.mu.Unlock()
-	out := make([]LogEntry, len(dl.entries))
-	copy(out, dl.entries)
+	out := make([]LogEntry, dl.count)
+	for i := 0; i < dl.count; i++ {
+		out[i] = dl.entries[(dl.head+i)%dl.maxSize]
+	}
 	return out
 }
 
-// Len returns the current number of entries.
 func (dl *DebugLog) Len() int {
 	dl.mu.Lock()
 	defer dl.mu.Unlock()
-	return len(dl.entries)
+	return dl.count
 }
 
-// Clear removes all entries.
 func (dl *DebugLog) Clear() {
 	dl.mu.Lock()
 	defer dl.mu.Unlock()
-	dl.entries = dl.entries[:0]
+	dl.head = 0
+	dl.count = 0
 }
 
 // ─── Debug Log Viewer Overlay ───
@@ -166,12 +158,16 @@ func (dlv *DebugLogViewer) SetSize(w, h int) {
 	dlv.viewport.Height = dialogH - 8
 }
 
-func (dlv *DebugLogViewer) IsVisible() bool { return dlv.visible }
+func (dlv *DebugLogViewer) IsVisible() bool {
+	return dlv.visible
+}
 func (dlv *DebugLogViewer) Show() {
 	dlv.visible = true
 	dlv.refresh()
 }
-func (dlv *DebugLogViewer) Hide() { dlv.visible = false }
+func (dlv *DebugLogViewer) Hide() {
+	dlv.visible = false
+}
 
 func (dlv *DebugLogViewer) refresh() {
 	entries := dlv.log.Entries()
@@ -352,14 +348,18 @@ func (dc *DevConsole) SetSize(w, h int) {
 	dc.viewport.Height = dialogH - 8
 }
 
-func (dc *DevConsole) IsVisible() bool { return dc.visible }
+func (dc *DevConsole) IsVisible() bool {
+	return dc.visible
+}
 func (dc *DevConsole) Show() {
 	dc.visible = true
 	dc.input = ""
 	dc.cursor = 0
 	dc.historyIdx = -1
 }
-func (dc *DevConsole) Hide() { dc.visible = false }
+func (dc *DevConsole) Hide() {
+	dc.visible = false
+}
 
 func (dc *DevConsole) execute(cmd string) {
 	cmd = strings.TrimSpace(cmd)

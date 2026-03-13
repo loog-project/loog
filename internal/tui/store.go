@@ -3,7 +3,7 @@ package tui
 import tea "github.com/charmbracelet/bubbletea"
 
 // Store is the data source interface consumed by the TUI.
-// Both the simulation package and a future production adapter implement this.
+// Both the simulation package and the production adapter (adapter.LiveStore) implement this.
 // The interface contains only data access and mutation methods — no simulation logic.
 type Store interface {
 	// ── Query Methods ──

@@ -128,7 +128,6 @@ const (
 
 // Re-export domain functions so existing TUI code doesn't need to change imports.
 var (
-	KindIcon             = resource.KindIcon
 	RelativeTime         = resource.RelativeTime
 	FormatTimestamp      = resource.FormatTimestamp
 	DeepEqual            = resource.DeepEqual

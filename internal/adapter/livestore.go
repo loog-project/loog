@@ -87,18 +87,7 @@ func (s *LiveStore) IngestRevision(
 func (s *LiveStore) AllResources() []*resource.ResourceData {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-
-	result := make([]*resource.ResourceData, 0, len(s.resources))
-	for _, rd := range s.resources {
-		result = append(result, rd)
-	}
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].Resource.Kind != result[j].Resource.Kind {
-			return result[i].Resource.Kind < result[j].Resource.Kind
-		}
-		return result[i].Resource.Name < result[j].Resource.Name
-	})
-	return result
+	return s.allResourcesLocked()
 }
 
 func (s *LiveStore) StarredResources() []*resource.ResourceData {
@@ -148,12 +137,7 @@ func (s *LiveStore) FilterResources(expr string) []*resource.ResourceData {
 			result = append(result, rd)
 		}
 	}
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].Resource.Kind != result[j].Resource.Kind {
-			return result[i].Resource.Kind < result[j].Resource.Kind
-		}
-		return result[i].Resource.Name < result[j].Resource.Name
-	})
+	sortByKindName(result)
 	return result
 }
 
@@ -357,16 +341,20 @@ func (s *LiveStore) SetUnwatchedKinds(kinds []resource.ResourceKind) {
 
 // ── Internal helpers ──
 
+func sortByKindName(rds []*resource.ResourceData) {
+	sort.Slice(rds, func(i, j int) bool {
+		if rds[i].Resource.Kind != rds[j].Resource.Kind {
+			return rds[i].Resource.Kind < rds[j].Resource.Kind
+		}
+		return rds[i].Resource.Name < rds[j].Resource.Name
+	})
+}
+
 func (s *LiveStore) allResourcesLocked() []*resource.ResourceData {
 	result := make([]*resource.ResourceData, 0, len(s.resources))
 	for _, rd := range s.resources {
 		result = append(result, rd)
 	}
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].Resource.Kind != result[j].Resource.Kind {
-			return result[i].Resource.Kind < result[j].Resource.Kind
-		}
-		return result[i].Resource.Name < result[j].Resource.Name
-	})
+	sortByKindName(result)
 	return result
 }

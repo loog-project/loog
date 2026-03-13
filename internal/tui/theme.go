@@ -2,6 +2,8 @@ package tui
 
 import (
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/loog-project/loog/pkg/diffpreview"
 )
 
 // Theme holds all color tokens and style factories for the TUI.
@@ -96,17 +98,42 @@ func (t Theme) InactiveTabStyle() lipgloss.Style {
 }
 
 // Text styles
-func (t Theme) MutedStyle() lipgloss.Style   { return lipgloss.NewStyle().Foreground(t.Overlay0) }
-func (t Theme) SuccessStyle() lipgloss.Style { return lipgloss.NewStyle().Foreground(t.Green) }
-func (t Theme) ErrorStyle() lipgloss.Style   { return lipgloss.NewStyle().Foreground(t.Red) }
-func (t Theme) WarningStyle() lipgloss.Style { return lipgloss.NewStyle().Foreground(t.Peach) }
-func (t Theme) InfoStyle() lipgloss.Style    { return lipgloss.NewStyle().Foreground(t.Sky) }
+func (t Theme) MutedStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(t.Overlay0)
+}
+
+func (t Theme) SuccessStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(t.Green)
+}
+
+func (t Theme) ErrorStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(t.Red)
+}
+
+func (t Theme) WarningStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(t.Peach)
+}
+
+func (t Theme) InfoStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(t.Sky)
+}
 
 // Syntax highlighting styles
-func (t Theme) SyntaxKeyStyle() lipgloss.Style    { return lipgloss.NewStyle().Foreground(t.Blue) }
-func (t Theme) SyntaxStringStyle() lipgloss.Style { return lipgloss.NewStyle().Foreground(t.Green) }
-func (t Theme) SyntaxNumberStyle() lipgloss.Style { return lipgloss.NewStyle().Foreground(t.Peach) }
-func (t Theme) SyntaxBoolStyle() lipgloss.Style   { return lipgloss.NewStyle().Foreground(t.Yellow) }
+func (t Theme) SyntaxKeyStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(t.Blue)
+}
+
+func (t Theme) SyntaxStringStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(t.Green)
+}
+
+func (t Theme) SyntaxNumberStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(t.Peach)
+}
+
+func (t Theme) SyntaxBoolStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(t.Yellow)
+}
 func (t Theme) SyntaxNullStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(t.Overlay0).Italic(true)
 }
@@ -127,6 +154,20 @@ func (t Theme) KeyHint(key, label string) string {
 	k := lipgloss.NewStyle().Foreground(t.Overlay2).Render(key)
 	l := lipgloss.NewStyle().Foreground(t.Overlay0).Render(label)
 	return k + " " + l
+}
+
+// DiffPreviewTheme returns a diffpreview.Theme mapped from TUI theme colors.
+func (t Theme) DiffPreviewTheme() diffpreview.Theme {
+	return diffpreview.Theme{
+		KeyStyle:    lipgloss.NewStyle().Foreground(t.Blue),
+		StringStyle: lipgloss.NewStyle().Foreground(t.Green),
+		NumberStyle: lipgloss.NewStyle().Foreground(t.Peach),
+		BoolStyle:   lipgloss.NewStyle().Foreground(t.Yellow),
+		NullStyle:   lipgloss.NewStyle().Foreground(t.Overlay0).Italic(true),
+		AddedBg:     lipgloss.NewStyle().Background(t.DiffAddedBg).Foreground(t.Green),
+		RemovedBg:   lipgloss.NewStyle().Background(t.DiffRemovedBg).Foreground(t.Red),
+		ModifiedBg:  lipgloss.NewStyle().Background(t.DiffModifiedBg).Foreground(t.Peach),
+	}
 }
 
 // EventTypeStyle returns the appropriate style for an event type.

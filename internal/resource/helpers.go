@@ -133,8 +133,13 @@ type resourceFilterEnv struct {
 	Res Resource
 }
 
-func (e resourceFilterEnv) All() bool  { return true }
-func (e resourceFilterEnv) None() bool { return false }
+func (e resourceFilterEnv) All() bool {
+	return true
+}
+
+func (e resourceFilterEnv) None() bool {
+	return false
+}
 
 func (e resourceFilterEnv) Namespaces(vals ...string) bool {
 	if len(vals) == 0 {
@@ -148,7 +153,9 @@ func (e resourceFilterEnv) Namespaces(vals ...string) bool {
 	return false
 }
 
-func (e resourceFilterEnv) Namespace(vals ...string) bool { return e.Namespaces(vals...) }
+func (e resourceFilterEnv) Namespace(vals ...string) bool {
+	return e.Namespaces(vals...)
+}
 
 func (e resourceFilterEnv) Names(vals ...string) bool {
 	if len(vals) == 0 {
@@ -162,7 +169,9 @@ func (e resourceFilterEnv) Names(vals ...string) bool {
 	return false
 }
 
-func (e resourceFilterEnv) Name(vals ...string) bool { return e.Names(vals...) }
+func (e resourceFilterEnv) Name(vals ...string) bool {
+	return e.Names(vals...)
+}
 
 func (e resourceFilterEnv) Namespaced(namespace, name string) bool {
 	return e.Res.Namespace == namespace && e.Res.Name == name

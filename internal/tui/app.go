@@ -503,7 +503,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.onWatchKindAdded(msg.Kind)
 		}
 		a.store.RebuildKindGroups()
-		a.explorer.SetGroups(a.store.KindGroups())
+		a.refreshExplorerGroups()
 		a.refreshTimeline()
 		a.watchlist.RefreshStarredFiltered(a.filterExpr)
 		a.statusBar.SetCounts(
@@ -528,7 +528,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.onWatchKindRemoved(msg.Kind)
 		}
 		a.store.RebuildKindGroups()
-		a.explorer.SetGroups(a.store.KindGroups())
+		a.refreshExplorerGroups()
 		a.refreshTimeline()
 		a.watchlist.RefreshStarredFiltered(a.filterExpr)
 		a.statusBar.SetCounts(
@@ -546,10 +546,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.setStatus(msg.Text, msg.IsError)
 
 	case ExportYAMLMsg:
-		a.setStatus("Export YAML: not yet implemented (prototype)", false)
+		return a, exportYAMLCmd(msg.Resource, msg.RevIndex)
 
 	case CopyToClipboardMsg:
-		a.setStatus("Copy to clipboard: not yet implemented (prototype)", false)
+		return a, copyToClipboardCmd(msg.Resource, msg.RevIndex)
 
 	case ToggleTimelineStarredMsg:
 		a.timelineStarredOnly = !a.timelineStarredOnly
@@ -623,7 +623,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.handleLiveRevision(msg.ResourceUID)
 	}
 
-	return a, Batch(cmds...)
+	return a, tea.Batch(cmds...)
 }
 
 // View implements tea.Model.
@@ -671,27 +671,27 @@ func (a *App) View() string {
 	// Overlay rendering
 	if a.commandPalette.IsVisible() {
 		paletteView := a.commandPalette.View()
-		mainView = PlaceOverlay(paletteView, mainView, true)
+		mainView = PlaceOverlay(paletteView, mainView)
 	}
 	if a.helpOverlay.IsVisible() {
 		helpView := a.helpOverlay.View()
-		mainView = PlaceOverlay(helpView, mainView, true)
+		mainView = PlaceOverlay(helpView, mainView)
 	}
 	if a.quickSearch.IsVisible() {
 		qsView := a.quickSearch.View()
-		mainView = PlaceOverlay(qsView, mainView, true)
+		mainView = PlaceOverlay(qsView, mainView)
 	}
 	if a.watchManager.IsVisible() {
 		wmView := a.watchManager.View()
-		mainView = PlaceOverlay(wmView, mainView, true)
+		mainView = PlaceOverlay(wmView, mainView)
 	}
 	if a.debugLogViewer.IsVisible() {
 		dlView := a.debugLogViewer.View()
-		mainView = PlaceOverlay(dlView, mainView, true)
+		mainView = PlaceOverlay(dlView, mainView)
 	}
 	if a.devConsole.IsVisible() {
 		dcView := a.devConsole.View()
-		mainView = PlaceOverlay(dcView, mainView, true)
+		mainView = PlaceOverlay(dcView, mainView)
 	}
 
 	return mainView
@@ -794,7 +794,7 @@ func (a *App) toggleStar(uid string) {
 
 	// Refresh kind groups (to update star indicators)
 	a.store.RebuildKindGroups()
-	a.explorer.SetGroups(a.store.KindGroups())
+	a.refreshExplorerGroups()
 	a.watchlist.RefreshStarredFiltered(a.filterExpr)
 	a.refreshTimeline()
 	a.statusBar.SetCounts(
@@ -810,16 +810,20 @@ func (a *App) toggleStar(uid string) {
 }
 
 func (a *App) applyFilter() {
-	// Filter explorer tree
-	filtered := a.store.FilterResources(a.filterExpr)
-	groups := BuildKindGroups(filtered)
-	a.explorer.SetGroups(groups)
-
-	// Filter watchlist tree (starred resources only, then apply filter)
+	a.refreshExplorerGroups()
 	a.watchlist.RefreshStarredFiltered(a.filterExpr)
-
-	// Filter timeline
 	a.refreshTimeline()
+}
+
+// refreshExplorerGroups rebuilds the explorer tree, applying the active filter if any.
+func (a *App) refreshExplorerGroups() {
+	if a.filterExpr != "" {
+		filtered := a.store.FilterResources(a.filterExpr)
+		groups := BuildKindGroups(filtered)
+		a.explorer.SetGroups(groups)
+	} else {
+		a.explorer.SetGroups(a.store.KindGroups())
+	}
 }
 
 // refreshTimeline rebuilds the timeline entries applying both text filter and starred-only.
@@ -960,9 +964,11 @@ func (a *App) handleLiveRevision(resourceUID string) {
 
 // refreshViewsAfterNewRevision updates all view components after new data has been added to the store.
 func (a *App) refreshViewsAfterNewRevision(resourceUID string) {
-	// Rebuild kind groups and refresh all views
+	// Rebuild kind groups in the store (unfiltered cache)
 	a.store.RebuildKindGroups()
-	a.explorer.SetGroups(a.store.KindGroups())
+
+	// Refresh explorer with current filter applied
+	a.refreshExplorerGroups()
 	a.refreshTimeline()
 	a.watchlist.RefreshStarredFiltered(a.filterExpr)
 
