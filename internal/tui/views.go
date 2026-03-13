@@ -106,6 +106,7 @@ func (ev *ExplorerViewComponent) SetResource(rd *ResourceData) {
 }
 
 func (ev *ExplorerViewComponent) SetRevision(rd *ResourceData, index int) {
+	ev.revList.SelectIndex(index)
 	ev.detail.SetRevision(rd, index)
 }
 
@@ -439,6 +440,7 @@ func (wv *WatchlistViewComponent) SetResource(rd *ResourceData) {
 }
 
 func (wv *WatchlistViewComponent) SetRevision(rd *ResourceData, index int) {
+	wv.revList.SelectIndex(index)
 	wv.detail.SetRevision(rd, index)
 }
 

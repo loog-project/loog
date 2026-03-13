@@ -115,6 +115,19 @@ func (rt *ResourceTree) buildItems() {
 			}
 		}
 	}
+
+	// After rebuilding, try to re-locate the selected UID so the cursor
+	// stays on the correct item even if item order changed.
+	if rt.selected != "" {
+		for i, item := range rt.items {
+			if item.Type == treeItemResource && item.Resource != nil && item.Resource.Resource.UID == rt.selected {
+				rt.cursor = i
+				return
+			}
+		}
+	}
+
+	// Fallback: clamp cursor if selected UID wasn't found (e.g. collapsed group)
 	if rt.cursor >= len(rt.items) && len(rt.items) > 0 {
 		rt.cursor = len(rt.items) - 1
 	}
@@ -377,10 +390,11 @@ func (rl *RevisionList) SetFocus(f bool)  { rl.focused = f }
 func (rl *RevisionList) IsFocused() bool  { return rl.focused }
 
 func (rl *RevisionList) SetResource(rd *ResourceData) {
+	oldResource := rl.resource
 	rl.resource = rd
 	if rd != nil && len(rd.Revisions) > 0 {
-		// If we have a previously selected ID, try to find it
-		if rl.selectedID != 0 {
+		// If same resource and we have a previously selected ID, try to preserve position
+		if rl.selectedID != 0 && oldResource != nil && oldResource.Resource.UID == rd.Resource.UID {
 			for i, rev := range rd.Revisions {
 				if rev.ID == rl.selectedID {
 					rl.cursor = i
@@ -388,14 +402,15 @@ func (rl *RevisionList) SetResource(rd *ResourceData) {
 				}
 			}
 		}
-		// Default: select newest
+		// New resource or old ID not found: select newest and reset scroll
 		rl.cursor = len(rd.Revisions) - 1
 		rl.selectedID = rd.Revisions[rl.cursor].ID
+		rl.scrollOffset = 0
 	} else {
 		rl.cursor = 0
 		rl.selectedID = 0
+		rl.scrollOffset = 0
 	}
-	rl.scrollOffset = 0
 }
 
 func (rl *RevisionList) SetCompareMarks(left, right *CompareItem) {
@@ -420,6 +435,23 @@ func (rl *RevisionList) JumpToNewest() {
 }
 
 func (rl *RevisionList) SelectedIndex() int { return rl.cursor }
+
+// SelectIndex moves the cursor to a specific revision index and updates selectedID.
+// This is used by external callers (e.g. SetRevision in views) to sync the
+// RevisionList cursor when the selection changes from outside (e.g. [/] keys in DetailView).
+func (rl *RevisionList) SelectIndex(idx int) {
+	if rl.resource == nil || len(rl.resource.Revisions) == 0 {
+		return
+	}
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(rl.resource.Revisions) {
+		idx = len(rl.resource.Revisions) - 1
+	}
+	rl.cursor = idx
+	rl.selectedID = rl.resource.Revisions[idx].ID
+}
 
 // CursorInfo returns cursor position and total count.
 func (rl *RevisionList) CursorInfo() (int, int) {
