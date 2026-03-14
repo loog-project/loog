@@ -17,7 +17,6 @@ type ViewID int
 const (
 	ExplorerView ViewID = iota
 	TimelineView
-	WatchlistView
 	CompareView
 )
 
@@ -27,8 +26,6 @@ func (v ViewID) String() string {
 		return "Explorer"
 	case TimelineView:
 		return "Timeline"
-	case WatchlistView:
-		return "Watchlist"
 	case CompareView:
 		return "Compare"
 	default:
@@ -38,7 +35,7 @@ func (v ViewID) String() string {
 
 // AllViews returns all available view IDs in tab order.
 func AllViews() []ViewID {
-	return []ViewID{ExplorerView, TimelineView, WatchlistView, CompareView}
+	return []ViewID{ExplorerView, TimelineView, CompareView}
 }
 
 // ViewMode determines how the detail panel renders content.

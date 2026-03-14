@@ -23,7 +23,6 @@ type TimelineEntrySelectedMsg struct{ Entry TimelineEntry }
 
 type ToggleStarMsg struct{ UID string }
 type ViewModeChangedMsg struct{ Mode ViewMode }
-type FilterChangedMsg struct{ Expression string }
 type CompareMarkMsg struct {
 	Resource *ResourceData
 	Index    int
@@ -35,7 +34,6 @@ type JumpToTimelineMsg struct{ Entry TimelineEntry }
 type ShowCommandPaletteMsg struct{}
 type HideOverlayMsg struct{}
 type ShowHelpMsg struct{}
-type ShowFilterMsg struct{}
 type ShowQuickSearchMsg struct{}
 type ShowWatchManagerMsg struct{}
 type ShowDebugLogMsg struct{}
@@ -80,6 +78,7 @@ type ToggleWindowModeMsg struct{}
 type TogglePauseMsg struct{}
 type ToggleFreezeMsg struct{}
 type ToggleTimelineStarredMsg struct{}
+type ToggleExplorerStarredMsg struct{}
 type CompareClearMsg struct{}
 
 // Cmd wraps a message as a tea.Cmd.

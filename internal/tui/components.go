@@ -9,7 +9,9 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/expr-lang/expr/vm"
 
+	"github.com/loog-project/loog/internal/resource"
 	"github.com/loog-project/loog/pkg/diffpreview"
 )
 
@@ -35,6 +37,15 @@ type ResourceTree struct {
 
 	// Analysis tags
 	analysisTags map[string][]ChangeTag // resourceUID -> tags for latest revision
+
+	// Inline filter state
+	filterInput   string      // current filter text
+	filterEditing bool        // true while user is typing in filter
+	filterApplied bool        // true after user pressed Enter to apply filter
+	filterProg    *vm.Program // compiled expr-lang program (nil for substring match)
+
+	// Starred-only filter
+	starredOnly bool
 }
 
 type treeItemType int
@@ -123,9 +134,10 @@ func (rt *ResourceTree) CanScrollUp() bool {
 	if len(rt.items) == 0 || rt.height <= 0 {
 		return false
 	}
+	itemsHeight := rt.height - 1 // 1 line for filter bar
 	startIdx := 0
-	if rt.cursor >= rt.height {
-		startIdx = rt.cursor - rt.height + 1
+	if rt.cursor >= itemsHeight {
+		startIdx = rt.cursor - itemsHeight + 1
 	}
 	return startIdx > 0
 }
@@ -135,11 +147,12 @@ func (rt *ResourceTree) CanScrollDown() bool {
 	if len(rt.items) == 0 || rt.height <= 0 {
 		return false
 	}
+	itemsHeight := rt.height - 1 // 1 line for filter bar
 	startIdx := 0
-	if rt.cursor >= rt.height {
-		startIdx = rt.cursor - rt.height + 1
+	if rt.cursor >= itemsHeight {
+		startIdx = rt.cursor - itemsHeight + 1
 	}
-	return startIdx+rt.height < len(rt.items)
+	return startIdx+itemsHeight < len(rt.items)
 }
 
 func (rt *ResourceTree) SetCompareMarks(left, right *CompareItem) {
@@ -151,12 +164,155 @@ func (rt *ResourceTree) SetAnalysisTags(tags map[string][]ChangeTag) {
 	rt.analysisTags = tags
 }
 
+// ToggleStarredOnly toggles the starred-only filter and rebuilds items.
+func (rt *ResourceTree) ToggleStarredOnly() bool {
+	rt.starredOnly = !rt.starredOnly
+	rt.buildItems()
+	return rt.starredOnly
+}
+
+// StarredOnly returns whether the starred-only filter is active.
+func (rt *ResourceTree) StarredOnly() bool {
+	return rt.starredOnly
+}
+
+// StartFilter activates inline filter editing mode.
+func (rt *ResourceTree) StartFilter() {
+	rt.filterEditing = true
+	// If resuming from an applied filter, rebuild to show all items (for preview)
+	if rt.filterApplied {
+		rt.buildItems()
+	}
+}
+
+// ClearFilter resets filter state entirely.
+func (rt *ResourceTree) ClearFilter() {
+	rt.filterInput = ""
+	rt.filterEditing = false
+	rt.filterApplied = false
+	rt.filterProg = nil
+	rt.buildItems()
+}
+
+// ApplyFilter applies the current filter input: hides non-matching items.
+func (rt *ResourceTree) ApplyFilter() {
+	if rt.filterInput == "" {
+		rt.ClearFilter()
+		return
+	}
+	rt.filterEditing = false
+	rt.filterApplied = true
+	rt.buildItems()
+}
+
+// IsFilterActive returns true if the component is in any filter mode (editing or applied).
+func (rt *ResourceTree) IsFilterActive() bool {
+	return rt.filterEditing || rt.filterApplied
+}
+
+// FilterState returns the current filter state for title rendering.
+func (rt *ResourceTree) FilterState() (input string, editing bool, applied bool) {
+	return rt.filterInput, rt.filterEditing, rt.filterApplied
+}
+
+// FilterCounts returns (matchCount, totalCount) for title display.
+func (rt *ResourceTree) FilterCounts() (int, int) {
+	if rt.filterInput == "" {
+		return 0, rt.totalResourceCount()
+	}
+	match := 0
+	total := 0
+	for _, g := range rt.groups {
+		for _, rd := range g.Resources {
+			total++
+			if rt.matchesFilter(rd.Resource) {
+				match++
+			}
+		}
+	}
+	return match, total
+}
+
+func (rt *ResourceTree) totalResourceCount() int {
+	count := 0
+	for _, g := range rt.groups {
+		count += len(g.Resources)
+	}
+	return count
+}
+
+func (rt *ResourceTree) matchesFilter(r Resource) bool {
+	if rt.filterProg == nil {
+		return false
+	}
+	return resource.MatchesFilter(rt.filterProg, r)
+}
+
+func (rt *ResourceTree) updateFilterProg() {
+	rt.filterProg = resource.CompileFilter(rt.filterInput)
+}
+
+func (rt *ResourceTree) handleFilterKey(msg tea.KeyMsg) tea.Cmd {
+	switch msg.String() {
+	case "enter":
+		rt.ApplyFilter()
+		return nil
+	case "esc":
+		rt.ClearFilter()
+		return nil
+	case "backspace":
+		if len(rt.filterInput) > 0 {
+			rt.filterInput = rt.filterInput[:len(rt.filterInput)-1]
+			rt.updateFilterProg()
+		}
+		return nil
+	default:
+		// Only accept printable runes (single char, no ctrl sequences)
+		if msg.Type == tea.KeyRunes {
+			rt.filterInput += string(msg.Runes)
+			rt.updateFilterProg()
+		}
+		return nil
+	}
+}
+
 func (rt *ResourceTree) buildItems() {
 	rt.items = nil
+	// When filter is applied and NOT being edited, hide non-matching items.
+	// During editing (even with a previously applied filter), show everything for preview.
+	textFiltering := rt.filterApplied && !rt.filterEditing && rt.filterInput != ""
+
+	// shouldShow returns true if a resource passes all active filters (text + starred).
+	shouldShow := func(rd *ResourceData) bool {
+		if rt.starredOnly && !rd.Resource.Starred {
+			return false
+		}
+		if textFiltering && !rt.matchesFilter(rd.Resource) {
+			return false
+		}
+		return true
+	}
+
 	for _, g := range rt.groups {
+		// Skip kinds that have no visible resources
+		if textFiltering || rt.starredOnly {
+			hasVisible := false
+			for _, rd := range g.Resources {
+				if shouldShow(rd) {
+					hasVisible = true
+					break
+				}
+			}
+			if !hasVisible {
+				continue
+			}
+		}
 		rt.items = append(rt.items, treeItem{Type: treeItemKind, Kind: g.Kind})
 		if g.Expanded {
 			for _, rd := range g.Resources {
+				if !shouldShow(rd) {
+					continue
+				}
 				rt.items = append(rt.items, treeItem{Type: treeItemResource, Kind: g.Kind, Resource: rd})
 			}
 		}
@@ -185,6 +341,10 @@ func (rt *ResourceTree) Update(msg tea.Msg) tea.Cmd {
 	}
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// When filter editing is active, intercept all keys
+		if rt.filterEditing {
+			return rt.handleFilterKey(msg)
+		}
 		switch msg.String() {
 		case "j", "down":
 			if rt.cursor < len(rt.items)-1 {
@@ -219,6 +379,8 @@ func (rt *ResourceTree) Update(msg tea.Msg) tea.Cmd {
 					return Cmd(ToggleStarMsg{UID: item.Resource.Resource.UID})
 				}
 			}
+		case "S":
+			return Cmd(ToggleExplorerStarredMsg{})
 		case "c":
 			if rt.cursor < len(rt.items) {
 				item := rt.items[rt.cursor]
@@ -319,134 +481,232 @@ func (rt *ResourceTree) CurrentHint() string {
 }
 
 func (rt *ResourceTree) View() string {
-	if len(rt.items) == 0 {
+	// Reserve bottom line for filter bar
+	itemsHeight := rt.height - 1
+	if itemsHeight < 1 {
+		itemsHeight = 1
+	}
+
+	var lines []string
+
+	if len(rt.items) == 0 && !rt.filterEditing && !rt.filterApplied {
 		placeholder := lipgloss.NewStyle().
 			Foreground(rt.theme.Overlay0).
 			Italic(true).
 			Render("  ◇ No resources to display")
-		var lines []string
 		lines = append(lines, PadRight(placeholder, rt.width))
 		hint := lipgloss.NewStyle().Foreground(rt.theme.Overlay0).
 			Render("    Press 's' to star resources")
 		lines = append(lines, PadRight(hint, rt.width))
-		for len(lines) < rt.height {
+		for len(lines) < itemsHeight {
 			lines = append(lines, strings.Repeat(" ", rt.width))
 		}
-		return strings.Join(lines, "\n")
-	}
+	} else if len(rt.items) == 0 {
+		// Filter active but no matches
+		noMatch := lipgloss.NewStyle().
+			Foreground(rt.theme.Overlay0).Italic(true).
+			Render("  ◇ No matching resources")
+		lines = append(lines, PadRight(noMatch, rt.width))
+		for len(lines) < itemsHeight {
+			lines = append(lines, strings.Repeat(" ", rt.width))
+		}
+	} else {
+		// Reserve space for: indent(2) + star(2) + indicator(1) + space(1) + name + badges(~5)
+		maxNameLen := rt.width - 12
+		if maxNameLen < 5 {
+			maxNameLen = 5
+		}
 
-	var lines []string
-	// Reserve space for: indent(2) + star(2) + indicator(1) + space(1) + name + badges(~5)
-	maxNameLen := rt.width - 12
-	if maxNameLen < 5 {
-		maxNameLen = 5
-	}
+		// Calculate visible window (scrolling)
+		startIdx := 0
+		if rt.cursor >= itemsHeight {
+			startIdx = rt.cursor - itemsHeight + 1
+		}
 
-	// Calculate visible window (scrolling)
-	startIdx := 0
-	if rt.cursor >= rt.height {
-		startIdx = rt.cursor - rt.height + 1
-	}
+		for i := startIdx; i < len(rt.items) && len(lines) < itemsHeight; i++ {
+			item := rt.items[i]
+			isSelected := i == rt.cursor && rt.focused
+			isPassive := !rt.focused && item.Type == treeItemResource &&
+				item.Resource != nil && item.Resource.Resource.UID == rt.selected && rt.selected != ""
 
-	for i := startIdx; i < len(rt.items) && len(lines) < rt.height; i++ {
-		item := rt.items[i]
-		isSelected := i == rt.cursor && rt.focused
-		// Dim highlight for the selected resource when panel is unfocused
-		isPassive := !rt.focused && item.Type == treeItemResource &&
-			item.Resource != nil && item.Resource.Resource.UID == rt.selected && rt.selected != ""
-
-		var line string
-		switch item.Type {
-		case treeItemKind:
-			var g *KindGroup
-			for _, grp := range rt.groups {
-				if grp.Kind == item.Kind {
-					g = grp
-					break
+			// Filter preview: dim non-matching resources when typing a filter
+			previewing := rt.filterEditing && rt.filterInput != ""
+			isDimmed := false
+			if previewing && item.Type == treeItemResource && item.Resource != nil {
+				if !rt.matchesFilter(item.Resource.Resource) {
+					isDimmed = true
 				}
 			}
-			arrow := "▸"
-			if g != nil && g.Expanded {
-				arrow = "▾"
-			}
-			arrowStyle := lipgloss.NewStyle().Foreground(rt.theme.Overlay1)
-			kindStyle := lipgloss.NewStyle().Foreground(rt.theme.Blue).Bold(true)
-			countStyle := lipgloss.NewStyle().Foreground(rt.theme.Overlay1)
-			count := 0
-			if g != nil {
-				count = len(g.Resources)
-			}
-			line = arrowStyle.Render(arrow) + " " + kindStyle.Render(item.Kind) + " " + countStyle.Render(fmt.Sprintf("%d", count))
-
-		case treeItemResource:
-			rd := item.Resource
-			r := rd.Resource
-
-			star := "  "
-			if r.Starred {
-				star = rt.theme.StarStyle().Render("★") + " "
-			}
-
-			indicator := lipgloss.NewStyle().Foreground(rt.theme.Overlay0).Render("○")
-			if rd.LatestRevision() != nil {
-				age := RelativeTime(rd.LatestRevision().Time)
-				if age == "now" || strings.HasSuffix(age, "s") {
-					indicator = lipgloss.NewStyle().Foreground(rt.theme.Peach).Render("●")
+			if previewing && item.Type == treeItemKind {
+				hasMatch := false
+				for _, g := range rt.groups {
+					if g.Kind == item.Kind {
+						for _, rd := range g.Resources {
+							if rt.matchesFilter(rd.Resource) {
+								hasMatch = true
+								break
+							}
+						}
+						break
+					}
+				}
+				if !hasMatch {
+					isDimmed = true
 				}
 			}
 
-			loopBadge := ""
-			if rd.DetectLoop(6) {
-				loopBadge = " " + lipgloss.NewStyle().
-					Foreground(rt.theme.Red).Bold(true).
-					Render("↻")
+			var line string
+			switch item.Type {
+			case treeItemKind:
+				var g *KindGroup
+				for _, grp := range rt.groups {
+					if grp.Kind == item.Kind {
+						g = grp
+						break
+					}
+				}
+				arrow := "▸"
+				if g != nil && g.Expanded {
+					arrow = "▾"
+				}
+				arrowStyle := lipgloss.NewStyle().Foreground(rt.theme.Overlay1)
+				kindStyle := lipgloss.NewStyle().Foreground(rt.theme.Blue).Bold(true)
+				countStyle := lipgloss.NewStyle().Foreground(rt.theme.Overlay1)
+				count := 0
+				if g != nil {
+					count = len(g.Resources)
+				}
+				if isDimmed {
+					arrowStyle = arrowStyle.Foreground(rt.theme.Surface2)
+					kindStyle = kindStyle.Foreground(rt.theme.Surface2).Bold(false)
+					countStyle = countStyle.Foreground(rt.theme.Surface2)
+				}
+				line = arrowStyle.Render(arrow) + " " + kindStyle.Render(item.Kind) + " " + countStyle.Render(fmt.Sprintf("%d", count))
+
+			case treeItemResource:
+				rd := item.Resource
+				r := rd.Resource
+
+				star := "  "
+				if r.Starred {
+					star = rt.theme.StarStyle().Render("★") + " "
+				}
+
+				indicator := lipgloss.NewStyle().Foreground(rt.theme.Overlay0).Render("○")
+				if rd.LatestRevision() != nil {
+					age := RelativeTime(rd.LatestRevision().Time)
+					if age == "now" || strings.HasSuffix(age, "s") {
+						indicator = lipgloss.NewStyle().Foreground(rt.theme.Peach).Render("●")
+					}
+				}
+
+				loopBadge := ""
+				if rd.DetectLoop(6) {
+					loopBadge = " " + lipgloss.NewStyle().
+						Foreground(rt.theme.Red).Bold(true).
+						Render("↻")
+				}
+
+				freqBadge := ""
+				freq := rd.ChangeFrequency()
+				if freq > 5 {
+					freqBadge = " " + rt.theme.HotBadgeStyle().Render("▲")
+				} else if freq > 2 {
+					freqBadge = " " + rt.theme.WarmBadgeStyle().Render("△")
+				}
+
+				compareBadge := ""
+				if rt.compareLeft != nil && rt.compareLeft.Resource.UID == r.UID {
+					compareBadge = " " + lipgloss.NewStyle().Foreground(rt.theme.Blue).Bold(true).Render("[C1]")
+				}
+				if rt.compareRight != nil && rt.compareRight.Resource.UID == r.UID {
+					compareBadge = " " + lipgloss.NewStyle().Foreground(rt.theme.Mauve).Bold(true).Render("[C2]")
+				}
+
+				name := r.ShortName(maxNameLen)
+				nameStyle := lipgloss.NewStyle().Foreground(rt.theme.Text)
+
+				if isDimmed {
+					dimColor := rt.theme.Surface2
+					star = "  "
+					if r.Starred {
+						star = lipgloss.NewStyle().Foreground(dimColor).Render("★") + " "
+					}
+					indicator = lipgloss.NewStyle().Foreground(dimColor).Render("○")
+					nameStyle = nameStyle.Foreground(dimColor)
+					loopBadge = ""
+					freqBadge = ""
+					compareBadge = ""
+				}
+
+				line = "  " + star + indicator + " " + nameStyle.Render(name) + loopBadge + freqBadge + compareBadge
 			}
 
-			freqBadge := ""
-			freq := rd.ChangeFrequency()
-			if freq > 5 {
-				freqBadge = " " + rt.theme.HotBadgeStyle().Render("▲")
-			} else if freq > 2 {
-				freqBadge = " " + rt.theme.WarmBadgeStyle().Render("△")
+			padded := PadRight(line, rt.width)
+			if isSelected {
+				padded = lipgloss.NewStyle().
+					Background(rt.theme.Surface0).
+					Bold(true).
+					Render(padded)
+			} else if isPassive {
+				padded = lipgloss.NewStyle().
+					Background(rt.theme.Surface0).
+					Render(padded)
 			}
 
-			// Compare mark badges
-			compareBadge := ""
-			if rt.compareLeft != nil && rt.compareLeft.Resource.UID == r.UID {
-				compareBadge = " " + lipgloss.NewStyle().Foreground(rt.theme.Blue).Bold(true).Render("[C1]")
-			}
-			if rt.compareRight != nil && rt.compareRight.Resource.UID == r.UID {
-				compareBadge = " " + lipgloss.NewStyle().Foreground(rt.theme.Mauve).Bold(true).Render("[C2]")
-			}
-
-			name := r.ShortName(maxNameLen)
-			nameStyle := lipgloss.NewStyle().Foreground(rt.theme.Text)
-
-			line = "  " + star + indicator + " " + nameStyle.Render(name) + loopBadge + freqBadge + compareBadge
+			lines = append(lines, padded)
 		}
 
-		// Pad to exact width, then apply background if selected
-		padded := PadRight(line, rt.width)
-		if isSelected {
-			padded = lipgloss.NewStyle().
-				Background(rt.theme.Surface0).
-				Bold(true).
-				Render(padded)
-		} else if isPassive {
-			padded = lipgloss.NewStyle().
-				Background(rt.theme.Surface0).
-				Render(padded)
+		for len(lines) < itemsHeight {
+			lines = append(lines, strings.Repeat(" ", rt.width))
 		}
-
-		lines = append(lines, padded)
 	}
 
-	// Pad remaining lines
-	for len(lines) < rt.height {
-		lines = append(lines, strings.Repeat(" ", rt.width))
-	}
+	// Bottom filter bar
+	lines = append(lines, rt.renderFilterBar())
 
 	return strings.Join(lines, "\n")
+}
+
+// renderFilterBar renders the bottom filter/status line.
+func (rt *ResourceTree) renderFilterBar() string {
+	sepStyle := lipgloss.NewStyle().Foreground(rt.theme.Surface1)
+	sep := sepStyle.Render("─")
+
+	// Green when expr compiles, Peach (orange) when it doesn't.
+	inputColor := rt.theme.Peach
+	if rt.filterProg != nil {
+		inputColor = rt.theme.Green
+	}
+
+	if rt.filterEditing {
+		matchCount, totalCount := rt.FilterCounts()
+		prefix := lipgloss.NewStyle().Foreground(rt.theme.Overlay1).Render("/")
+		input := lipgloss.NewStyle().Foreground(inputColor).Render(rt.filterInput)
+		cursor := lipgloss.NewStyle().Foreground(rt.theme.Text).Background(rt.theme.Surface2).Render(" ")
+		counts := lipgloss.NewStyle().Foreground(rt.theme.Overlay0).Render(fmt.Sprintf(" %d/%d", matchCount, totalCount))
+		bar := sep + prefix + input + cursor + counts
+		return PadRight(bar, rt.width)
+	}
+
+	if rt.filterApplied && rt.filterInput != "" {
+		matchCount, totalCount := rt.FilterCounts()
+		prefix := lipgloss.NewStyle().Foreground(rt.theme.Overlay1).Render("/")
+		input := lipgloss.NewStyle().Foreground(inputColor).Render(rt.filterInput)
+		counts := lipgloss.NewStyle().Foreground(rt.theme.Overlay0).Render(fmt.Sprintf(" %d/%d", matchCount, totalCount))
+		bar := sep + prefix + input + counts
+		return PadRight(bar, rt.width)
+	}
+
+	// Inactive: show dim hint
+	var badges []string
+	if rt.starredOnly {
+		badges = append(badges, lipgloss.NewStyle().Foreground(rt.theme.Yellow).Render("★ starred"))
+	}
+	hint := lipgloss.NewStyle().Foreground(rt.theme.Surface2).Render("/ filter")
+	badges = append(badges, hint)
+	bar := sep + strings.Join(badges, " ")
+	return PadRight(bar, rt.width)
 }
 
 // ─── Revision List ───
@@ -1179,6 +1439,15 @@ type TimelineList struct {
 	// Compare mark support
 	compareLeft  *CompareItem
 	compareRight *CompareItem
+
+	// Inline filter state
+	filterInput   string      // current filter text
+	filterEditing bool        // true while user is typing in filter
+	filterApplied bool        // true after user pressed Enter to apply filter
+	filterProg    *vm.Program // compiled expr-lang program (nil for substring match)
+
+	// Display-only flag so the filter bar can show a ★ badge
+	starredOnly bool
 }
 
 type timelineFlatItem struct {
@@ -1209,6 +1478,97 @@ func (tl *TimelineList) SetCompareMarks(left, right *CompareItem) {
 
 func (tl *TimelineList) SetAutoScroll(on bool) {
 	tl.autoScroll = on
+}
+
+func (tl *TimelineList) SetStarredOnly(on bool) {
+	tl.starredOnly = on
+}
+
+// StartFilter activates inline filter editing mode.
+func (tl *TimelineList) StartFilter() {
+	tl.filterEditing = true
+	// If resuming from an applied filter, rebuild to show all entries (for preview)
+	if tl.filterApplied {
+		tl.rebuild()
+	}
+}
+
+// ClearFilter resets filter state entirely.
+func (tl *TimelineList) ClearFilter() {
+	tl.filterInput = ""
+	tl.filterEditing = false
+	tl.filterApplied = false
+	tl.filterProg = nil
+	tl.rebuild()
+}
+
+// ApplyFilter applies the current filter input: hides non-matching entries.
+func (tl *TimelineList) ApplyFilter() {
+	if tl.filterInput == "" {
+		tl.ClearFilter()
+		return
+	}
+	tl.filterEditing = false
+	tl.filterApplied = true
+	tl.rebuild()
+}
+
+// IsFilterActive returns true if the component is in any filter mode (editing or applied).
+func (tl *TimelineList) IsFilterActive() bool {
+	return tl.filterEditing || tl.filterApplied
+}
+
+// FilterState returns the current filter state for title rendering.
+func (tl *TimelineList) FilterState() (input string, editing bool, applied bool) {
+	return tl.filterInput, tl.filterEditing, tl.filterApplied
+}
+
+// FilterCounts returns (matchCount, totalCount) for title display.
+func (tl *TimelineList) FilterCounts() (int, int) {
+	if tl.filterInput == "" {
+		return 0, len(tl.entries)
+	}
+	match := 0
+	for _, e := range tl.entries {
+		if tl.matchesFilter(e.Resource) {
+			match++
+		}
+	}
+	return match, len(tl.entries)
+}
+
+func (tl *TimelineList) matchesFilter(r Resource) bool {
+	if tl.filterProg == nil {
+		return false
+	}
+	return resource.MatchesFilter(tl.filterProg, r)
+}
+
+func (tl *TimelineList) updateFilterProg() {
+	tl.filterProg = resource.CompileFilter(tl.filterInput)
+}
+
+func (tl *TimelineList) handleFilterKey(msg tea.KeyMsg) tea.Cmd {
+	switch msg.String() {
+	case "enter":
+		tl.ApplyFilter()
+		return nil
+	case "esc":
+		tl.ClearFilter()
+		return nil
+	case "backspace":
+		if len(tl.filterInput) > 0 {
+			tl.filterInput = tl.filterInput[:len(tl.filterInput)-1]
+			tl.updateFilterProg()
+		}
+		return nil
+	default:
+		if msg.Type == tea.KeyRunes {
+			tl.filterInput += string(msg.Runes)
+			tl.updateFilterProg()
+		}
+		return nil
+	}
 }
 
 func (tl *TimelineList) SetWindowMode(wm WindowMode) {
@@ -1243,6 +1603,17 @@ func (tl *TimelineList) rebuild() {
 				filtered = append(filtered, e)
 			}
 		}
+	}
+
+	// Apply inline filter when applied and not being edited (hide non-matches)
+	if tl.filterApplied && !tl.filterEditing && tl.filterInput != "" {
+		var matched []TimelineEntry
+		for _, e := range filtered {
+			if tl.matchesFilter(e.Resource) {
+				matched = append(matched, e)
+			}
+		}
+		filtered = matched
 	}
 
 	tl.groups = GroupTimelineByBurst(filtered, 5*time.Second)
@@ -1290,12 +1661,12 @@ func (tl *TimelineList) CanScrollUp() bool {
 	if len(tl.flatItems) == 0 || tl.height <= 0 {
 		return false
 	}
-	// Account for optional header lines (window mode / auto-scroll banner)
+	// Account for optional header lines and bottom filter bar
 	headerLines := 0
 	if tl.windowMode != WindowAll || tl.autoScroll {
 		headerLines = 1
 	}
-	visibleHeight := tl.height - headerLines
+	visibleHeight := tl.height - 1 - headerLines // 1 for filter bar
 	if visibleHeight <= 0 {
 		return false
 	}
@@ -1315,7 +1686,7 @@ func (tl *TimelineList) CanScrollDown() bool {
 	if tl.windowMode != WindowAll || tl.autoScroll {
 		headerLines = 1
 	}
-	visibleHeight := tl.height - headerLines
+	visibleHeight := tl.height - 1 - headerLines // 1 for filter bar
 	if visibleHeight <= 0 {
 		return false
 	}
@@ -1396,6 +1767,10 @@ func (tl *TimelineList) Update(msg tea.Msg) tea.Cmd {
 	}
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// When filter editing is active, intercept all keys
+		if tl.filterEditing {
+			return tl.handleFilterKey(msg)
+		}
 		switch msg.String() {
 		case "j", "down":
 			if tl.cursor < len(tl.flatItems)-1 {
@@ -1464,6 +1839,13 @@ func (tl *TimelineList) selectCurrent() tea.Cmd {
 }
 
 func (tl *TimelineList) View() string {
+	// Reserve bottom line for filter bar
+	totalHeight := tl.height
+	itemsHeight := totalHeight - 1
+	if itemsHeight < 1 {
+		itemsHeight = 1
+	}
+
 	var lines []string
 
 	// Window mode banner when active
@@ -1487,18 +1869,18 @@ func (tl *TimelineList) View() string {
 	}
 
 	// Scroll window
-	visibleHeight := tl.height - len(lines)
+	visibleHeight := itemsHeight - len(lines)
 	startIdx := 0
 	if tl.cursor >= visibleHeight {
 		startIdx = tl.cursor - visibleHeight + 1
 	}
 
-	nameMaxW := tl.width - 26 // time(8) + spaces + event(3) + anchor(2) + padding
+	nameMaxW := tl.width - 26
 	if nameMaxW < 8 {
 		nameMaxW = 8
 	}
 
-	for i := startIdx; i < len(tl.flatItems) && len(lines) < tl.height; i++ {
+	for i := startIdx; i < len(tl.flatItems) && len(lines) < itemsHeight; i++ {
 		item := tl.flatItems[i]
 		if item.entry == nil {
 			continue
@@ -1508,7 +1890,11 @@ func (tl *TimelineList) View() string {
 		isPassive := i == tl.cursor && !tl.focused
 		e := item.entry
 
-		// Burst bracket prefix (2 chars)
+		previewing := tl.filterEditing && tl.filterInput != ""
+		isDimmed := previewing && !tl.matchesFilter(e.Resource)
+
+		dimColor := tl.theme.Surface2
+
 		burstPrefix := "  "
 		burstStyle := lipgloss.NewStyle().Foreground(tl.theme.Surface2)
 		if item.isBurstStart {
@@ -1519,11 +1905,13 @@ func (tl *TimelineList) View() string {
 			burstPrefix = burstStyle.Render("│ ")
 		}
 
-		// Time with recency-based coloring
-		timeStr := lipgloss.NewStyle().Foreground(timeColor(tl.theme, e.Revision.Time)).
+		timeFg := timeColor(tl.theme, e.Revision.Time)
+		if isDimmed {
+			timeFg = dimColor
+		}
+		timeStr := lipgloss.NewStyle().Foreground(timeFg).
 			Render(FormatTimestamp(e.Revision.Time))
 
-		// Anchor indicator: show "▸" next to the entry closest to anchor
 		anchorMark := " "
 		if tl.windowMode != WindowAll && !tl.windowAnchor.IsZero() {
 			diff := e.Revision.Time.Sub(tl.windowAnchor)
@@ -1535,23 +1923,37 @@ func (tl *TimelineList) View() string {
 			}
 		}
 
-		kindName := lipgloss.NewStyle().Foreground(tl.theme.Text).Render(
+		kindNameFg := tl.theme.Text
+		if isDimmed {
+			kindNameFg = dimColor
+		}
+		kindName := lipgloss.NewStyle().Foreground(kindNameFg).Render(
 			Truncate(e.Resource.KindName(), nameMaxW))
 
-		etStyle := tl.theme.EventTypeStyle(e.Revision.EventType)
-		etStr := etStyle.Render(e.Revision.EventType.Symbol())
+		etStr := ""
+		if isDimmed {
+			etStr = lipgloss.NewStyle().Foreground(dimColor).Render(e.Revision.EventType.Symbol())
+		} else {
+			etStyle := tl.theme.EventTypeStyle(e.Revision.EventType)
+			etStr = etStyle.Render(e.Revision.EventType.Symbol())
+		}
 
 		star := ""
 		if e.Resource.Starred {
-			star = tl.theme.StarStyle().Render("★") + " "
+			if isDimmed {
+				star = lipgloss.NewStyle().Foreground(dimColor).Render("★") + " "
+			} else {
+				star = tl.theme.StarStyle().Render("★") + " "
+			}
 		}
 
-		// Compare badges
 		compareBadge := ""
-		if tl.compareLeft != nil && tl.compareLeft.Resource.UID == e.Resource.UID && tl.compareLeft.Revision.ID == e.Revision.ID {
-			compareBadge = lipgloss.NewStyle().Foreground(tl.theme.Blue).Bold(true).Render("[C1]") + " "
-		} else if tl.compareRight != nil && tl.compareRight.Resource.UID == e.Resource.UID && tl.compareRight.Revision.ID == e.Revision.ID {
-			compareBadge = lipgloss.NewStyle().Foreground(tl.theme.Mauve).Bold(true).Render("[C2]") + " "
+		if !isDimmed {
+			if tl.compareLeft != nil && tl.compareLeft.Resource.UID == e.Resource.UID && tl.compareLeft.Revision.ID == e.Revision.ID {
+				compareBadge = lipgloss.NewStyle().Foreground(tl.theme.Blue).Bold(true).Render("[C1]") + " "
+			} else if tl.compareRight != nil && tl.compareRight.Resource.UID == e.Resource.UID && tl.compareRight.Revision.ID == e.Revision.ID {
+				compareBadge = lipgloss.NewStyle().Foreground(tl.theme.Mauve).Bold(true).Render("[C2]") + " "
+			}
 		}
 
 		line := burstPrefix + anchorMark + timeStr + " " + compareBadge + star + kindName + " " + etStr
@@ -1570,11 +1972,54 @@ func (tl *TimelineList) View() string {
 		lines = append(lines, padded)
 	}
 
-	for len(lines) < tl.height {
+	for len(lines) < itemsHeight {
 		lines = append(lines, strings.Repeat(" ", tl.width))
 	}
 
+	// Bottom filter bar
+	lines = append(lines, tl.renderFilterBar())
+
 	return strings.Join(lines, "\n")
+}
+
+// renderFilterBar renders the bottom filter/status line.
+func (tl *TimelineList) renderFilterBar() string {
+	sepStyle := lipgloss.NewStyle().Foreground(tl.theme.Surface1)
+	sep := sepStyle.Render("─")
+
+	inputColor := tl.theme.Peach
+	if tl.filterProg != nil {
+		inputColor = tl.theme.Green
+	}
+
+	if tl.filterEditing {
+		matchCount, totalCount := tl.FilterCounts()
+		prefix := lipgloss.NewStyle().Foreground(tl.theme.Overlay1).Render("/")
+		input := lipgloss.NewStyle().Foreground(inputColor).Render(tl.filterInput)
+		cursor := lipgloss.NewStyle().Foreground(tl.theme.Text).Background(tl.theme.Surface2).Render(" ")
+		counts := lipgloss.NewStyle().Foreground(tl.theme.Overlay0).Render(fmt.Sprintf(" %d/%d", matchCount, totalCount))
+		bar := sep + prefix + input + cursor + counts
+		return PadRight(bar, tl.width)
+	}
+
+	if tl.filterApplied && tl.filterInput != "" {
+		matchCount, totalCount := tl.FilterCounts()
+		prefix := lipgloss.NewStyle().Foreground(tl.theme.Overlay1).Render("/")
+		input := lipgloss.NewStyle().Foreground(inputColor).Render(tl.filterInput)
+		counts := lipgloss.NewStyle().Foreground(tl.theme.Overlay0).Render(fmt.Sprintf(" %d/%d", matchCount, totalCount))
+		bar := sep + prefix + input + counts
+		return PadRight(bar, tl.width)
+	}
+
+	// Inactive: show dim hint with optional starred badge
+	var badges []string
+	if tl.starredOnly {
+		badges = append(badges, lipgloss.NewStyle().Foreground(tl.theme.Yellow).Render("★ starred"))
+	}
+	hint := lipgloss.NewStyle().Foreground(tl.theme.Surface2).Render("/ filter")
+	badges = append(badges, hint)
+	bar := sep + strings.Join(badges, " ")
+	return PadRight(bar, tl.width)
 }
 
 // ─── Compare Panel ───

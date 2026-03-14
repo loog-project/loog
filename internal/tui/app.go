@@ -19,14 +19,12 @@ type App struct {
 
 	// Chrome
 	header    *Header
-	filterBar *FilterBar
 	statusBar *StatusBar
 
 	// Views
 	activeView ViewID
 	explorer   *ExplorerViewComponent
 	timeline   *TimelineViewComponent
-	watchlist  *WatchlistViewComponent
 	compare    *CompareViewComponent
 
 	// Overlays
@@ -42,7 +40,6 @@ type App struct {
 	debugLog *DebugLog
 
 	// State
-	filterExpr          string
 	fullscreen          bool
 	timelineStarredOnly bool
 	statusText          string
@@ -130,14 +127,12 @@ func NewApp(store Store, opts ...AppOption) *App {
 
 		// Chrome
 		header:    NewHeader(theme),
-		filterBar: NewFilterBar(theme),
 		statusBar: NewStatusBar(theme),
 
 		// Views
 		activeView: ExplorerView,
 		explorer:   NewExplorerViewComponent(theme),
 		timeline:   NewTimelineViewComponent(theme),
-		watchlist:  NewWatchlistViewComponent(theme),
 		compare:    NewCompareViewComponent(theme),
 
 		// Overlays
@@ -161,9 +156,6 @@ func NewApp(store Store, opts ...AppOption) *App {
 	app.timeline.SetEntries(store.Timeline())
 	app.timeline.SetStore(store)
 	app.timeline.SetFocusPanel(PanelLeft)
-
-	app.watchlist.SetStore(store)
-	app.watchlist.SetFocusPanel(PanelLeft)
 
 	// Initialize status bar counts
 	app.statusBar.SetCounts(
@@ -252,22 +244,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, cmd
 		}
 
-		// Filter bar editing mode
-		if a.filterBar.IsEditing() {
-			// Quick search: typing / immediately after opening filter (no edits yet)
-			// opens fuzzy resource finder. This enables // to work even when a
-			// previous filter expression is active.
-			if msg.String() == "/" && a.filterBar.IsUnmodified() {
-				a.filterBar.StopEditing()
-				a.quickSearch.Show(a.store.AllResources())
-				return a, nil
+		// When a panel's inline filter is being edited, bypass all global keybindings
+		// (except ctrl+c) and delegate directly to the view's Update handler.
+		if a.isFilterEditing() {
+			if key.Matches(msg, GlobalKeyMap.Quit) && msg.String() == "ctrl+c" {
+				return a, tea.Quit
 			}
-			expr, done := a.filterBar.HandleKey(msg.String())
-			if done {
-				a.filterExpr = expr
-				a.applyFilter()
+			cmd := a.updateActiveView(msg)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
 			}
-			return a, nil
+			a.updateHint()
+			return a, tea.Batch(cmds...)
 		}
 
 		// Global keybindings
@@ -284,7 +272,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 
 		case key.Matches(msg, GlobalKeyMap.Filter):
-			a.filterBar.StartEditing()
+			// Activate per-panel inline filter on the focused panel
+			switch a.activeView {
+			case ExplorerView:
+				if a.explorer.StartFilter() {
+					a.updateHint()
+				}
+			case TimelineView:
+				if a.timeline.StartFilter() {
+					a.updateHint()
+				}
+			}
 			return a, nil
 
 		case key.Matches(msg, GlobalKeyMap.ViewExplorer):
@@ -293,10 +291,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, GlobalKeyMap.ViewTimeline):
 			a.switchView(TimelineView)
-			return a, nil
-
-		case key.Matches(msg, GlobalKeyMap.ViewWatchlist):
-			a.switchView(WatchlistView)
 			return a, nil
 
 		case key.Matches(msg, GlobalKeyMap.ViewCompare):
@@ -337,7 +331,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.autoScroll = !a.autoScroll
 			a.explorer.SetAutoScroll(a.autoScroll)
 			a.timeline.SetAutoScroll(a.autoScroll)
-			a.watchlist.SetAutoScroll(a.autoScroll)
 			a.statusBar.SetAutoScroll(a.autoScroll)
 			if a.autoScroll {
 				a.setStatus("Auto-scroll: ON", false)
@@ -400,7 +393,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ResourceSelectedMsg:
 		a.explorer.SetResource(msg.Resource)
-		a.watchlist.SetResource(msg.Resource)
 		if msg.Resource != nil {
 			a.debugLog.Debug("app", "resource selected: %s (%d revs)",
 				msg.Resource.Resource.KindName(), msg.Resource.RevisionCount())
@@ -416,7 +408,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case RevisionSelectedMsg:
 		a.explorer.SetRevision(msg.Resource, msg.Index)
-		a.watchlist.SetRevision(msg.Resource, msg.Index)
 		if msg.Index >= 0 && msg.Index < len(msg.Resource.Revisions) {
 			rev := msg.Resource.Revisions[msg.Index]
 			a.debugLog.Debug("app", "revision selected: %s [%d] %s",
@@ -448,14 +439,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.explorer.detail.SetViewMode(msg.Mode)
 		case TimelineView:
 			a.timeline.detail.SetViewMode(msg.Mode)
-		case WatchlistView:
-			a.watchlist.detail.SetViewMode(msg.Mode)
 		}
-
-	case FilterChangedMsg:
-		a.filterExpr = msg.Expression
-		a.filterBar.SetExpression(msg.Expression)
-		a.applyFilter()
 
 	case CompareMarkMsg:
 		if msg.Resource != nil && msg.Index >= 0 && msg.Index < len(msg.Resource.Revisions) {
@@ -482,9 +466,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ShowHelpMsg:
 		a.helpOverlay.Show()
 
-	case ShowFilterMsg:
-		a.filterBar.StartEditing()
-
 	case ShowQuickSearchMsg:
 		a.quickSearch.Show(a.store.AllResources())
 
@@ -506,7 +487,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.store.RebuildKindGroups()
 		a.refreshExplorerGroups()
 		a.refreshTimeline()
-		a.watchlist.RefreshStarredFiltered(a.filterExpr)
 		a.statusBar.SetCounts(
 			a.store.TotalResourceCount(),
 			a.store.TotalRevisionCount(),
@@ -531,7 +511,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.store.RebuildKindGroups()
 		a.refreshExplorerGroups()
 		a.refreshTimeline()
-		a.watchlist.RefreshStarredFiltered(a.filterExpr)
 		a.statusBar.SetCounts(
 			a.store.TotalResourceCount(),
 			a.store.TotalRevisionCount(),
@@ -539,7 +518,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 		if selectedIsOfKind {
 			a.explorer.SetResource(nil)
-			a.watchlist.SetResource(nil)
 		}
 		a.setStatus(fmt.Sprintf("Unwatched: %s (%d resources removed)", msg.Kind, count), false)
 
@@ -554,11 +532,25 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ToggleTimelineStarredMsg:
 		a.timelineStarredOnly = !a.timelineStarredOnly
+		a.timeline.timeline.SetStarredOnly(a.timelineStarredOnly)
 		a.refreshTimeline()
 		if a.timelineStarredOnly {
 			a.setStatus("Timeline: showing starred resources only", false)
 		} else {
 			a.setStatus("Timeline: showing all resources", false)
+		}
+
+	case ToggleExplorerStarredMsg:
+		starredOnly := a.explorer.tree.ToggleStarredOnly()
+		// If selected resource is no longer visible, deselect it
+		if starredOnly {
+			uid := a.explorer.tree.SelectedUID()
+			if rd := a.store.GetResource(uid); rd != nil && !rd.Resource.Starred {
+				a.explorer.SetResource(nil)
+			}
+			a.setStatus("Explorer: showing starred resources only", false)
+		} else {
+			a.setStatus("Explorer: showing all resources", false)
 		}
 
 	case CompareClearMsg:
@@ -576,7 +568,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.autoScroll = !a.autoScroll
 		a.explorer.SetAutoScroll(a.autoScroll)
 		a.timeline.SetAutoScroll(a.autoScroll)
-		a.watchlist.SetAutoScroll(a.autoScroll)
 		a.statusBar.SetAutoScroll(a.autoScroll)
 
 	case ToggleWindowModeMsg:
@@ -635,12 +626,11 @@ func (a *App) View() string {
 
 	// Build main content
 	headerView := a.header.View()
-	filterView := a.filterBar.View()
 	statusView := a.statusBar.View()
 
 	// Status bar is always 2 lines for stable layout.
-	// Content height = total - header(1) - filter(1) - status(2)
-	contentHeight := a.height - 4
+	// Content height = total - header(1) - status(2)
+	contentHeight := a.height - 3
 	if contentHeight < 1 {
 		contentHeight = 1
 	}
@@ -654,17 +644,14 @@ func (a *App) View() string {
 			contentView = a.explorer.View()
 		case TimelineView:
 			contentView = a.timeline.View()
-		case WatchlistView:
-			contentView = a.watchlist.View()
 		case CompareView:
 			contentView = a.compare.View()
 		}
 	}
 
-	// Stack: header + filter + content + status
+	// Stack: header + content + status
 	mainView := lipgloss.JoinVertical(lipgloss.Left,
 		headerView,
-		filterView,
 		contentView,
 		statusView,
 	)
@@ -702,19 +689,17 @@ func (a *App) View() string {
 
 func (a *App) layout() {
 	a.header.SetSize(a.width)
-	a.filterBar.SetSize(a.width)
 	a.statusBar.SetSize(a.width)
 
 	// Status bar is always 2 lines (status + hint) for stable layout.
-	// Content height = total - header(1) - filter(1) - status(2)
-	contentHeight := a.height - 4
+	// Content height = total - header(1) - status(2)
+	contentHeight := a.height - 3
 	if contentHeight < 1 {
 		contentHeight = 1
 	}
 
 	a.explorer.SetSize(a.width, contentHeight)
 	a.timeline.SetSize(a.width, contentHeight)
-	a.watchlist.SetSize(a.width, contentHeight)
 	a.compare.SetSize(a.width, contentHeight)
 
 	a.commandPalette.SetSize(a.width, a.height)
@@ -729,10 +714,6 @@ func (a *App) switchView(v ViewID) {
 	a.debugLog.Debug("app", "switch view: %s → %s", a.activeView, v)
 	a.activeView = v
 	a.header.SetView(v)
-	// Re-apply filter so the target view reflects current filter + any data changes
-	if a.filterExpr != "" {
-		a.applyFilter()
-	}
 }
 
 func (a *App) nextPanel() {
@@ -741,8 +722,6 @@ func (a *App) nextPanel() {
 		a.explorer.NextPanel()
 	case TimelineView:
 		a.timeline.NextPanel()
-	case WatchlistView:
-		a.watchlist.NextPanel()
 	}
 }
 
@@ -752,8 +731,6 @@ func (a *App) prevPanel() {
 		a.explorer.PrevPanel()
 	case TimelineView:
 		a.timeline.PrevPanel()
-	case WatchlistView:
-		a.watchlist.PrevPanel()
 	}
 }
 
@@ -767,9 +744,18 @@ func (a *App) focusPanel(p PanelID) {
 		} else {
 			a.timeline.SetFocusPanel(PanelLeft)
 		}
-	case WatchlistView:
-		a.watchlist.SetFocusPanel(p)
 	}
+}
+
+// isFilterEditing returns true if the active view's focused panel has an inline filter being edited.
+func (a *App) isFilterEditing() bool {
+	switch a.activeView {
+	case ExplorerView:
+		return a.explorer.IsFilterEditing()
+	case TimelineView:
+		return a.timeline.IsFilterEditing()
+	}
+	return false
 }
 
 func (a *App) updateActiveView(msg tea.Msg) tea.Cmd {
@@ -778,8 +764,6 @@ func (a *App) updateActiveView(msg tea.Msg) tea.Cmd {
 		return a.explorer.Update(msg)
 	case TimelineView:
 		return a.timeline.Update(msg)
-	case WatchlistView:
-		return a.watchlist.Update(msg)
 	case CompareView:
 		return a.compare.Update(msg)
 	}
@@ -796,13 +780,18 @@ func (a *App) toggleStar(uid string) {
 	// Refresh kind groups (to update star indicators)
 	a.store.RebuildKindGroups()
 	a.refreshExplorerGroups()
-	a.watchlist.RefreshStarredFiltered(a.filterExpr)
 	a.refreshTimeline()
 	a.statusBar.SetCounts(
 		a.store.TotalResourceCount(),
 		a.store.TotalRevisionCount(),
 		len(a.store.StarredResources()),
 	)
+	// If starred-only is active and we just unstarred the selected resource,
+	// deselect it so the detail panel doesn't show a hidden resource.
+	if !starred && a.explorer.tree.StarredOnly() && a.explorer.tree.SelectedUID() == uid {
+		a.explorer.SetResource(nil)
+	}
+
 	if starred {
 		a.setStatus("Starred: "+rd.Resource.KindName(), false)
 	} else {
@@ -812,24 +801,17 @@ func (a *App) toggleStar(uid string) {
 
 func (a *App) applyFilter() {
 	a.refreshExplorerGroups()
-	a.watchlist.RefreshStarredFiltered(a.filterExpr)
 	a.refreshTimeline()
 }
 
-// refreshExplorerGroups rebuilds the explorer tree, applying the active filter if any.
+// refreshExplorerGroups rebuilds the explorer tree with unfiltered data.
 func (a *App) refreshExplorerGroups() {
-	if a.filterExpr != "" {
-		filtered := a.store.FilterResources(a.filterExpr)
-		groups := BuildKindGroups(filtered)
-		a.explorer.SetGroups(groups)
-	} else {
-		a.explorer.SetGroups(a.store.KindGroups())
-	}
+	a.explorer.SetGroups(a.store.KindGroups())
 }
 
-// refreshTimeline rebuilds the timeline entries applying both text filter and starred-only.
+// refreshTimeline rebuilds the timeline entries applying starred-only filter.
 func (a *App) refreshTimeline() {
-	entries := a.store.FilterTimeline(a.filterExpr, a.timelineStarredOnly)
+	entries := a.store.FilterTimeline("", a.timelineStarredOnly)
 	a.timeline.SetEntries(entries)
 }
 
@@ -847,8 +829,6 @@ func (a *App) viewFullscreen(contentHeight int) string {
 		return a.explorer.ViewFullscreen(a.width, contentHeight)
 	case TimelineView:
 		return a.timeline.ViewFullscreen(a.width, contentHeight)
-	case WatchlistView:
-		return a.watchlist.ViewFullscreen(a.width, contentHeight)
 	case CompareView:
 		return a.compare.ViewFullscreen(a.width, contentHeight)
 	}
@@ -860,7 +840,6 @@ func (a *App) syncCompareMarks() {
 	sel := a.compare.Selection()
 	a.explorer.SetCompareMarks(sel.Left, sel.Right)
 	a.timeline.SetCompareMarks(sel.Left, sel.Right)
-	a.watchlist.SetCompareMarks(sel.Left, sel.Right)
 }
 
 // syncAnalysisTags propagates analysis results to view components.
@@ -898,8 +877,6 @@ func (a *App) updateHint() {
 		hint = a.explorer.CurrentHint()
 	case TimelineView:
 		hint = a.timeline.CurrentHint()
-	case WatchlistView:
-		hint = a.watchlist.CurrentHint()
 	case CompareView:
 		hint = "j/k: scroll  tab: switch pane  ctrl+d/u: page  X: clear compare"
 	}
@@ -971,7 +948,6 @@ func (a *App) refreshViewsAfterNewRevision(resourceUID string) {
 	// Refresh explorer with current filter applied
 	a.refreshExplorerGroups()
 	a.refreshTimeline()
-	a.watchlist.RefreshStarredFiltered(a.filterExpr)
 
 	// Update counts
 	a.statusBar.SetCounts(
@@ -989,13 +965,6 @@ func (a *App) refreshViewsAfterNewRevision(resourceUID string) {
 			if selectedUID == resourceUID {
 				a.explorer.revList.JumpToNewest()
 				a.explorer.detail.SetRevision(rd, len(rd.Revisions)-1)
-			}
-
-			// Watchlist: same logic for its own tree
-			watchSelectedUID := a.watchlist.tree.SelectedUID()
-			if watchSelectedUID == resourceUID {
-				a.watchlist.revList.JumpToNewest()
-				a.watchlist.detail.SetRevision(rd, len(rd.Revisions)-1)
 			}
 		}
 

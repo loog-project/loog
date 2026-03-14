@@ -15,7 +15,6 @@ type GlobalKeys struct {
 	PrevPanel      key.Binding
 	ViewExplorer   key.Binding
 	ViewTimeline   key.Binding
-	ViewWatchlist  key.Binding
 	ViewCompare    key.Binding
 	Fullscreen     key.Binding
 	AutoScroll     key.Binding
@@ -72,13 +71,9 @@ var GlobalKeyMap = GlobalKeys{
 		key.WithKeys("f2", "alt+2"),
 		key.WithHelp("F2", "timeline"),
 	),
-	ViewWatchlist: key.NewBinding(
-		key.WithKeys("f3", "alt+3"),
-		key.WithHelp("F3", "watchlist"),
-	),
 	ViewCompare: key.NewBinding(
-		key.WithKeys("f4", "alt+4"),
-		key.WithHelp("F4", "compare"),
+		key.WithKeys("f3", "alt+3"),
+		key.WithHelp("F3", "compare"),
 	),
 	Fullscreen: key.NewBinding(
 		key.WithKeys("f"),

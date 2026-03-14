@@ -37,11 +37,7 @@ func NewCommandRegistry() *CommandRegistry {
 		Action: func() tea.Cmd { return Cmd(SwitchViewMsg{View: TimelineView}) },
 	})
 	cr.Register(Command{
-		Name: "Switch to Watchlist", Description: "Starred resources only", Shortcut: "F3",
-		Action: func() tea.Cmd { return Cmd(SwitchViewMsg{View: WatchlistView}) },
-	})
-	cr.Register(Command{
-		Name: "Switch to Compare", Description: "Side-by-side YAML comparison", Shortcut: "F4",
+		Name: "Switch to Compare", Description: "Side-by-side YAML comparison", Shortcut: "F3",
 		Action: func() tea.Cmd { return Cmd(SwitchViewMsg{View: CompareView}) },
 	})
 	cr.Register(Command{
@@ -81,16 +77,8 @@ func NewCommandRegistry() *CommandRegistry {
 		Action: func() tea.Cmd { return Cmd(ViewModeChangedMsg{Mode: RawMode}) },
 	})
 	cr.Register(Command{
-		Name: "Filter Resources", Description: "Open filter bar to search/filter", Shortcut: "/",
-		Action: func() tea.Cmd { return Cmd(ShowFilterMsg{}) },
-	})
-	cr.Register(Command{
 		Name: "Quick Search", Description: "Fuzzy search for resources by name", Shortcut: "//",
 		Action: func() tea.Cmd { return Cmd(ShowQuickSearchMsg{}) },
-	})
-	cr.Register(Command{
-		Name: "Clear Filter", Description: "Remove current filter",
-		Action: func() tea.Cmd { return Cmd(FilterChangedMsg{Expression: ""}) },
 	})
 	cr.Register(Command{
 		Name: "Toggle Fullscreen", Description: "Expand focused panel", Shortcut: "f",

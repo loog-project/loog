@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -129,6 +128,9 @@ func (ev *ExplorerViewComponent) SetAutoScroll(on bool) {
 func (ev *ExplorerViewComponent) CurrentHint() string {
 	switch ev.focusPanel {
 	case PanelLeft:
+		if ev.tree.filterEditing {
+			return "Type to filter  Enter: apply  Esc: clear"
+		}
 		return ev.tree.CurrentHint()
 	case PanelMiddle:
 		return ev.revList.CurrentHint()
@@ -136,6 +138,20 @@ func (ev *ExplorerViewComponent) CurrentHint() string {
 		return ev.detail.CurrentHint()
 	}
 	return ""
+}
+
+// StartFilter activates inline filter on the focused panel (only ResourceTree supports it).
+func (ev *ExplorerViewComponent) StartFilter() bool {
+	if ev.focusPanel == PanelLeft {
+		ev.tree.StartFilter()
+		return true
+	}
+	return false
+}
+
+// IsFilterEditing returns true if the focused panel is currently editing a filter.
+func (ev *ExplorerViewComponent) IsFilterEditing() bool {
+	return ev.focusPanel == PanelLeft && ev.tree.filterEditing
 }
 
 func (ev *ExplorerViewComponent) Update(msg tea.Msg) tea.Cmd {
@@ -316,17 +332,35 @@ func (tv *TimelineViewComponent) SetCompareMarks(left, right *CompareItem) {
 // CurrentHint returns the focused component's hint.
 func (tv *TimelineViewComponent) CurrentHint() string {
 	if tv.focusPanel == PanelLeft {
+		if tv.timeline.filterEditing {
+			return "Type to filter  Enter: apply  Esc: clear"
+		}
 		return tv.timeline.CurrentHint()
 	}
 	return tv.detail.CurrentHint()
 }
 
+// StartFilter activates inline filter on the focused panel (only TimelineList supports it).
+func (tv *TimelineViewComponent) StartFilter() bool {
+	if tv.focusPanel == PanelLeft {
+		tv.timeline.StartFilter()
+		return true
+	}
+	return false
+}
+
+// IsFilterEditing returns true if the focused panel is currently editing a filter.
+func (tv *TimelineViewComponent) IsFilterEditing() bool {
+	return tv.focusPanel == PanelLeft && tv.timeline.filterEditing
+}
+
 func (tv *TimelineViewComponent) Update(msg tea.Msg) tea.Cmd {
 	switch tv.focusPanel {
 	case PanelLeft:
-		// Intercept "c" for compare marking — TimelineList doesn't have store access,
-		// so we resolve the TimelineEntry → ResourceData + revision index here.
-		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "c" {
+		// Intercept "c" for compare marking — but only when NOT in filter editing mode.
+		// TimelineList doesn't have store access, so we resolve the
+		// TimelineEntry → ResourceData + revision index here.
+		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "c" && !tv.timeline.filterEditing {
 			if entry := tv.timeline.SelectedEntry(); entry != nil && tv.store != nil {
 				if rd := tv.store.GetResource(entry.Resource.UID); rd != nil {
 					for i, rev := range rd.Revisions {
@@ -369,203 +403,6 @@ func (tv *TimelineViewComponent) ViewFullscreen(w, h int) string {
 		modeLabel := "Detail [" + tv.detail.ViewMode().String() + "] [fullscreen]"
 		return PanelBorderEx(tv.detail.View(), modeLabel, w, h, true, tv.theme, tv.detail.CanScrollUp(), tv.detail.CanScrollDown())
 	}
-}
-
-// ─── Watchlist View ───
-// Same as Explorer but filtered to starred resources only.
-
-type WatchlistViewComponent struct {
-	width, height int
-	theme         Theme
-	focusPanel    PanelID
-
-	tree    *ResourceTree
-	revList *RevisionList
-	detail  *DetailView
-	store   Store
-
-	treeOuterW, revOuterW, detailOuterW int
-}
-
-func NewWatchlistViewComponent(theme Theme) *WatchlistViewComponent {
-	return &WatchlistViewComponent{
-		theme:      theme,
-		focusPanel: PanelLeft,
-		tree:       NewResourceTree(theme),
-		revList:    NewRevisionList(theme),
-		detail:     NewDetailView(theme),
-	}
-}
-
-func (wv *WatchlistViewComponent) SetSize(w, h int) {
-	wv.width = w
-	wv.height = h
-
-	wv.treeOuterW = w * 30 / 100
-	if wv.treeOuterW < 22 {
-		wv.treeOuterW = 22
-	}
-	wv.revOuterW = w * 20 / 100
-	if wv.revOuterW < 20 {
-		wv.revOuterW = 20
-	}
-	wv.detailOuterW = w - wv.treeOuterW - wv.revOuterW - 2
-	if wv.detailOuterW < 12 {
-		wv.detailOuterW = 12
-	}
-
-	wv.tree.SetSize(wv.treeOuterW-2, h-2)
-	wv.revList.SetSize(wv.revOuterW-2, h-2)
-	wv.detail.SetSize(wv.detailOuterW-2, h-2)
-}
-
-func (wv *WatchlistViewComponent) SetStore(store Store) {
-	wv.store = store
-	wv.RefreshStarred()
-}
-
-func (wv *WatchlistViewComponent) RefreshStarred() {
-	wv.RefreshStarredFiltered("")
-}
-
-// RefreshStarredFiltered rebuilds the watchlist tree with starred resources,
-// optionally filtered by a text expression.
-func (wv *WatchlistViewComponent) RefreshStarredFiltered(filterExpr string) {
-	if wv.store == nil {
-		return
-	}
-	starred := wv.store.StarredResources()
-	if filterExpr != "" {
-		filterLower := strings.ToLower(filterExpr)
-		var filtered []*ResourceData
-		for _, rd := range starred {
-			searchable := strings.ToLower(rd.Resource.Kind + " " + rd.Resource.Name + " " + rd.Resource.Namespace)
-			if strings.Contains(searchable, filterLower) {
-				filtered = append(filtered, rd)
-			}
-		}
-		starred = filtered
-	}
-	groups := BuildKindGroups(starred)
-	wv.tree.SetGroups(groups)
-}
-
-func (wv *WatchlistViewComponent) SetFocusPanel(p PanelID) {
-	wv.focusPanel = p
-	wv.tree.SetFocus(p == PanelLeft)
-	wv.revList.SetFocus(p == PanelMiddle)
-	wv.detail.SetFocus(p == PanelRight)
-}
-
-func (wv *WatchlistViewComponent) FocusPanel() PanelID {
-	return wv.focusPanel
-}
-
-func (wv *WatchlistViewComponent) NextPanel() {
-	switch wv.focusPanel {
-	case PanelLeft:
-		wv.SetFocusPanel(PanelMiddle)
-	case PanelMiddle:
-		wv.SetFocusPanel(PanelRight)
-	case PanelRight:
-		wv.SetFocusPanel(PanelLeft)
-	}
-}
-
-func (wv *WatchlistViewComponent) PrevPanel() {
-	switch wv.focusPanel {
-	case PanelLeft:
-		wv.SetFocusPanel(PanelRight)
-	case PanelMiddle:
-		wv.SetFocusPanel(PanelLeft)
-	case PanelRight:
-		wv.SetFocusPanel(PanelMiddle)
-	}
-}
-
-func (wv *WatchlistViewComponent) SetResource(rd *ResourceData) {
-	wv.revList.SetResource(rd)
-	if rd != nil {
-		wv.tree.SelectByUID(rd.Resource.UID)
-		if len(rd.Revisions) > 0 {
-			wv.detail.SetRevision(rd, len(rd.Revisions)-1)
-		}
-	}
-}
-
-func (wv *WatchlistViewComponent) SetRevision(rd *ResourceData, index int) {
-	wv.revList.SelectIndex(index)
-	wv.detail.SetRevision(rd, index)
-}
-
-func (wv *WatchlistViewComponent) SetCompareMarks(left, right *CompareItem) {
-	wv.tree.SetCompareMarks(left, right)
-	wv.revList.SetCompareMarks(left, right)
-}
-
-func (wv *WatchlistViewComponent) SetAutoScroll(on bool) {
-	wv.revList.SetAutoScroll(on)
-}
-
-// CurrentHint returns the focused component's hint.
-func (wv *WatchlistViewComponent) CurrentHint() string {
-	switch wv.focusPanel {
-	case PanelLeft:
-		return wv.tree.CurrentHint()
-	case PanelMiddle:
-		return wv.revList.CurrentHint()
-	case PanelRight:
-		return wv.detail.CurrentHint()
-	}
-	return ""
-}
-
-func (wv *WatchlistViewComponent) Update(msg tea.Msg) tea.Cmd {
-	switch wv.focusPanel {
-	case PanelLeft:
-		return wv.tree.Update(msg)
-	case PanelMiddle:
-		return wv.revList.Update(msg)
-	default:
-		return wv.detail.Update(msg)
-	}
-}
-
-func (wv *WatchlistViewComponent) View() string {
-	tc, tt := wv.tree.CursorInfo()
-	treeTitle := "Watchlist"
-	if tt > 0 {
-		treeTitle += " " + ScrollPosition(tc, tt)
-	}
-	rc, rt := wv.revList.CursorInfo()
-	revTitle := "Revisions"
-	if rt > 0 {
-		revTitle += " " + ScrollPosition(rc, rt)
-	}
-	modeLabel := "Detail [" + wv.detail.ViewMode().String() + "]"
-
-	treeContent := PanelBorderEx(wv.tree.View(), treeTitle, wv.treeOuterW, wv.height, wv.focusPanel == PanelLeft, wv.theme, wv.tree.CanScrollUp(), wv.tree.CanScrollDown())
-	revContent := PanelBorderEx(wv.revList.View(), revTitle, wv.revOuterW, wv.height, wv.focusPanel == PanelMiddle, wv.theme, wv.revList.CanScrollUp(), wv.revList.CanScrollDown())
-	detailContent := PanelBorderEx(wv.detail.View(), modeLabel, wv.detailOuterW, wv.height, wv.focusPanel == PanelRight, wv.theme, wv.detail.CanScrollUp(), wv.detail.CanScrollDown())
-
-	return SplitThreeColumns(treeContent, revContent, detailContent, wv.height)
-}
-
-// ViewFullscreen renders only the focused panel at full width.
-func (wv *WatchlistViewComponent) ViewFullscreen(w, h int) string {
-	switch wv.focusPanel {
-	case PanelLeft:
-		wv.tree.SetSize(w-2, h-2)
-		return PanelBorderEx(wv.tree.View(), "Watchlist [fullscreen]", w, h, true, wv.theme, wv.tree.CanScrollUp(), wv.tree.CanScrollDown())
-	case PanelMiddle:
-		wv.revList.SetSize(w-2, h-2)
-		return PanelBorderEx(wv.revList.View(), "Revisions [fullscreen]", w, h, true, wv.theme, wv.revList.CanScrollUp(), wv.revList.CanScrollDown())
-	case PanelRight:
-		wv.detail.SetSize(w-2, h-2)
-		modeLabel := "Detail [" + wv.detail.ViewMode().String() + "] [fullscreen]"
-		return PanelBorderEx(wv.detail.View(), modeLabel, w, h, true, wv.theme, wv.detail.CanScrollUp(), wv.detail.CanScrollDown())
-	}
-	return ""
 }
 
 // ─── Compare View ───

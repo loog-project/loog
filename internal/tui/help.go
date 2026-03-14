@@ -115,10 +115,10 @@ func (h *HelpOverlay) View() string {
 			{"q / ctrl+c", "Quit"},
 			{"ctrl+k", "Command palette"},
 			{"?", "Toggle help"},
-			{"/", "Filter resources"},
+			{"/", "Inline filter (type to search, Enter to apply, Esc to clear)"},
 			{"//", "Quick fuzzy search for resources"},
-			{"F1-F4", "Switch views (Explorer / Timeline / Watchlist / Compare)"},
-			{"alt+1-4", "Switch views (terminal-safe fallback for F-keys)"},
+			{"F1-F3", "Switch views (Explorer / Timeline / Compare)"},
+			{"alt+1-3", "Switch views (terminal-safe fallback for F-keys)"},
 			{"1 / 2 / 3", "Focus panel"},
 			{"Tab", "Next panel"},
 			{"Shift+Tab", "Previous panel"},
@@ -131,6 +131,12 @@ func (h *HelpOverlay) View() string {
 			{"F6 / alt+6", "Debug log viewer"},
 			{":", "Developer console"},
 		}},
+		{Title: "Inline Filter (/)", Bindings: []helpBinding{
+			{"/", "Activate filter on focused panel (Resources or Timeline)"},
+			{"type...", "Preview: non-matches dimmed, matches vivid"},
+			{"Enter", "Apply filter: hide non-matches, collapse to matches"},
+			{"Esc", "Clear filter and exit filter mode"},
+		}},
 		{Title: "Lists (Resources / Revisions / Timeline)", Bindings: []helpBinding{
 			{"j / k", "Move down / up"},
 			{"g / G (home / end)", "Go to top / bottom"},
@@ -139,6 +145,9 @@ func (h *HelpOverlay) View() string {
 			{"Enter (space)", "Select / expand"},
 			{"s", "Toggle star"},
 			{"c", "Mark for compare"},
+		}},
+		{Title: "Explorer View", Bindings: []helpBinding{
+			{"S", "Toggle starred-only filter on Resources panel"},
 		}},
 		{Title: "Timeline View", Bindings: []helpBinding{
 			{"S", "Toggle starred-only filter (show only starred resources)"},
