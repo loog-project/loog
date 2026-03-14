@@ -694,10 +694,10 @@ func (rl *RevisionList) CurrentHint() string {
 	var parts []string
 
 	// Compare badges
-	if rl.compareLeft != nil && rl.compareLeft.Revision.ID == rev.ID {
+	if rl.compareLeft != nil && rl.compareLeft.Resource.UID == rl.resource.Resource.UID && rl.compareLeft.Revision.ID == rev.ID {
 		parts = append(parts, "[C1]=compare left")
 	}
-	if rl.compareRight != nil && rl.compareRight.Revision.ID == rev.ID {
+	if rl.compareRight != nil && rl.compareRight.Resource.UID == rl.resource.Resource.UID && rl.compareRight.Revision.ID == rev.ID {
 		parts = append(parts, "[C2]=compare right")
 	}
 
@@ -828,10 +828,10 @@ func (rl *RevisionList) View() string {
 
 		// Compare badges
 		compareBadge := ""
-		if rl.compareLeft != nil && rl.compareLeft.Revision.ID == rev.ID {
+		if rl.compareLeft != nil && rl.compareLeft.Resource.UID == rl.resource.Resource.UID && rl.compareLeft.Revision.ID == rev.ID {
 			compareBadge = lipgloss.NewStyle().Foreground(rl.theme.Blue).Bold(true).Render("[C1]") + " "
 		}
-		if rl.compareRight != nil && rl.compareRight.Revision.ID == rev.ID {
+		if rl.compareRight != nil && rl.compareRight.Resource.UID == rl.resource.Resource.UID && rl.compareRight.Revision.ID == rev.ID {
 			compareBadge = lipgloss.NewStyle().Foreground(rl.theme.Mauve).Bold(true).Render("[C2]") + " "
 		}
 
