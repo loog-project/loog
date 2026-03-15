@@ -1273,7 +1273,7 @@ func (dv *DetailView) renderDiff(rev Revision) string {
 
 	dpTheme := dv.theme.DiffPreviewTheme()
 
-	node := diffpreview.DiffRecursive(prevObj, rev.Object)
+	node := diffpreview.Diff(prevObj, rev.Object)
 	return diffpreview.RenderYAML(node, dpTheme, diffpreview.RenderOptions{
 		IndentSize:                2,
 		EnableBackgroundHighlight: true,
@@ -2088,7 +2088,7 @@ func (cp *ComparePanel) renderContent() {
 
 	if cp.left != nil && cp.right != nil {
 		// Both sides available — compute diff and highlight changes
-		node := diffpreview.DiffRecursive(cp.left.Revision.Object, cp.right.Revision.Object)
+		node := diffpreview.Diff(cp.left.Revision.Object, cp.right.Revision.Object)
 		diffRendered := diffpreview.RenderYAML(node, dpTheme, renderOpts)
 		// Show the diff on both sides: left = old, right = new (diff shows both)
 		cp.leftVP.SetContent(RenderYAMLObject(cp.left.Revision.Object, cp.theme, 2))

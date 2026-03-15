@@ -4,11 +4,8 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
-
-	"github.com/loog-project/loog/pkg/diffmap"
 )
 
-// ChangeType indicates the kind of change at a node
 type ChangeType int
 
 const (
@@ -18,136 +15,86 @@ const (
 	Modified
 )
 
-// AnnotatedNode represents a node in the annotated tree
+// AnnotatedNode represents a single node in the diff tree.
+//
+// A node is exactly one of: a map (Children is set), a list (List is set),
+// or a scalar leaf (Value is set). Change records what happened to the node
+// between the old and new versions.
 type AnnotatedNode struct {
 	Value    any
 	Change   ChangeType
 	Children map[string]*AnnotatedNode
-	// List holds annotated list elements (used when the value is []any)
-	List []*AnnotatedNode
+	List     []*AnnotatedNode
 }
 
-// Diff compares two maps and builds an annotated tree
+// Diff compares two maps and returns a tree where every node is annotated
+// with a ChangeType. Pass the result to RenderYAML to get highlighted output.
 func Diff(a, b map[string]any) *AnnotatedNode {
-	changeset := diffmap.Diff(a, b)
-	return buildAnnotatedTree(a, b, changeset)
+	return diffMaps(a, b)
 }
 
-// buildAnnotatedTree recursively builds a node tree based on diffmap output
-func buildAnnotatedTree(a, b any, changes any) *AnnotatedNode {
-	if changes == nil {
-		return &AnnotatedNode{Value: a, Change: Unchanged}
-	}
+func diffMaps(a, b map[string]any) *AnnotatedNode {
+	node := &AnnotatedNode{Children: make(map[string]*AnnotatedNode)}
 
-	if changeMap, ok := changes.(map[string]any); ok {
-		node := &AnnotatedNode{Children: make(map[string]*AnnotatedNode)}
-		aMap, _ := a.(map[string]any)
-		bMap, _ := b.(map[string]any)
+	for _, key := range unionKeys(a, b) {
+		valA, inA := a[key]
+		valB, inB := b[key]
 
-		for key, subchange := range changeMap {
-			subA := aMap[key]
-			subB := bMap[key]
-
-			switch {
-			case subchange == nil:
-				node.Children[key] = &AnnotatedNode{Value: subA, Change: Removed}
-			case subA == nil:
-				node.Children[key] = &AnnotatedNode{Value: subB, Change: Added}
-			default:
-				node.Children[key] = buildAnnotatedTree(subA, subB, subchange)
-			}
+		switch {
+		case inA && !inB:
+			node.Children[key] = buildFullNode(valA, Removed)
+		case !inA && inB:
+			node.Children[key] = buildFullNode(valB, Added)
+		default:
+			node.Children[key] = diffValues(valA, valB)
 		}
-		return node
+	}
+	return node
+}
+
+// diffValues compares two values of any type and returns the matching node.
+// Maps and lists are diffed recursively; scalars are compared for equality.
+func diffValues(a, b any) *AnnotatedNode {
+	mapA, aIsMap := a.(map[string]any)
+	mapB, bIsMap := b.(map[string]any)
+	if aIsMap && bIsMap {
+		return diffMaps(mapA, mapB)
 	}
 
-	// Scalar or list change
+	listA, aIsList := a.([]any)
+	listB, bIsList := b.([]any)
+	if aIsList && bIsList {
+		return diffLists(listA, listB)
+	}
+
+	if reflect.DeepEqual(a, b) {
+		return buildFullNode(a, Unchanged)
+	}
 	return &AnnotatedNode{Value: b, Change: Modified}
 }
 
-func DiffRecursive(a, b map[string]any) *AnnotatedNode {
-	return diffRecursive(a, b)
-}
-
-func diffRecursive(a, b map[string]any) *AnnotatedNode {
-	node := &AnnotatedNode{Children: make(map[string]*AnnotatedNode)}
-
-	keys := collectAllKeys(a, b)
-
-	for _, key := range keys {
-		valA, okA := a[key]
-		valB, okB := b[key]
-
-		switch {
-		case okA && !okB:
-			// Key exists in a, missing in b -> REMOVED
-			node.Children[key] = buildFullNode(valA, Removed)
-
-		case !okA && okB:
-			// Key exists only in b -> ADDED
-			node.Children[key] = buildFullNode(valB, Added)
-
-		case okA && okB:
-			// Key exists in both -> check deep equality
-			mapA, okMapA := valA.(map[string]any)
-			mapB, okMapB := valB.(map[string]any)
-
-			listA, okListA := valA.([]any)
-			listB, okListB := valB.([]any)
-
-			switch {
-			case okMapA && okMapB:
-				// Nested map -> recurse
-				child := diffRecursive(mapA, mapB)
-				node.Children[key] = child
-			case okListA && okListB:
-				// Both are lists -> element-level diff
-				node.Children[key] = diffList(listA, listB)
-			case reflect.DeepEqual(valA, valB):
-				// Same value -> unchanged
-				node.Children[key] = buildUnchangedNode(valA)
-			default:
-				// Scalar changed -> modified
-				node.Children[key] = &AnnotatedNode{Value: valB, Change: Modified}
-			}
-		}
-	}
-
-	return node
-}
-
-// diffList performs element-level diffing between two lists.
-// It uses a best-effort matching strategy:
-//   - For lists of maps, it tries to match elements by a "name" or "type" key.
-//   - Falls back to positional matching.
-//   - Extra elements in b are Added, missing elements from a are Removed.
-func diffList(a, b []any) *AnnotatedNode {
+// diffLists diffs two lists element by element.
+// When both lists contain maps with a shared identifier key (like "name"),
+// elements are matched by that key. Otherwise they're compared by position.
+func diffLists(a, b []any) *AnnotatedNode {
 	node := &AnnotatedNode{Change: Unchanged}
 
-	// Try to match by key field (name, type, containerPort, port, host, etc.)
-	matchKey := findListMatchKey(a, b)
-	if matchKey != "" {
-		node.List = diffListByKey(a, b, matchKey)
+	if key := findMatchKey(a, b); key != "" {
+		node.List = diffListByKey(a, b, key)
 	} else {
 		node.List = diffListPositional(a, b)
 	}
-
-	// Check if any children are non-unchanged
-	for _, child := range node.List {
-		if child.Change != Unchanged || hasChanges(child) {
-			// Parent node has modifications somewhere
-			return node
-		}
-	}
-
 	return node
 }
 
-// findListMatchKey finds a common key in map elements that can be used to match them.
-func findListMatchKey(a, b []any) string {
-	// Candidate keys in priority order
-	candidates := []string{"name", "type", "containerPort", "port", "host", "key", "path", "kind"}
-
-	// Check if all map elements in both lists have the same candidate key
+// findMatchKey checks a set of common Kubernetes field names and returns the
+// first one that appears in every map element of both lists. Returns "" if
+// no usable key is found.
+func findMatchKey(a, b []any) string {
+	candidates := []string{
+		"name", "type", "containerPort", "port",
+		"host", "key", "path", "kind",
+	}
 	for _, key := range candidates {
 		if allMapsHaveKey(a, key) && allMapsHaveKey(b, key) {
 			return key
@@ -156,145 +103,97 @@ func findListMatchKey(a, b []any) string {
 	return ""
 }
 
+// allMapsHaveKey returns true when the list has at least one map element
+// and every map element contains the given key. Non-map items are skipped.
 func allMapsHaveKey(list []any, key string) bool {
-	hasMaps := false
+	found := false
 	for _, item := range list {
 		m, ok := item.(map[string]any)
 		if !ok {
-			continue // skip non-maps
+			continue
 		}
-		hasMaps = true
-		if _, ok := m[key]; !ok {
+		found = true
+		if _, has := m[key]; !has {
 			return false
 		}
 	}
-	return hasMaps
+	return found
 }
 
-// diffListByKey matches list elements by a key field and diffs them.
+// diffListByKey pairs elements from a and b by matchKey, then diffs the
+// matched pairs. Elements only in a are marked Removed; elements only in b
+// are marked Added.
 func diffListByKey(a, b []any, matchKey string) []*AnnotatedNode {
-	// Build index from b
-	bByKey := make(map[string]any)
-	bUsed := make(map[string]bool)
+	keyOf := func(item any) string {
+		if m, ok := item.(map[string]any); ok {
+			if v, ok := m[matchKey]; ok {
+				return fmt.Sprintf("%v", v)
+			}
+		}
+		return ""
+	}
+
+	// Index b elements by their match-key value while preserving order.
+	bByKey := make(map[string]any, len(b))
 	var bOrder []string
 	for _, item := range b {
-		if m, ok := item.(map[string]any); ok {
-			if keyVal, ok := m[matchKey]; ok {
-				k := formatKeyVal(keyVal)
-				bByKey[k] = item
-				bOrder = append(bOrder, k)
-			}
+		k := keyOf(item)
+		if k != "" {
+			bByKey[k] = item
+			bOrder = append(bOrder, k)
 		}
 	}
 
 	var result []*AnnotatedNode
+	matched := make(map[string]bool)
 
-	// Process elements from a
-	aUsed := make(map[string]bool)
 	for _, item := range a {
-		if m, ok := item.(map[string]any); ok {
-			if keyVal, ok := m[matchKey]; ok {
-				k := formatKeyVal(keyVal)
-				aUsed[k] = true
-				bItem, found := bByKey[k]
-				if !found {
-					// Removed element
-					result = append(result, buildFullNode(item, Removed))
-				} else {
-					bUsed[k] = true
-					// Both exist — diff them
-					bMap, okBMap := bItem.(map[string]any)
-					if okBMap {
-						child := diffRecursive(m, bMap)
-						result = append(result, child)
-					} else if reflect.DeepEqual(item, bItem) {
-						result = append(result, buildUnchangedNode(item))
-					} else {
-						result = append(result, &AnnotatedNode{Value: bItem, Change: Modified})
-					}
-				}
-			} else {
-				// No key — treat as removed
-				result = append(result, buildFullNode(item, Removed))
-			}
-		} else {
-			// Non-map element in a, check positionally later — for now mark removed
+		k := keyOf(item)
+		if k == "" {
 			result = append(result, buildFullNode(item, Removed))
+			continue
 		}
+		bItem, found := bByKey[k]
+		if !found {
+			result = append(result, buildFullNode(item, Removed))
+			continue
+		}
+		matched[k] = true
+		result = append(result, diffValues(item, bItem))
 	}
 
-	// Add new elements from b that weren't in a
+	// Append elements from b that had no match in a.
 	for _, k := range bOrder {
-		if !bUsed[k] && !aUsed[k] {
+		if !matched[k] {
 			result = append(result, buildFullNode(bByKey[k], Added))
 		}
 	}
-
 	return result
 }
 
-func formatKeyVal(v any) string {
-	switch val := v.(type) {
-	case string:
-		return val
-	default:
-		return fmt.Sprintf("%v", val)
-	}
-}
-
-// diffListPositional matches list elements by position.
 func diffListPositional(a, b []any) []*AnnotatedNode {
-	var result []*AnnotatedNode
-	maxLen := len(a)
-	if len(b) > maxLen {
-		maxLen = len(b)
+	n := len(a)
+	if len(b) > n {
+		n = len(b)
 	}
 
-	for i := 0; i < maxLen; i++ {
-		if i >= len(a) {
-			// New element in b
+	result := make([]*AnnotatedNode, 0, n)
+	for i := range n {
+		switch {
+		case i >= len(a):
 			result = append(result, buildFullNode(b[i], Added))
-		} else if i >= len(b) {
-			// Removed element from a
+		case i >= len(b):
 			result = append(result, buildFullNode(a[i], Removed))
-		} else {
-			// Both exist
-			mapA, okA := a[i].(map[string]any)
-			mapB, okB := b[i].(map[string]any)
-
-			if okA && okB {
-				child := diffRecursive(mapA, mapB)
-				result = append(result, child)
-			} else if reflect.DeepEqual(a[i], b[i]) {
-				result = append(result, buildUnchangedNode(a[i]))
-			} else {
-				result = append(result, &AnnotatedNode{Value: b[i], Change: Modified})
-			}
+		default:
+			result = append(result, diffValues(a[i], b[i]))
 		}
 	}
-
 	return result
 }
 
-// hasChanges checks if an annotated node tree contains any non-unchanged nodes.
-func hasChanges(node *AnnotatedNode) bool {
-	if node.Change != Unchanged {
-		return true
-	}
-	for _, child := range node.Children {
-		if hasChanges(child) {
-			return true
-		}
-	}
-	for _, child := range node.List {
-		if hasChanges(child) {
-			return true
-		}
-	}
-	return false
-}
-
-// buildFullNode recursively builds a node tree where every node has the given change type.
+// buildFullNode wraps a value in a full AnnotatedNode tree where every node
+// carries the same change type. Used for subtrees that are entirely added,
+// removed, or unchanged.
 func buildFullNode(val any, change ChangeType) *AnnotatedNode {
 	switch v := val.(type) {
 	case map[string]any:
@@ -314,39 +213,35 @@ func buildFullNode(val any, change ChangeType) *AnnotatedNode {
 	}
 }
 
-func collectAllKeys(a, b map[string]any) []string {
-	keySet := make(map[string]struct{})
-	for k := range a {
-		keySet[k] = struct{}{}
+func hasChanges(node *AnnotatedNode) bool {
+	if node.Change != Unchanged {
+		return true
 	}
-	for k := range b {
-		keySet[k] = struct{}{}
+	for _, child := range node.Children {
+		if hasChanges(child) {
+			return true
+		}
 	}
-
-	keys := make([]string, 0, len(keySet))
-	for k := range keySet {
-		keys = append(keys, k)
+	for _, child := range node.List {
+		if hasChanges(child) {
+			return true
+		}
 	}
-
-	sort.Strings(keys)
-	return keys
+	return false
 }
 
-func buildUnchangedNode(val any) *AnnotatedNode {
-	switch v := val.(type) {
-	case map[string]any:
-		node := &AnnotatedNode{Children: make(map[string]*AnnotatedNode)}
-		for k, sub := range v {
-			node.Children[k] = buildUnchangedNode(sub)
-		}
-		return node
-	case []any:
-		node := &AnnotatedNode{Change: Unchanged}
-		for _, item := range v {
-			node.List = append(node.List, buildUnchangedNode(item))
-		}
-		return node
-	default:
-		return &AnnotatedNode{Value: v, Change: Unchanged}
+func unionKeys(a, b map[string]any) []string {
+	seen := make(map[string]struct{}, len(a)+len(b))
+	for k := range a {
+		seen[k] = struct{}{}
 	}
+	for k := range b {
+		seen[k] = struct{}{}
+	}
+	keys := make([]string, 0, len(seen))
+	for k := range seen {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
