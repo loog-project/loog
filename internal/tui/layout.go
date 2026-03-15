@@ -66,7 +66,7 @@ func ModalOverlay(modal, bg string, theme Theme) string {
 
 	result := make([]string, bgH)
 
-	for row := 0; row < bgH; row++ {
+	for row := range bgH {
 		bgLine := ""
 		if row < len(bgLines) {
 			bgLine = bgLines[row]
@@ -108,16 +108,10 @@ func ModalOverlay(modal, bg string, theme Theme) string {
 			case segModal:
 				sb.WriteString(modalLineStr)
 			case segShadow:
-				end := seg.end
-				if end > len(bgRunes) {
-					end = len(bgRunes)
-				}
+				end := min(seg.end, len(bgRunes))
 				sb.WriteString(shadowStyle.Render(string(bgRunes[seg.start:end])))
 			case segBg:
-				end := seg.end
-				if end > len(bgRunes) {
-					end = len(bgRunes)
-				}
+				end := min(seg.end, len(bgRunes))
 				sb.WriteString(dimStyle.Render(string(bgRunes[seg.start:end])))
 			}
 		}
@@ -159,17 +153,11 @@ func buildRowSegments(
 		specials = append(specials, interval{segModal, modalLeft, modalLeft + modalW})
 	}
 	if inShadowRight && shadowRColStart < bgW {
-		end := shadowRColEnd
-		if end > bgW {
-			end = bgW
-		}
+		end := min(shadowRColEnd, bgW)
 		specials = append(specials, interval{segShadow, shadowRColStart, end})
 	}
 	if isBottomShadow && shadowBColStart < bgW {
-		end := shadowBColEnd
-		if end > bgW {
-			end = bgW
-		}
+		end := min(shadowBColEnd, bgW)
 		specials = append(specials, interval{segShadow, shadowBColStart, end})
 	}
 
@@ -214,7 +202,7 @@ func dimLine(line string, width int, dimStyle lipgloss.Style) string {
 func SplitHorizontal(left, right string, height int) string {
 	// Build vertical separator
 	var sepLines []string
-	for i := 0; i < height; i++ {
+	for range height {
 		sepLines = append(sepLines, "│")
 	}
 	sepStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#313244"))
@@ -227,7 +215,7 @@ func SplitHorizontal(left, right string, height int) string {
 // with thin vertical separators.
 func SplitThreeColumns(left, middle, right string, height int) string {
 	var sepLines []string
-	for i := 0; i < height; i++ {
+	for range height {
 		sepLines = append(sepLines, "│")
 	}
 	sepStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#313244"))
@@ -279,25 +267,16 @@ func PanelBorderEx(content, title string, width, height int, focused bool, theme
 	if title != "" {
 		titleStr := " " + tStyle.Render(title) + " "
 		titleVisualW := lipgloss.Width(titleStr)
-		remainingW := innerW - titleVisualW - scrollUpW
-		if remainingW < 0 {
-			remainingW = 0
-		}
+		remainingW := max(innerW-titleVisualW-scrollUpW, 0)
 		leftPad := 1
-		rightPad := remainingW - leftPad
-		if rightPad < 0 {
-			rightPad = 0
-		}
+		rightPad := max(remainingW-leftPad, 0)
 		topLine = bStyle.Render("╭"+strings.Repeat("─", leftPad)) +
 			titleStr +
 			bStyle.Render(strings.Repeat("─", rightPad)) +
 			scrollUpStr +
 			bStyle.Render("╮")
 	} else {
-		fillW := innerW - scrollUpW
-		if fillW < 0 {
-			fillW = 0
-		}
+		fillW := max(innerW-scrollUpW, 0)
 		topLine = bStyle.Render("╭"+strings.Repeat("─", fillW)) +
 			scrollUpStr +
 			bStyle.Render("╮")
@@ -309,10 +288,7 @@ func PanelBorderEx(content, title string, width, height int, focused bool, theme
 		scrollDownStr = lipgloss.NewStyle().Foreground(theme.Overlay1).Render(" ▼")
 	}
 	scrollDownW := lipgloss.Width(scrollDownStr)
-	bottomFillW := innerW - scrollDownW
-	if bottomFillW < 0 {
-		bottomFillW = 0
-	}
+	bottomFillW := max(innerW-scrollDownW, 0)
 	bottomLine := bStyle.Render("╰"+strings.Repeat("─", bottomFillW)) +
 		scrollDownStr +
 		bStyle.Render("╯")

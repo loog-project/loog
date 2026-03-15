@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -296,13 +297,7 @@ func (rt *ResourceTree) buildItems() {
 	for _, g := range rt.groups {
 		// Skip kinds that have no visible resources
 		if textFiltering || rt.starredOnly {
-			hasVisible := false
-			for _, rd := range g.Resources {
-				if shouldShow(rd) {
-					hasVisible = true
-					break
-				}
-			}
+			hasVisible := slices.ContainsFunc(g.Resources, shouldShow)
 			if !hasVisible {
 				continue
 			}
@@ -400,20 +395,14 @@ func (rt *ResourceTree) Update(msg tea.Msg) tea.Cmd {
 			}
 			return rt.selectCurrent()
 		case "ctrl+d", "pgdown":
-			pageSize := rt.height / 2
-			if pageSize < 1 {
-				pageSize = 1
-			}
+			pageSize := max(rt.height/2, 1)
 			rt.cursor += pageSize
 			if rt.cursor >= len(rt.items) {
 				rt.cursor = len(rt.items) - 1
 			}
 			return rt.selectCurrent()
 		case "ctrl+u", "pgup":
-			pageSize := rt.height / 2
-			if pageSize < 1 {
-				pageSize = 1
-			}
+			pageSize := max(rt.height/2, 1)
 			rt.cursor -= pageSize
 			if rt.cursor < 0 {
 				rt.cursor = 0
@@ -482,10 +471,7 @@ func (rt *ResourceTree) CurrentHint() string {
 
 func (rt *ResourceTree) View() string {
 	// Reserve bottom line for filter bar
-	itemsHeight := rt.height - 1
-	if itemsHeight < 1 {
-		itemsHeight = 1
-	}
+	itemsHeight := max(rt.height-1, 1)
 
 	var lines []string
 
@@ -512,10 +498,7 @@ func (rt *ResourceTree) View() string {
 		}
 	} else {
 		// Reserve space for: indent(2) + star(2) + indicator(1) + space(1) + name + badges(~5)
-		maxNameLen := rt.width - 12
-		if maxNameLen < 5 {
-			maxNameLen = 5
-		}
+		maxNameLen := max(rt.width-12, 5)
 
 		// Calculate visible window (scrolling)
 		startIdx := 0
@@ -896,10 +879,7 @@ func (rl *RevisionList) Update(msg tea.Msg) tea.Cmd {
 			rl.selectedID = revs[rl.cursor].ID
 			return rl.selectCurrent()
 		case "ctrl+d", "pgdown":
-			pageSize := rl.height / 2
-			if pageSize < 1 {
-				pageSize = 1
-			}
+			pageSize := max(rl.height/2, 1)
 			rl.cursor -= pageSize
 			if rl.cursor < 0 {
 				rl.cursor = 0
@@ -907,10 +887,7 @@ func (rl *RevisionList) Update(msg tea.Msg) tea.Cmd {
 			rl.selectedID = revs[rl.cursor].ID
 			return rl.selectCurrent()
 		case "ctrl+u", "pgup":
-			pageSize := rl.height / 2
-			if pageSize < 1 {
-				pageSize = 1
-			}
+			pageSize := max(rl.height/2, 1)
 			rl.cursor += pageSize
 			if rl.cursor >= total {
 				rl.cursor = total - 1
@@ -1060,10 +1037,7 @@ func (rl *RevisionList) View() string {
 		startVisual = 0
 	}
 
-	endVisual := startVisual + itemHeight
-	if endVisual > total {
-		endVisual = total
-	}
+	endVisual := min(startVisual+itemHeight, total)
 
 	// Render the visible window
 	for v := startVisual; v < endVisual; v++ {
@@ -1425,7 +1399,7 @@ type TimelineList struct {
 	theme         Theme
 	focused       bool
 	entries       []TimelineEntry
-	groups        []interface{} // TimelineEntry or BurstGroup
+	groups        []any // TimelineEntry or BurstGroup
 	cursor        int
 	flatItems     []timelineFlatItem
 
@@ -1800,20 +1774,14 @@ func (tl *TimelineList) Update(msg tea.Msg) tea.Cmd {
 			}
 			return tl.selectCurrent()
 		case "ctrl+d", "pgdown":
-			pageSize := tl.height / 2
-			if pageSize < 1 {
-				pageSize = 1
-			}
+			pageSize := max(tl.height/2, 1)
 			tl.cursor += pageSize
 			if tl.cursor >= len(tl.flatItems) {
 				tl.cursor = len(tl.flatItems) - 1
 			}
 			return tl.selectCurrent()
 		case "ctrl+u", "pgup":
-			pageSize := tl.height / 2
-			if pageSize < 1 {
-				pageSize = 1
-			}
+			pageSize := max(tl.height/2, 1)
 			tl.cursor -= pageSize
 			if tl.cursor < 0 {
 				tl.cursor = 0
@@ -1841,10 +1809,7 @@ func (tl *TimelineList) selectCurrent() tea.Cmd {
 func (tl *TimelineList) View() string {
 	// Reserve bottom line for filter bar
 	totalHeight := tl.height
-	itemsHeight := totalHeight - 1
-	if itemsHeight < 1 {
-		itemsHeight = 1
-	}
+	itemsHeight := max(totalHeight-1, 1)
 
 	var lines []string
 
@@ -1875,10 +1840,7 @@ func (tl *TimelineList) View() string {
 		startIdx = tl.cursor - visibleHeight + 1
 	}
 
-	nameMaxW := tl.width - 26
-	if nameMaxW < 8 {
-		nameMaxW = 8
-	}
+	nameMaxW := max(tl.width-26, 8)
 
 	for i := startIdx; i < len(tl.flatItems) && len(lines) < itemsHeight; i++ {
 		item := tl.flatItems[i]
@@ -2046,10 +2008,7 @@ func NewComparePanel(theme Theme) *ComparePanel {
 func (cp *ComparePanel) SetSize(w, h int) {
 	cp.width = w
 	cp.height = h
-	halfW := w/2 - 1
-	if halfW < 5 {
-		halfW = 5
-	}
+	halfW := max(w/2-1, 5)
 	cp.leftVP.Width = halfW
 	cp.leftVP.Height = h - 2
 	cp.rightVP.Width = halfW
@@ -2132,10 +2091,7 @@ func (cp *ComparePanel) Update(msg tea.Msg) tea.Cmd {
 }
 
 func (cp *ComparePanel) View() string {
-	halfW := cp.width/2 - 1
-	if halfW < 5 {
-		halfW = 5
-	}
+	halfW := max(cp.width/2-1, 5)
 
 	leftTitle := lipgloss.NewStyle().Foreground(cp.theme.Overlay0).Italic(true).Render("(empty)")
 	if cp.left != nil {
@@ -2164,7 +2120,7 @@ func (cp *ComparePanel) View() string {
 	rightLines := strings.Split(rightContent, "\n")
 	bodyH := cp.height - 2
 	var bodyLines []string
-	for i := 0; i < bodyH; i++ {
+	for i := range bodyH {
 		var ll, rl string
 		if i < len(leftLines) {
 			ll = leftLines[i]

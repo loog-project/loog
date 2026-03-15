@@ -111,12 +111,12 @@ func TestConcurrentClaims(t *testing.T) {
 
 	// race 20 goroutines
 	errs := make(chan error, 20)
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		go func() {
 			errs <- s.SetSnapshot(ctx, id, &store.Snapshot{Object: diffmap.DiffMap{"x": i}})
 		}()
 	}
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		if e := <-errs; e != nil {
 			t.Fatalf("concurrent SetSnapshot failed: %v", e)
 		}

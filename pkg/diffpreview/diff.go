@@ -3,6 +3,7 @@ package diffpreview
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 )
 
@@ -172,10 +173,7 @@ func diffListByKey(a, b []any, matchKey string) []*AnnotatedNode {
 }
 
 func diffListPositional(a, b []any) []*AnnotatedNode {
-	n := len(a)
-	if len(b) > n {
-		n = len(b)
-	}
+	n := max(len(b), len(a))
 
 	result := make([]*AnnotatedNode, 0, n)
 	for i := range n {
@@ -222,12 +220,7 @@ func hasChanges(node *AnnotatedNode) bool {
 			return true
 		}
 	}
-	for _, child := range node.List {
-		if hasChanges(child) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(node.List, hasChanges)
 }
 
 func unionKeys(a, b map[string]any) []string {

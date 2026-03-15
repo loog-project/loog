@@ -60,7 +60,7 @@ func BenchmarkDiff_1k(b *testing.B) {
 func genMaps(n int) (map[string]any, map[string]any) {
 	a := make(map[string]any, n)
 	b := make(map[string]any, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		key := "k" + strconv.Itoa(i)
 		a[key] = i
 		if i%10 == 0 {

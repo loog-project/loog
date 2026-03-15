@@ -54,16 +54,10 @@ func (h *HelpOverlay) Update(msg tea.Msg) tea.Cmd {
 				h.scrollOffset--
 			}
 		case "ctrl+d", "pgdown":
-			pageSize := h.height / 3
-			if pageSize < 5 {
-				pageSize = 5
-			}
+			pageSize := max(h.height/3, 5)
 			h.scrollOffset += pageSize
 		case "ctrl+u", "pgup":
-			pageSize := h.height / 3
-			if pageSize < 5 {
-				pageSize = 5
-			}
+			pageSize := max(h.height/3, 5)
 			h.scrollOffset -= pageSize
 			if h.scrollOffset < 0 {
 				h.scrollOffset = 0
@@ -92,10 +86,7 @@ func (h *HelpOverlay) View() string {
 		return ""
 	}
 
-	dialogWidth := h.width * 65 / 100
-	if dialogWidth > 82 {
-		dialogWidth = 82
-	}
+	dialogWidth := min(h.width*65/100, 82)
 	if dialogWidth < 40 {
 		dialogWidth = 40
 	}
@@ -230,10 +221,7 @@ func (h *HelpOverlay) View() string {
 	// Scroll
 	allContent := strings.Join(lines, "\n")
 	contentLines := strings.Split(allContent, "\n")
-	maxVisible := h.height - 16
-	if maxVisible < 5 {
-		maxVisible = 5
-	}
+	maxVisible := max(h.height-16, 5)
 	if h.scrollOffset >= len(contentLines)-maxVisible {
 		h.scrollOffset = len(contentLines) - maxVisible
 	}
@@ -241,10 +229,7 @@ func (h *HelpOverlay) View() string {
 		h.scrollOffset = 0
 	}
 
-	endIdx := h.scrollOffset + maxVisible
-	if endIdx > len(contentLines) {
-		endIdx = len(contentLines)
-	}
+	endIdx := min(h.scrollOffset+maxVisible, len(contentLines))
 	visibleContent := strings.Join(contentLines[h.scrollOffset:endIdx], "\n")
 
 	// Footer hint

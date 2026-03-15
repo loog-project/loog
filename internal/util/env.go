@@ -1,6 +1,7 @@
 package util
 
 import (
+	"slices"
 	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -36,12 +37,7 @@ func (e EventEntryEnv) Namespaces(vals ...string) bool {
 	if len(vals) == 0 {
 		return true
 	}
-	for _, val := range vals {
-		if val == e.Object.GetNamespace() {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(vals, e.Object.GetNamespace())
 }
 
 func (e EventEntryEnv) Namespace(vals ...string) bool {
@@ -52,12 +48,7 @@ func (e EventEntryEnv) Names(vals ...string) bool {
 	if len(vals) == 0 {
 		return true
 	}
-	for _, val := range vals {
-		if val == e.Object.GetName() {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(vals, e.Object.GetName())
 }
 
 func (e EventEntryEnv) Name(vals ...string) bool {

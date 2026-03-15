@@ -308,11 +308,9 @@ func runHeadless(
 ) {
 	setupLog.Info().Msg("Running in headless mode, using no-op revision handler")
 
-	wg.Add(1)
-	go func() {
+	wg.Go(func() {
 		runCollector(ctx, mux, trackerService, rps, prog, &noOpRevisionHandler{})
-		wg.Done()
-	}()
+	})
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)

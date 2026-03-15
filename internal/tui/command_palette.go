@@ -147,18 +147,12 @@ func (cp *CommandPalette) View() string {
 	}
 
 	// Dialog content width (inside border + padding)
-	dialogW := cp.width * 60 / 100
-	if dialogW > 80 {
-		dialogW = 80
-	}
+	dialogW := min(cp.width*60/100, 80)
 	if dialogW < 36 {
 		dialogW = 36
 	}
 	// Inner content width after border(2) + padding(4)
-	contentW := dialogW - 6
-	if contentW < 20 {
-		contentW = 20
-	}
+	contentW := max(dialogW-6, 20)
 
 	// Title
 	title := lipgloss.NewStyle().
@@ -197,10 +191,7 @@ func (cp *CommandPalette) View() string {
 	// Match list
 	// Chrome lines: border(2) + padding(2) + title(1) + search(1) + sep(1) + sep(1) + count(1) = 9
 	maxVisible := 10
-	maxFit := cp.height - 9
-	if maxFit < 3 {
-		maxFit = 3
-	}
+	maxFit := max(cp.height-9, 3)
 	if maxVisible > maxFit {
 		maxVisible = maxFit
 	}
@@ -239,10 +230,7 @@ func (cp *CommandPalette) View() string {
 		if shortcut != "" {
 			lineW := lipgloss.Width(line)
 			scW := lipgloss.Width(shortcut)
-			gap := contentW - lineW - scW
-			if gap < 1 {
-				gap = 1
-			}
+			gap := max(contentW-lineW-scW, 1)
 			line += strings.Repeat(" ", gap) + shortcut
 		}
 
@@ -403,17 +391,11 @@ func (qs *QuickSearch) View() string {
 		return ""
 	}
 
-	dialogW := qs.width * 60 / 100
-	if dialogW > 80 {
-		dialogW = 80
-	}
+	dialogW := min(qs.width*60/100, 80)
 	if dialogW < 36 {
 		dialogW = 36
 	}
-	contentW := dialogW - 6
-	if contentW < 20 {
-		contentW = 20
-	}
+	contentW := max(dialogW-6, 20)
 
 	title := lipgloss.NewStyle().
 		Foreground(qs.theme.Green).
@@ -445,10 +427,7 @@ func (qs *QuickSearch) View() string {
 
 	// Chrome lines: border(2) + padding(2) + title(1) + search(1) + sep(1) + sep(1) + count(1) = 9
 	maxVisible := 12
-	maxFit := qs.height - 9
-	if maxFit < 3 {
-		maxFit = 3
-	}
+	maxFit := max(qs.height-9, 3)
 	if maxVisible > maxFit {
 		maxVisible = maxFit
 	}
@@ -491,10 +470,7 @@ func (qs *QuickSearch) View() string {
 		line := " " + name
 		lineW := lipgloss.Width(line)
 		infoW := lipgloss.Width(info)
-		gap := contentW - lineW - infoW
-		if gap < 1 {
-			gap = 1
-		}
+		gap := max(contentW-lineW-infoW, 1)
 		line += strings.Repeat(" ", gap) + info
 
 		padded := PadRight(line, contentW)
@@ -770,17 +746,11 @@ func (wm *WatchManager) View() string {
 		return ""
 	}
 
-	dialogW := wm.width * 60 / 100
-	if dialogW > 80 {
-		dialogW = 80
-	}
+	dialogW := min(wm.width*60/100, 80)
 	if dialogW < 40 {
 		dialogW = 40
 	}
-	contentW := dialogW - 6
-	if contentW < 24 {
-		contentW = 24
-	}
+	contentW := max(dialogW-6, 24)
 
 	// Title
 	title := lipgloss.NewStyle().Foreground(wm.theme.Mauve).Bold(true).
@@ -854,10 +824,7 @@ func (wm *WatchManager) viewWatching(contentW int) string {
 
 	// Chrome lines: border(2) + padding(2) + title(1) + tabs(1) + sep(1) + search(1) + sep(1) + footer(1) = 10
 	maxVisible := 12
-	maxFit := wm.height - 10
-	if maxFit < 3 {
-		maxFit = 3
-	}
+	maxFit := max(wm.height-10, 3)
 	if maxVisible > maxFit {
 		maxVisible = maxFit
 	}
@@ -888,10 +855,7 @@ func (wm *WatchManager) viewWatching(contentW int) string {
 		line := " " + name
 		lineW := lipgloss.Width(line)
 		infoW := lipgloss.Width(countText)
-		gap := contentW - lineW - infoW
-		if gap < 1 {
-			gap = 1
-		}
+		gap := max(contentW-lineW-infoW, 1)
 		line += strings.Repeat(" ", gap) + countText
 
 		padded := PadRight(line, contentW)
@@ -924,10 +888,7 @@ func (wm *WatchManager) viewAdd(contentW int) string {
 
 	// Chrome lines: border(2) + padding(2) + title(1) + tabs(1) + sep(1) + search(1) + sep(1) + footer(1) = 10
 	maxVisible := 12
-	maxFit := wm.height - 10
-	if maxFit < 3 {
-		maxFit = 3
-	}
+	maxFit := max(wm.height-10, 3)
 	if maxVisible > maxFit {
 		maxVisible = maxFit
 	}
@@ -964,10 +925,7 @@ func (wm *WatchManager) viewAdd(contentW int) string {
 		line := " " + name
 		lineW := lipgloss.Width(line)
 		infoW := lipgloss.Width(info)
-		gap := contentW - lineW - infoW
-		if gap < 1 {
-			gap = 1
-		}
+		gap := max(contentW-lineW-infoW, 1)
 		line += strings.Repeat(" ", gap) + info
 
 		padded := PadRight(line, contentW)

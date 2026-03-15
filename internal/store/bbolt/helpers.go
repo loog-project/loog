@@ -18,12 +18,12 @@ func keyObjectRevision(objectUID string, id store.RevisionID) []byte {
 }
 
 func splitObjectRevisionKey(key []byte) (string, store.RevisionID) {
-	sep := bytes.IndexByte(key, '|')
-	if sep == -1 {
+	before, after, ok := bytes.Cut(key, []byte{'|'})
+	if !ok {
 		return "", 0
 	}
-	objectUID := string(key[:sep])
-	id := binary.BigEndian.Uint64(key[sep+1:])
+	objectUID := string(before)
+	id := binary.BigEndian.Uint64(after)
 	return objectUID, store.RevisionID(id)
 }
 

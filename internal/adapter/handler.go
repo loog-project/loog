@@ -1,6 +1,8 @@
 package adapter
 
 import (
+	"maps"
+
 	tea "github.com/charmbracelet/bubbletea"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
@@ -93,8 +95,6 @@ func cloneDiffMap(m diffmap.DiffMap) diffmap.DiffMap {
 		return nil
 	}
 	result := make(diffmap.DiffMap, len(m))
-	for k, v := range m {
-		result[k] = v
-	}
+	maps.Copy(result, m)
 	return result
 }

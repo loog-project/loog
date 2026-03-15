@@ -25,7 +25,7 @@ type Patch struct {
 	// Patch is an object with the diff between the previous revision and this revision.
 	// see [diffmap.Diff] for more details.
 	Patch diffmap.DiffMap `msgpack:"s" json:"patch,omitempty"`
-	Time  time.Time       `msgpack:"t" json:"time,omitempty"`
+	Time  time.Time       `msgpack:"t" json:"time"`
 }
 
 type Snapshot struct {
@@ -38,5 +38,5 @@ type Snapshot struct {
 	/// Snapshot Metadata
 	// Object is the actual object being stored in this revision.
 	Object diffmap.DiffMap `msgpack:"o" json:"object,omitempty"`
-	Time   time.Time       `msgpack:"t" json:"time,omitempty"`
+	Time   time.Time       `msgpack:"t" json:"time"`
 }

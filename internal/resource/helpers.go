@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -145,12 +146,7 @@ func (e resourceFilterEnv) Namespaces(vals ...string) bool {
 	if len(vals) == 0 {
 		return true
 	}
-	for _, v := range vals {
-		if v == e.Res.Namespace {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(vals, e.Res.Namespace)
 }
 
 func (e resourceFilterEnv) Namespace(vals ...string) bool {
@@ -161,12 +157,7 @@ func (e resourceFilterEnv) Names(vals ...string) bool {
 	if len(vals) == 0 {
 		return true
 	}
-	for _, v := range vals {
-		if v == e.Res.Name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(vals, e.Res.Name)
 }
 
 func (e resourceFilterEnv) Name(vals ...string) bool {

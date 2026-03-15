@@ -92,10 +92,7 @@ func (h *Header) View() string {
 	leftContent := logo + "  " + tabBar
 	leftWidth := lipgloss.Width(leftContent)
 	rightWidth := lipgloss.Width(rightSide)
-	spacerWidth := h.width - leftWidth - rightWidth - 2
-	if spacerWidth < 1 {
-		spacerWidth = 1
-	}
+	spacerWidth := max(h.width-leftWidth-rightWidth-2, 1)
 	spacer := strings.Repeat(" ", spacerWidth)
 
 	line := leftContent + spacer + rightSide
@@ -227,10 +224,7 @@ func (sb *StatusBar) View() string {
 	// Combine
 	leftWidth := lipgloss.Width(leftContent)
 	rightWidth := lipgloss.Width(rightContent)
-	spacerWidth := sb.width - leftWidth - rightWidth - 4 // padding
-	if spacerWidth < 1 {
-		spacerWidth = 1
-	}
+	spacerWidth := max(sb.width-leftWidth-rightWidth-4, 1)
 
 	line := " " + leftContent + strings.Repeat(" ", spacerWidth) + rightContent + " "
 

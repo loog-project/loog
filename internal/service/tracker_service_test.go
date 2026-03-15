@@ -131,12 +131,12 @@ func TestTrackerService_ConcurrentCommits(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(workers)
 
-	for w := 0; w < workers; w++ {
+	for w := range workers {
 		go func(id int) {
 			defer wg.Done()
 
 			local := obj.DeepCopy()
-			for i := 0; i < loops; i++ {
+			for i := range loops {
 				local.Object["data"].(diffmap.DiffMap)["val"] = id*100 + i
 				if _, err := svc.Commit(ctx, uid, local); err != nil {
 					t.Errorf("worker %d: %v", id, err)
@@ -276,7 +276,7 @@ func benchCommit(b *testing.B, snapshotEvery uint64, durable, withCache bool) {
 
 	// make this object large
 	m := map[string]any{}
-	for i := 0; i < 500; i++ {
+	for i := range 500 {
 		v := strings.Repeat(string(rune(i+65)), 26)
 		m[v] = v
 	}

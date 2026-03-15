@@ -630,10 +630,7 @@ func (a *App) View() string {
 
 	// Status bar is always 2 lines for stable layout.
 	// Content height = total - header(1) - status(2)
-	contentHeight := a.height - 3
-	if contentHeight < 1 {
-		contentHeight = 1
-	}
+	contentHeight := max(a.height-3, 1)
 
 	var contentView string
 	if a.fullscreen {
@@ -693,10 +690,7 @@ func (a *App) layout() {
 
 	// Status bar is always 2 lines (status + hint) for stable layout.
 	// Content height = total - header(1) - status(2)
-	contentHeight := a.height - 3
-	if contentHeight < 1 {
-		contentHeight = 1
-	}
+	contentHeight := max(a.height-3, 1)
 
 	a.explorer.SetSize(a.width, contentHeight)
 	a.timeline.SetSize(a.width, contentHeight)

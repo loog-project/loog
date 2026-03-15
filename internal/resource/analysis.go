@@ -148,10 +148,7 @@ func (rd *ResourceData) DetectLoop(windowSize int) bool {
 	if len(revs) < 3 {
 		return false
 	}
-	start := len(revs) - windowSize
-	if start < 0 {
-		start = 0
-	}
+	start := max(len(revs)-windowSize, 0)
 
 	seen := make(map[string]int)
 	for _, rev := range revs[start:] {
@@ -177,10 +174,7 @@ func (rd *ResourceData) AnalyzeLoop(windowSize int) LoopInfo {
 	if len(revs) < 4 {
 		return LoopInfo{}
 	}
-	start := len(revs) - windowSize
-	if start < 0 {
-		start = 0
-	}
+	start := max(len(revs)-windowSize, 0)
 	window := revs[start:]
 
 	type stateOccurrence struct {

@@ -38,18 +38,11 @@ func (ev *ExplorerViewComponent) SetSize(w, h int) {
 	ev.height = h
 
 	// Outer panel widths (including borders)
-	ev.treeOuterW = w * 25 / 100
-	if ev.treeOuterW < 22 {
-		ev.treeOuterW = 22
-	}
-	ev.revOuterW = w * 20 / 100
-	if ev.revOuterW < 20 {
-		ev.revOuterW = 20
-	}
-	ev.detailOuterW = w - ev.treeOuterW - ev.revOuterW - 2 // 2 separators
-	if ev.detailOuterW < 12 {
-		ev.detailOuterW = 12
-	}
+	ev.treeOuterW = max(w*25/100, 22)
+	ev.revOuterW = max(w*20/100, 20)
+	ev.detailOuterW = max(
+		// 2 separators
+		w-ev.treeOuterW-ev.revOuterW-2, 12)
 
 	// Components get INNER dimensions (outer minus border chrome: 2 width, 2 height)
 	ev.tree.SetSize(ev.treeOuterW-2, h-2)
@@ -240,14 +233,10 @@ func (tv *TimelineViewComponent) SetSize(w, h int) {
 	tv.width = w
 	tv.height = h
 
-	tv.listOuterW = w * 40 / 100
-	if tv.listOuterW < 32 {
-		tv.listOuterW = 32
-	}
-	tv.detailOuterW = w - tv.listOuterW - 1 // 1 separator
-	if tv.detailOuterW < 12 {
-		tv.detailOuterW = 12
-	}
+	tv.listOuterW = max(w*40/100, 32)
+	tv.detailOuterW = max(
+		// 1 separator
+		w-tv.listOuterW-1, 12)
 
 	// Inner dimensions for components
 	tv.timeline.SetSize(tv.listOuterW-2, h-2)
