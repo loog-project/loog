@@ -179,6 +179,9 @@ func (ev *ExplorerViewComponent) Update(msg tea.Msg) tea.Cmd {
 func (ev *ExplorerViewComponent) View() string {
 	tc, tt := ev.tree.CursorInfo()
 	treeTitle := "Resources"
+	if ev.tree.SortByTime() {
+		treeTitle += " [time]"
+	}
 	if tt > 0 {
 		treeTitle += " " + ScrollPosition(tc, tt)
 	}
@@ -380,6 +383,9 @@ func (tv *TimelineViewComponent) Update(msg tea.Msg) tea.Cmd {
 func (tv *TimelineViewComponent) View() string {
 	tc, tt := tv.timeline.CursorInfo()
 	listTitle := "Timeline"
+	if tv.timeline.Reversed() {
+		listTitle += " [oldest]"
+	}
 	if tt > 0 {
 		listTitle += " " + ScrollPosition(tc, tt)
 	}

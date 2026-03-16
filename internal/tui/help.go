@@ -139,9 +139,11 @@ func (h *HelpOverlay) View() string {
 		}},
 		{Title: "Explorer View", Bindings: []helpBinding{
 			{"S", "Toggle starred-only filter"},
+			{"O", "Toggle sort order (name / time)"},
 		}},
 		{Title: "Timeline View", Bindings: []helpBinding{
 			{"S", "Toggle starred-only filter"},
+			{"R", "Reverse sort direction"},
 			{"w", "Cycle time window around selected"},
 		}},
 		{Title: "Compare View", Bindings: []helpBinding{

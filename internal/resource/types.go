@@ -104,6 +104,31 @@ func (rd *Data) LatestRevision() *Revision {
 	return &rd.Revisions[len(rd.Revisions)-1]
 }
 
+// CreationTime returns the Kubernetes creationTimestamp from the first
+// revision's object metadata. Returns zero time if unavailable.
+func (rd *Data) CreationTime() time.Time {
+	if len(rd.Revisions) == 0 {
+		return time.Time{}
+	}
+	obj := rd.Revisions[0].Object
+	if obj == nil {
+		return time.Time{}
+	}
+	meta, ok := obj["metadata"].(map[string]any)
+	if !ok {
+		return time.Time{}
+	}
+	ts, ok := meta["creationTimestamp"].(string)
+	if !ok {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
 func (rd *Data) RevisionCount() int {
 	return len(rd.Revisions)
 }

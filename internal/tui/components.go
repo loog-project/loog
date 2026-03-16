@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -84,6 +85,9 @@ type ResourceTree struct {
 
 	// Display-only flag so the filter bar can show a star badge
 	starredOnly bool
+
+	// Sort resources within kind groups by time instead of name
+	sortByTime bool
 }
 
 type treeItemType int
@@ -255,6 +259,10 @@ func (rt *ResourceTree) IsFilterActive() bool {
 	return rt.filterEditing || rt.filterApplied
 }
 
+func (rt *ResourceTree) SortByTime() bool {
+	return rt.sortByTime
+}
+
 // FilterState returns the current filter state for title rendering.
 func (rt *ResourceTree) FilterState() (input string, editing bool, applied bool) {
 	return rt.filterTextInput.Value(), rt.filterEditing, rt.filterApplied
@@ -329,7 +337,6 @@ func (rt *ResourceTree) buildItems() {
 	}
 
 	for _, g := range rt.groups {
-		// Skip kinds that have no visible resources
 		if textFiltering || rt.starredOnly {
 			hasVisible := slices.ContainsFunc(g.Resources, shouldShow)
 			if !hasVisible {
@@ -338,7 +345,16 @@ func (rt *ResourceTree) buildItems() {
 		}
 		rt.items = append(rt.items, treeItem{Type: treeItemKind, Kind: g.Kind})
 		if g.Expanded {
-			for _, rd := range g.Resources {
+			resources := g.Resources
+			if rt.sortByTime {
+				resources = append([]*resource.Data(nil), g.Resources...)
+				sort.Slice(resources, func(i, j int) bool {
+					ti := resources[i].CreationTime()
+					tj := resources[j].CreationTime()
+					return ti.After(tj)
+				})
+			}
+			for _, rd := range resources {
 				if !shouldShow(rd) {
 					continue
 				}
@@ -410,6 +426,9 @@ func (rt *ResourceTree) Update(msg tea.Msg) tea.Cmd {
 			}
 		case "S":
 			return Cmd(ToggleExplorerStarredMsg{})
+		case "O":
+			rt.sortByTime = !rt.sortByTime
+			rt.buildItems()
 		case "c":
 			if rt.cursor < len(rt.items) {
 				item := rt.items[rt.cursor]
@@ -479,8 +498,7 @@ func (rt *ResourceTree) CurrentHint() string {
 			rt.theme.KeyHint("Enter", "select"),
 			rt.theme.KeyHint("s", "star"),
 			rt.theme.KeyHint("c", "compare"),
-			rt.theme.KeyHint("ctrl+d/u", "page"),
-			"|",
+			rt.theme.KeyHint("O", "sort"),
 		}
 		rd := item.Resource
 		if rd.Resource.Starred {
@@ -1436,6 +1454,11 @@ type TimelineList struct {
 	groups        []any // resource.TimelineEntry or resource.BurstGroup
 	cursor        int
 	flatItems     []timelineFlatItem
+	reversed      bool // oldest-first when true
+
+	// Selection identity for stability across rebuilds
+	selectedUID string
+	selectedRev resource.RevisionID
 
 	// Auto-scroll
 	autoScroll bool
@@ -1593,7 +1616,6 @@ func (tl *TimelineList) SetEntries(entries []resource.TimelineEntry) {
 }
 
 func (tl *TimelineList) rebuild() {
-	// Apply window filter centered on anchor timestamp
 	filtered := tl.entries
 	if tl.windowMode != resource.WindowAll && !tl.windowAnchor.IsZero() {
 		halfDur := resource.WindowHalfDuration(tl.windowMode)
@@ -1609,7 +1631,6 @@ func (tl *TimelineList) rebuild() {
 		}
 	}
 
-	// Apply inline filter when applied and not being edited (hide non-matches)
 	if tl.filterApplied && !tl.filterEditing && tl.filterTextInput.Value() != "" {
 		var matched []resource.TimelineEntry
 		for _, e := range filtered {
@@ -1620,8 +1641,25 @@ func (tl *TimelineList) rebuild() {
 		filtered = matched
 	}
 
+	if tl.reversed {
+		slices.Reverse(filtered)
+	}
+
 	tl.groups = resource.GroupTimelineByBurst(filtered, 5*time.Second)
 	tl.buildFlatItems()
+
+	// Preserve selection identity across rebuilds
+	if tl.selectedUID != "" {
+		for i, item := range tl.flatItems {
+			if item.entry != nil &&
+				item.entry.Resource.UID == tl.selectedUID &&
+				item.entry.Revision.ID == tl.selectedRev {
+				tl.cursor = i
+				return
+			}
+		}
+	}
+
 	if tl.cursor >= len(tl.flatItems) && len(tl.flatItems) > 0 {
 		tl.cursor = len(tl.flatItems) - 1
 	}
@@ -1630,9 +1668,14 @@ func (tl *TimelineList) rebuild() {
 	}
 }
 
-// JumpToNewest moves cursor to the first entry (newest).
+// JumpToNewest moves cursor to the newest entry.
 func (tl *TimelineList) JumpToNewest() {
-	if len(tl.flatItems) > 0 {
+	if len(tl.flatItems) == 0 {
+		return
+	}
+	if tl.reversed {
+		tl.cursor = len(tl.flatItems) - 1
+	} else {
 		tl.cursor = 0
 	}
 }
@@ -1661,6 +1704,10 @@ func (tl *TimelineList) CursorInfo() (int, int) {
 }
 
 // CanScrollUp returns true if there are items above the visible window.
+func (tl *TimelineList) Reversed() bool {
+	return tl.reversed
+}
+
 func (tl *TimelineList) CanScrollUp() bool {
 	if len(tl.flatItems) == 0 || tl.height <= 0 {
 		return false
@@ -1735,9 +1782,8 @@ func (tl *TimelineList) CurrentHint() string {
 		tl.theme.KeyHint("s", "star"),
 		tl.theme.KeyHint("S", "starred"),
 		tl.theme.KeyHint("Enter", "select"),
+		tl.theme.KeyHint("R", "reverse"),
 		tl.theme.KeyHint("w", "window"),
-		tl.theme.KeyHint("ctrl+d/u", "page"),
-		"|",
 	}
 
 	item := tl.flatItems[tl.cursor]
@@ -1810,8 +1856,10 @@ func (tl *TimelineList) Update(msg tea.Msg) tea.Cmd {
 			}
 			return tl.selectCurrent()
 		case "S":
-			// Toggle starred-only filter for the timeline
 			return Cmd(ToggleTimelineStarredMsg{})
+		case "R":
+			tl.reversed = !tl.reversed
+			tl.rebuild()
 		}
 	}
 	return nil
@@ -1823,6 +1871,8 @@ func (tl *TimelineList) selectCurrent() tea.Cmd {
 	}
 	item := tl.flatItems[tl.cursor]
 	if item.entry != nil {
+		tl.selectedUID = item.entry.Resource.UID
+		tl.selectedRev = item.entry.Revision.ID
 		return Cmd(TimelineEntrySelectedMsg{Entry: *item.entry})
 	}
 	return nil
