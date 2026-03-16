@@ -9,8 +9,6 @@ import (
 	"github.com/loog-project/loog/internal/resource"
 )
 
-// ─── TUI-specific types ───
-
 // ViewID identifies which top-level view is active.
 type ViewID int
 
@@ -75,7 +73,6 @@ const (
 	PanelRight
 )
 
-// ─── Domain type aliases ───
 // These re-export the domain types from internal/resource so that existing
 // TUI code can continue using tui.Resource, tui.Revision, etc.
 // Type aliases (=) make them identical types, not distinct wrappers.
@@ -88,9 +85,9 @@ type (
 	TimelineEntry    = resource.TimelineEntry
 	CompareSelection = resource.CompareSelection
 	CompareItem      = resource.CompareItem
-	ResourceData     = resource.ResourceData
+	ResourceData     = resource.Data
 	KindGroup        = resource.KindGroup
-	ResourceKind     = resource.ResourceKind
+	ResourceKind     = resource.Kind
 	BurstGroup       = resource.BurstGroup
 	ChangeTag        = resource.ChangeTag
 	AnalysisResult   = resource.AnalysisResult
@@ -106,36 +103,17 @@ const (
 )
 
 const (
-	TagSpec     = resource.TagSpec
-	TagStatus   = resource.TagStatus
-	TagImage    = resource.TagImage
-	TagLabels   = resource.TagLabels
-	TagConfig   = resource.TagConfig
-	TagReplicas = resource.TagReplicas
-	TagUnknown  = resource.TagUnknown
-)
-
-const (
 	WindowAll = resource.WindowAll
-	Window15s = resource.Window15s
-	Window30s = resource.Window30s
-	Window1m  = resource.Window1m
-	Window5m  = resource.Window5m
 )
 
 // Re-export domain functions so existing TUI code doesn't need to change imports.
 var (
 	RelativeTime         = resource.RelativeTime
 	FormatTimestamp      = resource.FormatTimestamp
-	DeepEqual            = resource.DeepEqual
-	BuildKindGroups      = resource.BuildKindGroups
 	GroupTimelineByBurst = resource.GroupTimelineByBurst
-	TagRevision          = resource.TagRevision
 	NextWindowMode       = resource.NextWindowMode
 	WindowHalfDuration   = resource.WindowHalfDuration
 )
-
-// ─── YAML / JSON Rendering (presentation layer, depends on Theme) ───
 
 // RenderYAMLObject renders a map as simple YAML text with syntax highlighting.
 func RenderYAMLObject(obj map[string]any, theme Theme, indent int) string {

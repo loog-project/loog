@@ -19,10 +19,10 @@ import (
 // for the --simulate mode. The returned Store implements tui.Store and tui.Simulator.
 func New() *Store {
 	now := time.Now()
-	resources := make(map[string]*resource.ResourceData)
+	resources := make(map[string]*resource.Data)
 
 	addResource := func(uid, kind, name, ns string, starred bool, revisions []resource.Revision) {
-		resources[uid] = &resource.ResourceData{
+		resources[uid] = &resource.Data{
 			Resource: resource.Resource{
 				UID:       uid,
 				Kind:      kind,
@@ -33,8 +33,6 @@ func New() *Store {
 			Revisions: revisions,
 		}
 	}
-
-	// ─── SCENARIO 1: nginx deployment rollout (default namespace) ───
 
 	addResource("uid-pod-nginx-1", "Pod", "nginx-7d4f8b-abc12", "default", true, []resource.Revision{
 		{
@@ -374,8 +372,6 @@ func New() *Store {
 		},
 	})
 
-	// ─── SCENARIO 2: api-server with CrashLoopBackOff ───
-
 	addResource("uid-pod-api", "Pod", "api-server-6b7c-xyz99", "default", false, []resource.Revision{
 		{
 			ID: 0x0010, EventType: resource.EventAdded, Time: now.Add(-15 * time.Minute), Object: map[string]any{
@@ -506,8 +502,6 @@ func New() *Store {
 		},
 	})
 
-	// ─── SCENARIO 3: kube-system resources ───
-
 	addResource("uid-pod-coredns", "Pod", "coredns-5644d8b9d-mn123", "kube-system", false, []resource.Revision{
 		{
 			ID: 0x0015, EventType: resource.EventAdded, Time: now.Add(-30 * time.Minute), Object: map[string]any{
@@ -551,8 +545,6 @@ func New() *Store {
 			Patch: map[string]any{"data": map[string]any{"Corefile": ".:53 {\n    errors\n    health\n    kubernetes cluster.local\n    forward . 8.8.8.8 8.8.4.4\n}"}},
 		},
 	})
-
-	// ─── SCENARIO 4: Operator reconcile burst ───
 
 	burstBase := now.Add(-1 * time.Minute)
 
@@ -687,8 +679,6 @@ func New() *Store {
 		},
 	})
 
-	// ─── SCENARIO 5: Reconcile loop ───
-
 	loopObj1 := map[string]any{
 		"apiVersion": "apps/v1", "kind": "Deployment",
 		"metadata": map[string]any{
@@ -732,7 +722,6 @@ func New() *Store {
 	}
 	addResource("uid-deploy-flaky", "Deployment", "flaky-operator-deploy", "default", false, loopRevisions)
 
-	// ─── Build timeline (newest first) ───
 	var timeline []resource.TimelineEntry
 	for _, rd := range resources {
 		for _, rev := range rd.Revisions {
@@ -746,15 +735,13 @@ func New() *Store {
 		return timeline[i].Revision.Time.After(timeline[j].Revision.Time)
 	})
 
-	// ─── Build kind groups ───
-	allResources := make([]*resource.ResourceData, 0, len(resources))
+	allResources := make([]*resource.Data, 0, len(resources))
 	for _, rd := range resources {
 		allResources = append(allResources, rd)
 	}
 	kindGroups := resource.BuildKindGroups(allResources)
 
-	// ─── Cluster Resource Types ───
-	clusterResourceTypes := []resource.ResourceKind{
+	clusterResourceTypes := []resource.Kind{
 		{Kind: "Secret", APIVersion: "v1", Resource: "secrets", Namespaced: true},
 		{Kind: "Ingress", APIVersion: "networking.k8s.io/v1", Resource: "ingresses", Namespaced: true},
 		{Kind: "CronJob", APIVersion: "batch/v1", Resource: "cronjobs", Namespaced: true},

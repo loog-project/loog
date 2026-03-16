@@ -153,17 +153,17 @@ func initConfig() {
 func run(ctx context.Context, args []string) error {
 	setupDebugLogger()
 
-	// ── Simulate mode: skip Kubernetes entirely, use simulated data ──
+	// Simulate mode: skip Kubernetes entirely, use simulated data
 	if simulateMode {
 		return runSimulateMode()
 	}
 
-	// ── Production mode: connect to Kubernetes ──
+	// Production mode: connect to Kubernetes
 	cleanup, prog, trackerService, rps, m, err := setupProduction(ctx, args)
+	defer cleanup()
 	if err != nil {
 		return err
 	}
-	defer cleanup()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -213,8 +213,8 @@ func setupDebugLogger() {
 func runSimulateMode() error {
 	setupLog.Info().Msg("Running in simulate mode with generated data")
 
-	store := simulation.New()
-	app := tui.NewApp(store, tui.WithSimulator(store))
+	simStore := simulation.New()
+	app := tui.NewApp(simStore, tui.WithSimulator(simStore))
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		setupLog.Error().Err(err).Msg("Error running TUI program")
@@ -568,7 +568,7 @@ func loadHistoryFromDB(
 	return err
 }
 
-func validateArgsAndFlags(cmd *cobra.Command, args []string) error {
+func validateArgsAndFlags(_ *cobra.Command, args []string) error {
 	// Simulate mode doesn't need resource args or output file
 	if simulateMode {
 		return nil

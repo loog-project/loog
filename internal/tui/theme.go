@@ -108,7 +108,7 @@ func (t Theme) InactiveTabStyle() lipgloss.Style {
 		Padding(0, 1)
 }
 
-// Text styles
+// MutedStyle returns a style for muted/subdued text.
 func (t Theme) MutedStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(t.Overlay0)
 }
@@ -129,7 +129,7 @@ func (t Theme) InfoStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(t.Sky)
 }
 
-// Syntax highlighting styles
+// SyntaxKeyStyle returns a style for YAML/JSON key highlighting.
 func (t Theme) SyntaxKeyStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(t.Blue)
 }
@@ -149,7 +149,7 @@ func (t Theme) SyntaxNullStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(t.Overlay0).Italic(true)
 }
 
-// Badge styles for resource tree indicators
+// HotBadgeStyle returns a style for hot resource indicators.
 func (t Theme) HotBadgeStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(t.Red).Bold(true)
 }

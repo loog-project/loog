@@ -21,7 +21,10 @@ import (
 
 // == Tests =================================================================
 
-func mustNewSvc(t *testing.T, snapshotEvery uint64, durable, withCache bool) (*service.TrackerService, *bboltStore.Store) {
+func mustNewSvc(t *testing.T, snapshotEvery uint64, durable, withCache bool) (
+	*service.TrackerService,
+	*bboltStore.Store,
+) {
 	t.Helper()
 	st, err := bboltStore.New(t.TempDir()+"/db.bb", nil, durable)
 	if err != nil {
@@ -54,13 +57,13 @@ func TestCommitRestore_RotationAndDiff(t *testing.T) {
 	uid := "uid-rot"
 	obj := newCM(uid)
 
-	// first commit → snapshot rev0
+	// first commit -> snapshot rev0
 	rev0, _ := svc.Commit(ctx, uid, obj.DeepCopy())
 	if rev0 != 0 {
 		t.Fatalf("want rev0=0, got %d", rev0)
 	}
 
-	// mutate three times → three patches
+	// mutate three times -> three patches
 	for i := 1; i <= 3; i++ {
 		obj.Object["data"].(diffmap.DiffMap)["val"] = "x" + strconv.Itoa(i)
 		rev, _ := svc.Commit(ctx, uid, obj.DeepCopy())
@@ -282,18 +285,20 @@ func benchCommit(b *testing.B, snapshotEvery uint64, durable, withCache bool) {
 		m[v] = v
 	}
 
-	// base object – simple unstructured with metadata.name mutated each loop.
-	base := &unstructured.Unstructured{Object: map[string]any{
-		"apiVersion": "v1",
-		"kind":       "ConfigMap",
-		"metadata": map[string]any{
-			"uid":        "bench-uid",
-			"namespace":  "default",
-			"name":       "cm-0",
-			"generation": int64(1),
+	// base object: simple unstructured with metadata.name mutated each loop.
+	base := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]any{
+				"uid":        "bench-uid",
+				"namespace":  "default",
+				"name":       "cm-0",
+				"generation": int64(1),
+			},
+			"data": m,
 		},
-		"data": m,
-	}}
+	}
 
 	objectID := "bench-uid"
 
@@ -340,17 +345,19 @@ func benchCommitWithOptions(b *testing.B, snapshotEvery uint64, withCache bool, 
 		m[v] = v
 	}
 
-	base := &unstructured.Unstructured{Object: map[string]any{
-		"apiVersion": "v1",
-		"kind":       "ConfigMap",
-		"metadata": map[string]any{
-			"uid":        "bench-uid",
-			"namespace":  "default",
-			"name":       "cm-0",
-			"generation": int64(1),
+	base := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]any{
+				"uid":        "bench-uid",
+				"namespace":  "default",
+				"name":       "cm-0",
+				"generation": int64(1),
+			},
+			"data": m,
 		},
-		"data": m,
-	}}
+	}
 
 	objectID := "bench-uid"
 

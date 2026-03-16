@@ -13,8 +13,7 @@ import (
 // payloadPool reuses buffers for type-tag + marshalled payload merging.
 var payloadPool = sync.Pool{
 	New: func() any {
-		b := make([]byte, 0, 2048)
-		return &b
+		return new(make([]byte, 0, 2048))
 	},
 }
 

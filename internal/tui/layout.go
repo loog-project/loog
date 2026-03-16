@@ -76,14 +76,13 @@ func ModalOverlay(modal, bg string, theme Theme) string {
 		inShadowRightVert := row >= shadowTop && row < modalTop+modalH
 		isBottomShadowRow := row == shadowBottomRow
 
-		// Fast path: rows outside modal/shadow — just dim
 		if !inModalVert && !inShadowRightVert && !isBottomShadowRow {
 			result[row] = dimLine(bgLine, bgW, dimStyle)
 			continue
 		}
 
 		// Build segments for this row
-		segs := buildRowSegments(row, bgW,
+		segs := buildRowSegments(bgW,
 			inModalVert, modalLeft, modalW,
 			inShadowRightVert, shadowRColStart, shadowRColEnd,
 			isBottomShadowRow, shadowBColStart, shadowBColEnd,
@@ -138,7 +137,7 @@ type segment struct {
 
 // buildRowSegments partitions [0, bgW) into typed segments (bg, modal, shadow).
 func buildRowSegments(
-	row, bgW int,
+	bgW int,
 	inModal bool, modalLeft, modalW int,
 	inShadowRight bool, shadowRColStart, shadowRColEnd int,
 	isBottomShadow bool, shadowBColStart, shadowBColEnd int,
@@ -161,7 +160,6 @@ func buildRowSegments(
 		specials = append(specials, interval{segShadow, shadowBColStart, end})
 	}
 
-	// Sort by start (insertion sort — at most 3 elements)
 	for i := 1; i < len(specials); i++ {
 		for j := i; j > 0 && specials[j].start < specials[j-1].start; j-- {
 			specials[j], specials[j-1] = specials[j-1], specials[j]
@@ -174,7 +172,7 @@ func buildRowSegments(
 		if sp.start > cursor {
 			segs = append(segs, segment{segBg, cursor, sp.start})
 		}
-		segs = append(segs, segment{sp.kind, sp.start, sp.end})
+		segs = append(segs, segment(sp))
 		cursor = sp.end
 	}
 	if cursor < bgW {
@@ -224,19 +222,15 @@ func SplitThreeColumns(left, middle, right string, height int) string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, sep, middle, sep, right)
 }
 
-// --- Panel Border ---
-
-// PanelBorder wraps content in a manually drawn rounded border with a title.
-// This avoids lipgloss.Border() + rune manipulation which breaks ANSI sequences.
-// The `width` and `height` are the OUTER dimensions (including the border).
-// The content should be pre-rendered to (width-2) x (height-2) inner dimensions.
-func PanelBorder(content, title string, width, height int, focused bool, theme Theme) string {
-	return PanelBorderEx(content, title, width, height, focused, theme, false, false)
-}
-
-// PanelBorderEx is like PanelBorder but with scroll indicators.
-// canScrollUp/canScrollDown add ▲/▼ indicators at the top-right/bottom-right of the border.
-func PanelBorderEx(content, title string, width, height int, focused bool, theme Theme, canScrollUp, canScrollDown bool) string {
+// PanelBorderEx draws a manually drawn rounded border with a title and scroll indicators.
+// canScrollUp/canScrollDown add up/down arrow indicators at the top-right/bottom-right of the border.
+func PanelBorderEx(
+	content, title string,
+	width, height int,
+	focused bool,
+	theme Theme,
+	canScrollUp, canScrollDown bool,
+) string {
 	if width < 4 || height < 3 {
 		return content
 	}

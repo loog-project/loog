@@ -57,8 +57,6 @@ func newSearchInput(prompt string, placeholder string, theme Theme, accentColor 
 	return ti
 }
 
-// ─── Resource Tree ───
-
 // ResourceTree is the left panel showing collapsible Kind > Resource groups.
 type ResourceTree struct {
 	width, height int
@@ -148,7 +146,7 @@ func (rt *ResourceTree) SelectByUID(uid string) {
 		}
 	}
 
-	// Not visible — find the kind group and expand it
+	// Not visible: find the kind group and expand it
 	for _, g := range rt.groups {
 		for _, rd := range g.Resources {
 			if rd.Resource.UID == uid {
@@ -618,8 +616,8 @@ func (rt *ResourceTree) View() string {
 				}
 
 				indicator := lipgloss.NewStyle().Foreground(rt.theme.Overlay0).Render("○")
-				if rd.LatestRevision() != nil {
-					age := RelativeTime(rd.LatestRevision().Time)
+				if latestRev := rd.LatestRevision(); latestRev != nil {
+					age := RelativeTime(latestRev.Time)
 					if age == "now" || strings.HasSuffix(age, "s") {
 						indicator = lipgloss.NewStyle().Foreground(rt.theme.Peach).Render("●")
 					}
@@ -693,54 +691,72 @@ func (rt *ResourceTree) View() string {
 	return strings.Join(lines, "\n")
 }
 
-// renderFilterBar renders the bottom filter/status line.
-func (rt *ResourceTree) renderFilterBar() string {
-	sepStyle := lipgloss.NewStyle().Foreground(rt.theme.Surface1)
-	sep := sepStyle.Render("─")
+// renderFilterBarCommon renders the bottom filter/status line shared by
+// ResourceTree and TimelineList.
+func renderFilterBarCommon(
+	theme Theme,
+	width int,
+	editing bool,
+	applied bool,
+	filterValid bool,
+	filterValue string,
+	filterView string,
+	matchCount, totalCount int,
+	starredOnly bool,
+) string {
+	sep := lipgloss.NewStyle().Foreground(theme.Surface1).Render("─")
 
-	if rt.filterEditing {
-		matchCount, totalCount := rt.FilterCounts()
+	if editing {
 		var icon string
-		if rt.filterProg != nil {
-			icon = lipgloss.NewStyle().Foreground(rt.theme.Green).Render("✓")
-		} else if rt.filterTextInput.Value() != "" {
-			icon = lipgloss.NewStyle().Foreground(rt.theme.Peach).Render("!")
+		if filterValid {
+			icon = lipgloss.NewStyle().Foreground(theme.Green).Render("✓")
+		} else if filterValue != "" {
+			icon = lipgloss.NewStyle().Foreground(theme.Peach).Render("!")
 		}
-		counts := lipgloss.NewStyle().Foreground(rt.theme.Overlay0).Render(fmt.Sprintf(" %d/%d", matchCount, totalCount))
-		bar := sep + rt.filterTextInput.View() + counts
+		counts := lipgloss.NewStyle().Foreground(theme.Overlay0).Render(fmt.Sprintf(" %d/%d", matchCount, totalCount))
+		bar := sep + filterView + counts
 		if icon != "" {
 			bar += " " + icon
 		}
-		return PadRight(bar, rt.width)
+		return PadRight(bar, width)
 	}
 
-	if rt.filterApplied && rt.filterTextInput.Value() != "" {
-		matchCount, totalCount := rt.FilterCounts()
+	if applied && filterValue != "" {
 		var icon string
-		if rt.filterProg != nil {
-			icon = lipgloss.NewStyle().Foreground(rt.theme.Green).Render("✓")
+		if filterValid {
+			icon = lipgloss.NewStyle().Foreground(theme.Green).Render("✓")
 		} else {
-			icon = lipgloss.NewStyle().Foreground(rt.theme.Peach).Render("!")
+			icon = lipgloss.NewStyle().Foreground(theme.Peach).Render("!")
 		}
-		prefix := lipgloss.NewStyle().Foreground(rt.theme.Overlay1).Render("/")
-		input := lipgloss.NewStyle().Foreground(rt.theme.Text).Render(rt.filterTextInput.Value())
-		counts := lipgloss.NewStyle().Foreground(rt.theme.Overlay0).Render(fmt.Sprintf(" %d/%d", matchCount, totalCount))
+		prefix := lipgloss.NewStyle().Foreground(theme.Overlay1).Render("/")
+		input := lipgloss.NewStyle().Foreground(theme.Text).Render(filterValue)
+		counts := lipgloss.NewStyle().Foreground(theme.Overlay0).Render(fmt.Sprintf(" %d/%d", matchCount, totalCount))
 		bar := sep + prefix + input + counts + " " + icon
-		return PadRight(bar, rt.width)
+		return PadRight(bar, width)
 	}
 
 	// Inactive: show dim hint
 	var badges []string
-	if rt.starredOnly {
-		badges = append(badges, lipgloss.NewStyle().Foreground(rt.theme.Yellow).Render("★ starred"))
+	if starredOnly {
+		badges = append(badges, lipgloss.NewStyle().Foreground(theme.Yellow).Render("★ starred"))
 	}
-	hint := lipgloss.NewStyle().Foreground(rt.theme.Surface2).Render("/ filter")
+	hint := lipgloss.NewStyle().Foreground(theme.Surface2).Render("/ filter")
 	badges = append(badges, hint)
 	bar := sep + strings.Join(badges, " ")
-	return PadRight(bar, rt.width)
+	return PadRight(bar, width)
 }
 
-// ─── Revision List ───
+// renderFilterBar renders the bottom filter/status line.
+func (rt *ResourceTree) renderFilterBar() string {
+	matchCount, totalCount := rt.FilterCounts()
+	return renderFilterBarCommon(
+		rt.theme, rt.width,
+		rt.filterEditing, rt.filterApplied,
+		rt.filterProg != nil, rt.filterTextInput.Value(), rt.filterTextInput.View(),
+		matchCount, totalCount,
+		rt.starredOnly,
+	)
+}
 
 // RevisionList shows the revision history for a selected resource.
 type RevisionList struct {
@@ -1032,7 +1048,7 @@ func (rl *RevisionList) View() string {
 	countStr := lipgloss.NewStyle().Foreground(rl.theme.Overlay0).Render(fmt.Sprintf(" (%d)", total))
 	titleLine := " " + title + countStr
 	if loopInfo.IsLoop {
-		// Compact loop indicator: "↻ A↔B x3 ~30s"
+		// Compact loop indicator: "loop A<->B x3 ~30s"
 		// Uses the pre-built PatternSample from AnalyzeLoop and fits within available width.
 		loopStr := fmt.Sprintf(" ↻ %s", loopInfo.PatternSample)
 		if loopInfo.Cycles > 0 {
@@ -1161,8 +1177,6 @@ func (rl *RevisionList) View() string {
 
 	return strings.Join(lines, "\n")
 }
-
-// ─── Detail View ───
 
 // DetailView renders the diff/object/patch/JSON for a selected revision.
 type DetailView struct {
@@ -1302,7 +1316,7 @@ func (dv *DetailView) renderDiff(rev Revision) string {
 	})
 }
 
-// renderRaw shows the revision as a raw database record — useful for debugging.
+// renderRaw shows the revision as a raw database record.
 func (dv *DetailView) renderRaw(rev Revision) string {
 	var lines []string
 	headerStyle := lipgloss.NewStyle().Foreground(dv.theme.Lavender).Bold(true)
@@ -1409,10 +1423,12 @@ func (dv *DetailView) Update(msg tea.Msg) tea.Cmd {
 		case "t":
 			if dv.resource != nil && dv.revIndex < len(dv.resource.Revisions) {
 				rev := dv.resource.Revisions[dv.revIndex]
-				return Cmd(JumpToTimelineMsg{Entry: TimelineEntry{
-					Resource: dv.resource.Resource,
-					Revision: rev,
-				}})
+				return Cmd(JumpToTimelineMsg{
+					Entry: TimelineEntry{
+						Resource: dv.resource.Resource,
+						Revision: rev,
+					},
+				})
 			}
 		case "[":
 			if dv.resource != nil && dv.revIndex > 0 {
@@ -1438,8 +1454,6 @@ func (dv *DetailView) Update(msg tea.Msg) tea.Cmd {
 func (dv *DetailView) View() string {
 	return dv.viewport.View()
 }
-
-// ─── Timeline List ───
 
 // TimelineList shows a chronological cross-resource event stream.
 type TimelineList struct {
@@ -1468,7 +1482,7 @@ type TimelineList struct {
 	filterApplied   bool            // true after user pressed Enter to apply filter
 	filterProg      *vm.Program     // compiled expr-lang program (nil for substring match)
 
-	// Display-only flag so the filter bar can show a ★ badge
+	// Display-only flag so the filter bar can show a star badge
 	starredOnly bool
 }
 
@@ -1725,12 +1739,11 @@ func (tl *TimelineList) buildFlatItems() {
 	for _, g := range tl.groups {
 		switch v := g.(type) {
 		case TimelineEntry:
-			tl.flatItems = append(tl.flatItems, timelineFlatItem{entry: &v})
+			tl.flatItems = append(tl.flatItems, timelineFlatItem{entry: new(v)})
 		case BurstGroup:
 			for i, e := range v.Entries {
-				entry := e
 				item := timelineFlatItem{
-					entry:     &entry,
+					entry:     new(e),
 					burstSize: len(v.Entries),
 				}
 				if i == 0 {
@@ -1995,52 +2008,15 @@ func (tl *TimelineList) View() string {
 
 // renderFilterBar renders the bottom filter/status line.
 func (tl *TimelineList) renderFilterBar() string {
-	sepStyle := lipgloss.NewStyle().Foreground(tl.theme.Surface1)
-	sep := sepStyle.Render("─")
-
-	if tl.filterEditing {
-		matchCount, totalCount := tl.FilterCounts()
-		var icon string
-		if tl.filterProg != nil {
-			icon = lipgloss.NewStyle().Foreground(tl.theme.Green).Render("✓")
-		} else if tl.filterTextInput.Value() != "" {
-			icon = lipgloss.NewStyle().Foreground(tl.theme.Peach).Render("!")
-		}
-		counts := lipgloss.NewStyle().Foreground(tl.theme.Overlay0).Render(fmt.Sprintf(" %d/%d", matchCount, totalCount))
-		bar := sep + tl.filterTextInput.View() + counts
-		if icon != "" {
-			bar += " " + icon
-		}
-		return PadRight(bar, tl.width)
-	}
-
-	if tl.filterApplied && tl.filterTextInput.Value() != "" {
-		matchCount, totalCount := tl.FilterCounts()
-		var icon string
-		if tl.filterProg != nil {
-			icon = lipgloss.NewStyle().Foreground(tl.theme.Green).Render("✓")
-		} else {
-			icon = lipgloss.NewStyle().Foreground(tl.theme.Peach).Render("!")
-		}
-		prefix := lipgloss.NewStyle().Foreground(tl.theme.Overlay1).Render("/")
-		input := lipgloss.NewStyle().Foreground(tl.theme.Text).Render(tl.filterTextInput.Value())
-		counts := lipgloss.NewStyle().Foreground(tl.theme.Overlay0).Render(fmt.Sprintf(" %d/%d", matchCount, totalCount))
-		bar := sep + prefix + input + counts + " " + icon
-		return PadRight(bar, tl.width)
-	}
-
-	// Inactive: show dim hint with optional starred badge
-	var badges []string
-	if tl.starredOnly {
-		badges = append(badges, lipgloss.NewStyle().Foreground(tl.theme.Yellow).Render("★ starred"))
-	}
-	hint := lipgloss.NewStyle().Foreground(tl.theme.Surface2).Render("/ filter")
-	badges = append(badges, hint)
-	bar := sep + strings.Join(badges, " ")
-	return PadRight(bar, tl.width)
+	matchCount, totalCount := tl.FilterCounts()
+	return renderFilterBarCommon(
+		tl.theme, tl.width,
+		tl.filterEditing, tl.filterApplied,
+		tl.filterProg != nil, tl.filterTextInput.Value(), tl.filterTextInput.View(),
+		matchCount, totalCount,
+		tl.starredOnly,
+	)
 }
-
-// ─── Compare Panel ───
 
 // ComparePanel renders side-by-side YAML comparison.
 type ComparePanel struct {
@@ -2102,7 +2078,7 @@ func (cp *ComparePanel) renderContent() {
 	}
 
 	if cp.left != nil && cp.right != nil {
-		// Both sides available — compute diff and highlight changes
+		// Both sides available: compute diff and highlight changes
 		node := diffpreview.Diff(cp.left.Revision.Object, cp.right.Revision.Object)
 		diffRendered := diffpreview.RenderYAML(node, dpTheme, renderOpts)
 		// Show the diff on both sides: left = old, right = new (diff shows both)

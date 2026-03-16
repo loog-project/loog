@@ -1,6 +1,6 @@
 // Package adapter bridges the production backend (TrackerService, ResourcePatchStore)
 // to the new TUI's Store interface. It provides LiveStore (thread-safe, in-memory)
-// and TUIRevisionHandler (collector → TUI message bridge).
+// and TUIRevisionHandler (collector -> TUI message bridge).
 package adapter
 
 import (
@@ -17,7 +17,7 @@ type LiveStore struct {
 	mu sync.RWMutex
 
 	// Core data indexed by UID
-	resources map[string]*resource.ResourceData
+	resources map[string]*resource.Data
 
 	// Timeline: newest-first
 	timeline []resource.TimelineEntry
@@ -29,7 +29,7 @@ type LiveStore struct {
 	watchedKinds map[string]bool
 
 	// Unwatched kinds available on the cluster (populated externally)
-	unwatchedKinds []resource.ResourceKind
+	unwatchedKinds []resource.Kind
 
 	// Cached totals for fast access
 	totalRevisions int
@@ -38,12 +38,10 @@ type LiveStore struct {
 // NewLiveStore creates an empty LiveStore.
 func NewLiveStore() *LiveStore {
 	return &LiveStore{
-		resources:    make(map[string]*resource.ResourceData),
+		resources:    make(map[string]*resource.Data),
 		watchedKinds: make(map[string]bool),
 	}
 }
-
-// ── Ingestion (called from collector goroutine) ──
 
 // IngestRevision adds a revision for a resource. If the resource doesn't exist yet,
 // it is created. This is thread-safe and designed for high-throughput ingestion.
@@ -56,7 +54,7 @@ func (s *LiveStore) IngestRevision(
 
 	rd, exists := s.resources[uid]
 	if !exists {
-		rd = &resource.ResourceData{
+		rd = &resource.Data{
 			Resource: resource.Resource{
 				UID:       uid,
 				Kind:      kind,
@@ -82,19 +80,17 @@ func (s *LiveStore) IngestRevision(
 	s.timeline[0] = entry
 }
 
-// ── Query Methods (tui.Store interface) ──
-
-func (s *LiveStore) AllResources() []*resource.ResourceData {
+func (s *LiveStore) AllResources() []*resource.Data {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.allResourcesLocked()
 }
 
-func (s *LiveStore) StarredResources() []*resource.ResourceData {
+func (s *LiveStore) StarredResources() []*resource.Data {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var result []*resource.ResourceData
+	var result []*resource.Data
 	for _, rd := range s.resources {
 		if rd.Resource.Starred {
 			result = append(result, rd)
@@ -103,7 +99,7 @@ func (s *LiveStore) StarredResources() []*resource.ResourceData {
 	return result
 }
 
-func (s *LiveStore) GetResource(uid string) *resource.ResourceData {
+func (s *LiveStore) GetResource(uid string) *resource.Data {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.resources[uid]
@@ -121,7 +117,7 @@ func (s *LiveStore) TotalRevisionCount() int {
 	return s.totalRevisions
 }
 
-func (s *LiveStore) FilterResources(expr string) []*resource.ResourceData {
+func (s *LiveStore) FilterResources(expr string) []*resource.Data {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -131,7 +127,7 @@ func (s *LiveStore) FilterResources(expr string) []*resource.ResourceData {
 
 	prog := resource.CompileFilter(expr)
 	lower := strings.ToLower(expr)
-	var result []*resource.ResourceData
+	var result []*resource.Data
 	for _, rd := range s.resources {
 		if resource.MatchesFilterOrSubstring(prog, rd.Resource, lower) {
 			result = append(result, rd)
@@ -225,7 +221,7 @@ func (s *LiveStore) RevisionCountByKind(kind string) int {
 	return count
 }
 
-func (s *LiveStore) UnwatchedKinds() []resource.ResourceKind {
+func (s *LiveStore) UnwatchedKinds() []resource.Kind {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -234,9 +230,7 @@ func (s *LiveStore) UnwatchedKinds() []resource.ResourceKind {
 	return s.unwatchedKinds
 }
 
-// ── Mutation Methods (tui.Store interface) ──
-
-func (s *LiveStore) AddWatchKind(rk resource.ResourceKind) []*resource.ResourceData {
+func (s *LiveStore) AddWatchKind(rk resource.Kind) []*resource.Data {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -326,7 +320,7 @@ func (s *LiveStore) RebuildKindGroups() {
 	s.kindGroups = resource.BuildKindGroups(all)
 }
 
-func (s *LiveStore) ForEachResource(fn func(uid string, rd *resource.ResourceData)) {
+func (s *LiveStore) ForEachResource(fn func(uid string, rd *resource.Data)) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -335,18 +329,14 @@ func (s *LiveStore) ForEachResource(fn func(uid string, rd *resource.ResourceDat
 	}
 }
 
-// ── External Configuration ──
-
 // SetUnwatchedKinds sets the list of unwatched resource kinds available on the cluster.
-func (s *LiveStore) SetUnwatchedKinds(kinds []resource.ResourceKind) {
+func (s *LiveStore) SetUnwatchedKinds(kinds []resource.Kind) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.unwatchedKinds = kinds
 }
 
-// ── Internal helpers ──
-
-func sortByKindName(rds []*resource.ResourceData) {
+func sortByKindName(rds []*resource.Data) {
 	sort.Slice(rds, func(i, j int) bool {
 		if rds[i].Resource.Kind != rds[j].Resource.Kind {
 			return rds[i].Resource.Kind < rds[j].Resource.Kind
@@ -355,8 +345,8 @@ func sortByKindName(rds []*resource.ResourceData) {
 	})
 }
 
-func (s *LiveStore) allResourcesLocked() []*resource.ResourceData {
-	result := make([]*resource.ResourceData, 0, len(s.resources))
+func (s *LiveStore) allResourcesLocked() []*resource.Data {
+	result := make([]*resource.Data, 0, len(s.resources))
 	for _, rd := range s.resources {
 		result = append(result, rd)
 	}

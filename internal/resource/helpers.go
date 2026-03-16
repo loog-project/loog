@@ -13,7 +13,7 @@ import (
 // BuildKindGroups organizes resources into kind groups for tree display.
 // Groups are sorted in a preferred Kubernetes kind order, and resources
 // within each group are sorted by name.
-func BuildKindGroups(resources []*ResourceData) []*KindGroup {
+func BuildKindGroups(resources []*Data) []*KindGroup {
 	kindMap := make(map[string]*KindGroup)
 	for _, rd := range resources {
 		k := rd.Resource.Kind
@@ -124,8 +124,6 @@ func CloneMap(m map[string]any) map[string]any {
 	return result
 }
 
-// ── Filter Evaluation ──
-
 // resourceFilterEnv is an expr-lang environment that evaluates filter expressions
 // against in-memory Resource data. It mirrors the method signatures from
 // internal/util.EventEntryEnv but operates on Resource fields instead of
@@ -169,12 +167,12 @@ func (e resourceFilterEnv) Namespaced(namespace, name string) bool {
 }
 
 func (e resourceFilterEnv) LabelExists(_ ...string) bool {
-	// Labels are not stored in Resource — always match (conservative).
+	// Labels are not stored in Resource - always match (conservative).
 	return true
 }
 
 func (e resourceFilterEnv) Label(_, _ string) bool {
-	// Labels are not stored in Resource — always match (conservative).
+	// Labels are not stored in Resource - always match (conservative).
 	return true
 }
 

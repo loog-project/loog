@@ -283,6 +283,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.updateHint()
 					return a, cmd
 				}
+			default:
 			}
 			return a, nil
 
@@ -438,6 +439,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.explorer.detail.SetViewMode(msg.Mode)
 		case TimelineView:
 			a.timeline.detail.SetViewMode(msg.Mode)
+		default:
 		}
 
 	case CompareMarkMsg:
@@ -677,35 +679,34 @@ func (a *App) View() string {
 	)
 
 	// Overlay rendering
-	if a.commandPalette.IsVisible() {
-		paletteView := a.commandPalette.View()
-		mainView = ModalOverlay(paletteView, mainView, a.theme)
-	}
-	if a.helpOverlay.IsVisible() {
-		helpView := a.helpOverlay.View()
-		mainView = ModalOverlay(helpView, mainView, a.theme)
-	}
-	if a.quickSearch.IsVisible() {
-		qsView := a.quickSearch.View()
-		mainView = ModalOverlay(qsView, mainView, a.theme)
-	}
-	if a.watchManager.IsVisible() {
-		wmView := a.watchManager.View()
-		mainView = ModalOverlay(wmView, mainView, a.theme)
-	}
-	if a.debugLogViewer.IsVisible() {
-		dlView := a.debugLogViewer.View()
-		mainView = ModalOverlay(dlView, mainView, a.theme)
-	}
-	if a.devConsole.IsVisible() {
-		dcView := a.devConsole.View()
-		mainView = ModalOverlay(dcView, mainView, a.theme)
+	for _, ov := range a.overlays() {
+		if ov.IsVisible() {
+			mainView = ModalOverlay(ov.View(), mainView, a.theme)
+		}
 	}
 
 	return mainView
 }
 
 // --- Internal Methods ---
+
+// overlay is the common interface for all modal overlays.
+type overlay interface {
+	IsVisible() bool
+	View() string
+}
+
+// overlays returns all overlay components in rendering order.
+func (a *App) overlays() []overlay {
+	return []overlay{
+		a.commandPalette,
+		a.helpOverlay,
+		a.quickSearch,
+		a.watchManager,
+		a.debugLogViewer,
+		a.devConsole,
+	}
+}
 
 func (a *App) layout() {
 	a.header.SetSize(a.width)
@@ -739,6 +740,7 @@ func (a *App) nextPanel() {
 		a.explorer.NextPanel()
 	case TimelineView:
 		a.timeline.NextPanel()
+	default:
 	}
 }
 
@@ -748,6 +750,7 @@ func (a *App) prevPanel() {
 		a.explorer.PrevPanel()
 	case TimelineView:
 		a.timeline.PrevPanel()
+	default:
 	}
 }
 
@@ -761,6 +764,7 @@ func (a *App) focusPanel(p PanelID) {
 		} else {
 			a.timeline.SetFocusPanel(PanelLeft)
 		}
+	default:
 	}
 }
 
@@ -771,8 +775,9 @@ func (a *App) isFilterEditing() bool {
 		return a.explorer.IsFilterEditing()
 	case TimelineView:
 		return a.timeline.IsFilterEditing()
+	default:
+		return false
 	}
-	return false
 }
 
 func (a *App) updateActiveView(msg tea.Msg) tea.Cmd {
@@ -814,11 +819,6 @@ func (a *App) toggleStar(uid string) {
 	} else {
 		a.setStatus("Unstarred: "+rd.Resource.KindName(), false)
 	}
-}
-
-func (a *App) applyFilter() {
-	a.refreshExplorerGroups()
-	a.refreshTimeline()
 }
 
 // refreshExplorerGroups rebuilds the explorer tree with unfiltered data.
@@ -910,7 +910,7 @@ func (a *App) handleSimulationTick(resourceUID string) {
 		return
 	}
 
-	// Generate and add the new revision to the store (always — even when frozen)
+	// Generate and add the new revision to the store (always, even when frozen)
 	newRev := a.simulator.GenerateRevision(rd)
 	a.store.AddRevision(resourceUID, newRev)
 	a.debugLog.Debug("sim", "new rev %s for %s (%s)", newRev.ID, rd.Resource.KindName(), newRev.EventType)
@@ -930,7 +930,7 @@ func (a *App) handleSimulationTick(resourceUID string) {
 		return
 	}
 
-	// Not frozen — update all views normally
+	// Not frozen: update all views normally
 	a.refreshViewsAfterNewRevision(resourceUID)
 }
 
@@ -953,7 +953,7 @@ func (a *App) handleLiveRevision(resourceUID string) {
 		return
 	}
 
-	// Not frozen — refresh all views
+	// Not frozen: refresh all views
 	a.refreshViewsAfterNewRevision(resourceUID)
 }
 

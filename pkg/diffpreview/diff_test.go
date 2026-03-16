@@ -657,7 +657,7 @@ func TestFindMatchKey_ScalarList(t *testing.T) {
 }
 
 func TestFindMatchKey_Priority(t *testing.T) {
-	// Both "name" and "type" present — "name" has higher priority.
+	// Both "name" and "type" present: "name" has higher priority.
 	a := []any{map[string]any{"name": "a", "type": "x"}}
 	b := []any{map[string]any{"name": "b", "type": "y"}}
 	if key := findMatchKey(a, b); key != "name" {
@@ -695,7 +695,7 @@ func TestAllMapsHaveKey_OnlyScalars(t *testing.T) {
 // --- Edge cases --------------------------------------------------------
 
 func TestDiff_MapToScalar(t *testing.T) {
-	// a has a nested map, b has a scalar at the same key — this is a type change.
+	// a has a nested map, b has a scalar at the same key -> type change.
 	a := map[string]any{"value": map[string]any{"nested": true}}
 	b := map[string]any{"value": "flat"}
 

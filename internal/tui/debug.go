@@ -12,8 +12,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// ─── Debug Log Ring Buffer ───
-
 // LogLevel categorizes debug log messages.
 type LogLevel int
 
@@ -80,7 +78,7 @@ func (dl *DebugLog) Log(level LogLevel, source, format string, args ...any) {
 	if dl.count < dl.maxSize {
 		dl.count++
 	} else {
-		// Buffer is full — overwrite oldest and advance head
+		// Buffer is full: overwrite oldest and advance head
 		dl.head = (dl.head + 1) % dl.maxSize
 	}
 	dl.entries[idx] = entry
@@ -117,8 +115,6 @@ func (dl *DebugLog) Clear() {
 	dl.head = 0
 	dl.count = 0
 }
-
-// ─── Debug Log Viewer Overlay ───
 
 // DebugLogViewer is a scrollable overlay that shows the debug ring buffer.
 type DebugLogViewer struct {
@@ -295,8 +291,6 @@ func (dlv *DebugLogViewer) View() string {
 
 	return dialog
 }
-
-// ─── Developer Console ───
 
 // DevConsole is a simple command-line console for development/debugging.
 type DevConsole struct {
@@ -507,7 +501,10 @@ func (dc *DevConsole) execute(cmd string) {
 		prefix := parts[1]
 		revIdx := -1
 		if len(parts) >= 3 {
-			fmt.Sscanf(parts[2], "%d", &revIdx)
+			if _, err := fmt.Sscanf(parts[2], "%d", &revIdx); err != nil {
+				dc.outputError("Invalid revision index: " + parts[2])
+				break
+			}
 		}
 		found := false
 		dc.store.ForEachResource(func(uid string, rd *ResourceData) {

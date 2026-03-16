@@ -103,9 +103,9 @@ func gvrCompletion(_ *cobra.Command, _ []string, _ string) ([]string, cobra.Shel
 }
 
 // loadClusterResourceKinds discovers all watchable resource types from the cluster
-// and returns them as []resource.ResourceKind for use by the WatchManager.
+// and returns them as []resource.Kind for use by the WatchManager.
 // It reuses the same discovery API as loadClusterGVRs but extracts richer metadata.
-func loadClusterResourceKinds(kubeConfigPath string) ([]resource.ResourceKind, error) {
+func loadClusterResourceKinds(kubeConfigPath string) ([]resource.Kind, error) {
 	cfg, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("building kube config: %w", err)
@@ -123,7 +123,7 @@ func loadClusterResourceKinds(kubeConfigPath string) ([]resource.ResourceKind, e
 		}
 	}
 
-	var kinds []resource.ResourceKind
+	var kinds []resource.Kind
 	seen := make(map[string]bool) // deduplicate by Kind name
 	for _, list := range lists {
 		if len(list.APIResources) == 0 {
@@ -151,7 +151,7 @@ func loadClusterResourceKinds(kubeConfigPath string) ([]resource.ResourceKind, e
 				continue
 			}
 			seen[res.Kind] = true
-			kinds = append(kinds, resource.ResourceKind{
+			kinds = append(kinds, resource.Kind{
 				Kind:       res.Kind,
 				APIVersion: gv,
 				Resource:   res.Name,

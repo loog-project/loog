@@ -10,6 +10,41 @@ import (
 	"github.com/sahilm/fuzzy"
 )
 
+// fuzzyMatchAll performs a fuzzy search on names. When the query is empty all
+// names are returned as identity matches. The cursor is clamped to the result
+// length.
+func fuzzyMatchAll(query string, names []string, cursor int) ([]fuzzy.Match, int) {
+	var matches []fuzzy.Match
+	if query == "" {
+		matches = make([]fuzzy.Match, len(names))
+		for i, name := range names {
+			matches[i] = fuzzy.Match{Str: name, Index: i}
+		}
+	} else {
+		matches = fuzzy.Find(query, names)
+	}
+	if cursor >= len(matches) {
+		cursor = 0
+	}
+	return matches, cursor
+}
+
+// renderListLine builds a single padded, optionally highlighted line with a
+// left-aligned label and right-aligned info string.
+func renderListLine(name, info string, width int, selected bool, bgColor lipgloss.Color) string {
+	line := " " + name
+	lineW := lipgloss.Width(line)
+	infoW := lipgloss.Width(info)
+	gap := max(width-lineW-infoW, 1)
+	line += strings.Repeat(" ", gap) + info
+
+	padded := PadRight(line, width)
+	if selected {
+		padded = lipgloss.NewStyle().Background(bgColor).Bold(true).Render(padded)
+	}
+	return padded
+}
+
 // CommandPalette is a fuzzy-searchable modal overlay.
 type CommandPalette struct {
 	width, height int
@@ -55,20 +90,7 @@ func (cp *CommandPalette) Hide() {
 }
 
 func (cp *CommandPalette) updateMatches() {
-	names := cp.registry.Names()
-	q := cp.queryInput.Value()
-	if q == "" {
-		// Show all commands
-		cp.matches = make([]fuzzy.Match, len(names))
-		for i, name := range names {
-			cp.matches[i] = fuzzy.Match{Str: name, Index: i}
-		}
-	} else {
-		cp.matches = fuzzy.Find(q, names)
-	}
-	if cp.cursor >= len(cp.matches) {
-		cp.cursor = 0
-	}
+	cp.matches, cp.cursor = fuzzyMatchAll(cp.queryInput.Value(), cp.registry.Names(), cp.cursor)
 }
 
 func (cp *CommandPalette) Update(msg tea.Msg) tea.Cmd {
@@ -256,9 +278,7 @@ func (cp *CommandPalette) View() string {
 	return dialog
 }
 
-// ─── Quick Search ───
 // QuickSearch is a fuzzy resource finder overlay triggered by // (slash-slash).
-
 type QuickSearch struct {
 	width, height int
 	theme         Theme
@@ -308,18 +328,7 @@ func (qs *QuickSearch) Hide() {
 }
 
 func (qs *QuickSearch) updateMatches() {
-	q := qs.queryInput.Value()
-	if q == "" {
-		qs.matches = make([]fuzzy.Match, len(qs.names))
-		for i, name := range qs.names {
-			qs.matches[i] = fuzzy.Match{Str: name, Index: i}
-		}
-	} else {
-		qs.matches = fuzzy.Find(q, qs.names)
-	}
-	if qs.cursor >= len(qs.matches) {
-		qs.cursor = 0
-	}
+	qs.matches, qs.cursor = fuzzyMatchAll(qs.queryInput.Value(), qs.names, qs.cursor)
 }
 
 func (qs *QuickSearch) Update(msg tea.Msg) tea.Cmd {
@@ -433,19 +442,7 @@ func (qs *QuickSearch) View() string {
 		}
 
 		info := strings.Join(badges, " ")
-		line := " " + name
-		lineW := lipgloss.Width(line)
-		infoW := lipgloss.Width(info)
-		gap := max(contentW-lineW-infoW, 1)
-		line += strings.Repeat(" ", gap) + info
-
-		padded := PadRight(line, contentW)
-		if isSelected {
-			padded = lipgloss.NewStyle().
-				Background(qs.theme.Surface0).Bold(true).
-				Render(padded)
-		}
-		matchLines = append(matchLines, padded)
+		matchLines = append(matchLines, renderListLine(name, info, contentW, isSelected, qs.theme.Surface0))
 	}
 
 	if len(matchLines) == 0 {
@@ -474,11 +471,6 @@ func (qs *QuickSearch) View() string {
 
 	return dialog
 }
-
-// ─── Watch Manager ───
-// WatchManager is a two-tab overlay for managing watched resource types (kinds).
-// Tab "Watching": shows currently watched resource kinds with counts.
-// Tab "Add": fuzzy search available resource types from the cluster, Enter to add.
 
 type watchManagerTab int
 
@@ -576,33 +568,11 @@ func (wm *WatchManager) Hide() {
 }
 
 func (wm *WatchManager) updateWatchMatches() {
-	q := wm.watchFilterInput.Value()
-	if q == "" {
-		wm.watchMatches = make([]fuzzy.Match, len(wm.watchNames))
-		for i, name := range wm.watchNames {
-			wm.watchMatches[i] = fuzzy.Match{Str: name, Index: i}
-		}
-	} else {
-		wm.watchMatches = fuzzy.Find(q, wm.watchNames)
-	}
-	if wm.watchCursor >= len(wm.watchMatches) {
-		wm.watchCursor = 0
-	}
+	wm.watchMatches, wm.watchCursor = fuzzyMatchAll(wm.watchFilterInput.Value(), wm.watchNames, wm.watchCursor)
 }
 
 func (wm *WatchManager) updateAddMatches() {
-	q := wm.addQueryInput.Value()
-	if q == "" {
-		wm.addMatches = make([]fuzzy.Match, len(wm.addNames))
-		for i, name := range wm.addNames {
-			wm.addMatches[i] = fuzzy.Match{Str: name, Index: i}
-		}
-	} else {
-		wm.addMatches = fuzzy.Find(q, wm.addNames)
-	}
-	if wm.addCursor >= len(wm.addMatches) {
-		wm.addCursor = 0
-	}
+	wm.addMatches, wm.addCursor = fuzzyMatchAll(wm.addQueryInput.Value(), wm.addNames, wm.addCursor)
 }
 
 func (wm *WatchManager) Update(msg tea.Msg) tea.Cmd {
@@ -823,17 +793,7 @@ func (wm *WatchManager) viewWatching(contentW int) string {
 		countText := lipgloss.NewStyle().Foreground(wm.theme.Overlay1).
 			Render(fmt.Sprintf("%d resources, %d revs", entry.ResourceCount, entry.RevisionCount))
 
-		line := " " + name
-		lineW := lipgloss.Width(line)
-		infoW := lipgloss.Width(countText)
-		gap := max(contentW-lineW-infoW, 1)
-		line += strings.Repeat(" ", gap) + countText
-
-		padded := PadRight(line, contentW)
-		if isSelected {
-			padded = lipgloss.NewStyle().Background(wm.theme.Surface0).Bold(true).Render(padded)
-		}
-		lines = append(lines, padded)
+		lines = append(lines, renderListLine(name, countText, contentW, isSelected, wm.theme.Surface0))
 	}
 
 	if len(lines) == 0 {
@@ -884,17 +844,7 @@ func (wm *WatchManager) viewAdd(contentW int) string {
 		}
 		info := apiText + "  " + scopeText
 
-		line := " " + name
-		lineW := lipgloss.Width(line)
-		infoW := lipgloss.Width(info)
-		gap := max(contentW-lineW-infoW, 1)
-		line += strings.Repeat(" ", gap) + info
-
-		padded := PadRight(line, contentW)
-		if isSelected {
-			padded = lipgloss.NewStyle().Background(wm.theme.Surface0).Bold(true).Render(padded)
-		}
-		lines = append(lines, padded)
+		lines = append(lines, renderListLine(name, info, contentW, isSelected, wm.theme.Surface0))
 	}
 
 	if len(lines) == 0 {

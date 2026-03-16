@@ -4,9 +4,7 @@ import tea "github.com/charmbracelet/bubbletea"
 
 // Store is the data source interface consumed by the TUI.
 // Both the simulation package and the production adapter (adapter.LiveStore) implement this.
-// The interface contains only data access and mutation methods — no simulation logic.
 type Store interface {
-	// ── Query Methods ──
 
 	// AllResources returns all tracked resources, sorted by kind then name.
 	AllResources() []*ResourceData
@@ -47,8 +45,6 @@ type Store interface {
 	// UnwatchedKinds returns resource types available on the cluster that aren't currently watched.
 	UnwatchedKinds() []ResourceKind
 
-	// ── Mutation Methods ──
-
 	// AddWatchKind starts watching a resource type, returning any newly created resources.
 	AddWatchKind(rk ResourceKind) []*ResourceData
 
@@ -63,8 +59,6 @@ type Store interface {
 
 	// RebuildKindGroups rebuilds the kind groups (call after any mutation that affects the tree).
 	RebuildKindGroups()
-
-	// ── Iteration (for DevConsole) ──
 
 	// ForEachResource calls fn for each resource. Iteration order is undefined.
 	ForEachResource(fn func(uid string, rd *ResourceData))

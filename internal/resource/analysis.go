@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// ─── Change Tags ───
+// --- Change Tags ---
 
 // ChangeTag classifies what kind of change a revision represents.
 type ChangeTag string
@@ -100,9 +100,9 @@ type AnalysisResult struct {
 	LoopInfo    LoopInfo
 }
 
-// Analyze performs synchronous analysis on a ResourceData: tags each revision
+// Analyze performs synchronous analysis on a Data: tags each revision
 // and detects reconcile loops. This is a pure computation with no side effects.
-func Analyze(rd *ResourceData, loopWindowSize int) AnalysisResult {
+func Analyze(rd *Data, loopWindowSize int) AnalysisResult {
 	tags := make(map[RevisionID][]ChangeTag, len(rd.Revisions))
 	for i, rev := range rd.Revisions {
 		if i == 0 {
@@ -118,15 +118,15 @@ func Analyze(rd *ResourceData, loopWindowSize int) AnalysisResult {
 	}
 }
 
-// ─── Loop Detection ───
+// --- Loop Detection ---
 
 // LoopInfo holds detailed information about a detected reconcile loop.
 type LoopInfo struct {
 	IsLoop bool
 
-	// DistinctStates is the number of unique object states in the loop (e.g., 2 for A↔B).
+	// DistinctStates is the number of unique object states in the loop (e.g., 2 for A<->B).
 	DistinctStates int
-	// Cycles counts complete oscillation cycles. For A→B→A→B→A, there are 2 full cycles.
+	// Cycles counts complete oscillation cycles. For A->B->A->B->A, there are 2 full cycles.
 	Cycles int
 	// Period is the average duration of one full cycle.
 	Period    time.Duration
@@ -136,14 +136,14 @@ type LoopInfo struct {
 	LoopRevisions map[RevisionID]string
 
 	// PatternSample is a short pre-built sample of the oscillation pattern
-	// from the tail of the window, e.g., "A→B→A→B". At most 6 labels.
+	// from the tail of the window, e.g., "A->B->A->B". At most 6 labels.
 	PatternSample string
 }
 
 // DetectLoop checks if the resource is oscillating between states.
 // It returns true if among the last windowSize revisions, the same object
 // state appears more than once (indicating a reconcile loop).
-func (rd *ResourceData) DetectLoop(windowSize int) bool {
+func (rd *Data) DetectLoop(windowSize int) bool {
 	revs := rd.Revisions
 	if len(revs) < 3 {
 		return false
@@ -169,7 +169,7 @@ func (rd *ResourceData) DetectLoop(windowSize int) bool {
 }
 
 // AnalyzeLoop performs detailed loop analysis on recent revisions.
-func (rd *ResourceData) AnalyzeLoop(windowSize int) LoopInfo {
+func (rd *Data) AnalyzeLoop(windowSize int) LoopInfo {
 	revs := rd.Revisions
 	if len(revs) < 4 {
 		return LoopInfo{}
@@ -294,7 +294,7 @@ func (rd *ResourceData) AnalyzeLoop(windowSize int) LoopInfo {
 	}
 }
 
-// ─── Window Mode ───
+// --- Window Mode ---
 
 // WindowMode represents a time window centered on a selected revision.
 type WindowMode int
@@ -322,7 +322,7 @@ func (w WindowMode) String() string {
 	}
 }
 
-// NextWindowMode cycles: all -> ±15s -> ±30s -> ±1m -> ±5m -> all.
+// NextWindowMode cycles: all -> +/-15s -> +/-30s -> +/-1m -> +/-5m -> all.
 func NextWindowMode(current WindowMode) WindowMode {
 	switch current {
 	case WindowAll:
@@ -355,7 +355,7 @@ func WindowHalfDuration(w WindowMode) time.Duration {
 	}
 }
 
-// ─── Helpers ───
+// --- Helpers ---
 
 // DeepEqual compares two maps for equality.
 func DeepEqual(a, b map[string]any) bool {

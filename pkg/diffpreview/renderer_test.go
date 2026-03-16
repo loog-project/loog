@@ -268,9 +268,7 @@ func TestRender_BackgroundHighlight_Applied(t *testing.T) {
 	// Verify that background highlighting changes the output compared to
 	// no background highlighting. Even without a TTY (lipgloss strips ANSI
 	// in non-TTY environments), the codepath should differ: with bg enabled,
-	// the theme's background styles are applied. If lipgloss strips codes,
-	// the plain text is identical — so we verify the code path doesn't panic
-	// and produces valid output.
+	// the theme's background styles are applied.
 	node := Diff(
 		map[string]any{"x": "old"},
 		map[string]any{"x": "new"},
@@ -477,7 +475,18 @@ func TestRender_FullKubernetesLike(t *testing.T) {
 	out := RenderYAML(node, plainTheme, plainOpts)
 
 	// Verify structure: all keys should appear
-	for _, key := range []string{"apiVersion:", "kind:", "metadata:", "name:", "namespace:", "spec:", "replicas:", "template:", "containers:", "image:"} {
+	for _, key := range []string{
+		"apiVersion:",
+		"kind:",
+		"metadata:",
+		"name:",
+		"namespace:",
+		"spec:",
+		"replicas:",
+		"template:",
+		"containers:",
+		"image:",
+	} {
 		assertContains(t, out, key)
 	}
 

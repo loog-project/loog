@@ -62,7 +62,7 @@ func (c *stateCache) evictCold() {
 		if age > ttl {
 			delete(c.data, k)
 		} else {
-			// decay hit counter so “old” popularity fades
+			// decay hit counter so "old" popularity fades
 			if hc := atomic.LoadUint32(&e.hitCount); hc > 0 {
 				atomic.StoreUint32(&e.hitCount, hc/2)
 			}

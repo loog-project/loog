@@ -15,8 +15,7 @@ import (
 // so 36+1+8 = 45 bytes is the common size.
 var keyPool = sync.Pool{
 	New: func() any {
-		b := make([]byte, 0, 64)
-		return &b
+		return new(make([]byte, 0, 64))
 	},
 }
 
@@ -63,8 +62,7 @@ func splitObjectRevisionKey(key []byte) (string, store.RevisionID) {
 // uint64 encoding buffer pool
 var u64Pool = sync.Pool{
 	New: func() any {
-		b := make([]byte, 8)
-		return &b
+		return new(make([]byte, 8))
 	},
 }
 
@@ -95,26 +93,15 @@ func (s *Store) claimNextRevision(tx *bbolt.Tx, objectID string) (store.Revision
 	return revisionNumber, nil
 }
 
-// setLatest updates the latest revision for the given object in the database.
-func (s *Store) setLatest(tx *bbolt.Tx, obj string, revisionID store.RevisionID) error {
-	bp := u64Pool.Get().(*[]byte)
-	binary.BigEndian.PutUint64(*bp, uint64(revisionID))
-	err := tx.Bucket(bucketLatest).Put([]byte(obj), *bp)
-	u64Pool.Put(bp)
-	return err
-}
-
 // compressPool reuses destination buffers for s2 compression.
 var compressPool = sync.Pool{
 	New: func() any {
-		b := make([]byte, 0, 2048)
-		return &b
+		return new(make([]byte, 0, 2048))
 	},
 }
 
 // compressPayload compresses raw payload bytes using s2. Returns the
-// compressed bytes (which may be backed by a pooled buffer — caller should
-// copy if the data outlives the current scope).
+// compressed bytes (which may be backed by a pooled buffer: caller should copy if the data outlives the current scope).
 func compressPayload(raw []byte) []byte {
 	bp := compressPool.Get().(*[]byte)
 	*bp = s2.Encode(*bp, raw)

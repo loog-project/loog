@@ -2,6 +2,7 @@ package mux
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -264,7 +265,7 @@ func TestAdd_AfterStop(t *testing.T) {
 	m.Stop()
 
 	err := m.Add(podGVR)
-	if err != ErrStopped {
+	if !errors.Is(err, ErrStopped) {
 		t.Fatalf("Add after Stop: got %v, want ErrStopped", err)
 	}
 }
@@ -546,7 +547,7 @@ func TestStop_AddAfterStop(t *testing.T) {
 	m, _ := newTestMux(t)
 	m.Stop()
 
-	if err := m.Add(podGVR); err != ErrStopped {
+	if err := m.Add(podGVR); !errors.Is(err, ErrStopped) {
 		t.Fatalf("got %v, want ErrStopped", err)
 	}
 }
@@ -560,11 +561,9 @@ func TestStop_RemoveAfterStop(t *testing.T) {
 	m.Stop()
 
 	// Remove after Stop should be safe (returns false since stopped
-	// mux clears nothing extra).
-	if m.Remove(podGVR) {
-		// The watch map still has the entry but the context is
-		// canceled. This is acceptable.
-	}
+	// mux clears nothing extra). The watch map still has the entry but
+	// the context is canceled. This is acceptable.
+	_ = m.Remove(podGVR)
 }
 
 func TestConcurrentAddRemove(t *testing.T) {

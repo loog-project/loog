@@ -3,6 +3,7 @@ package bbolt
 import (
 	"bytes"
 	"context"
+	"errors"
 	"math"
 	"os"
 	"path/filepath"
@@ -65,7 +66,6 @@ func equalAny(t *testing.T, path string, got, want any) bool {
 		return ok
 	}
 
-	// both numeric — compare as float64
 	gn, gnOk := toFloat64(got)
 	wn, wnOk := toFloat64(want)
 	if gnOk && wnOk {
@@ -231,7 +231,7 @@ func TestPersistedValues(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Data integrity — write many revisions, read every one back, deep-compare.
+// Data integrity: write many revisions, read every one back, deep-compare.
 // Runs once for each store mode to catch pool/compression bugs.
 // ---------------------------------------------------------------------------
 
@@ -352,7 +352,7 @@ func TestDataIntegrity(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Pool safety under concurrent access — stresses all pooled buffers at once.
+// Pool safety under concurrent access: stresses all pooled buffers at once.
 // The race detector catches any cross-goroutine buffer corruption.
 // ---------------------------------------------------------------------------
 
@@ -468,44 +468,58 @@ func TestCompression_PayloadShapes(t *testing.T) {
 	}{
 		{"empty_map", diffmap.DiffMap{}},
 		{"single_key", diffmap.DiffMap{"a": "b"}},
-		{"numeric_values", diffmap.DiffMap{
-			"int": 42, "int64": int64(math.MaxInt64), "float": 3.14,
-		}},
-		{"bool_and_nil", diffmap.DiffMap{
-			"yes": true, "no": false, "null": nil,
-		}},
-		{"deeply_nested", diffmap.DiffMap{
-			"l1": diffmap.DiffMap{
-				"l2": diffmap.DiffMap{
-					"l3": diffmap.DiffMap{
-						"l4": diffmap.DiffMap{"leaf": "deep"},
+		{
+			"numeric_values", diffmap.DiffMap{
+				"int": 42, "int64": int64(math.MaxInt64), "float": 3.14,
+			},
+		},
+		{
+			"bool_and_nil", diffmap.DiffMap{
+				"yes": true, "no": false, "null": nil,
+			},
+		},
+		{
+			"deeply_nested", diffmap.DiffMap{
+				"l1": diffmap.DiffMap{
+					"l2": diffmap.DiffMap{
+						"l3": diffmap.DiffMap{
+							"l4": diffmap.DiffMap{"leaf": "deep"},
+						},
 					},
 				},
 			},
-		}},
-		{"large_string_value", diffmap.DiffMap{
-			"big": strings.Repeat("abcdef0123456789", 1000),
-		}},
-		{"many_keys", func() diffmap.DiffMap {
-			m := make(diffmap.DiffMap, 200)
-			for i := range 200 {
-				m["key-"+strconv.Itoa(i)] = strconv.Itoa(i)
-			}
-			return m
-		}()},
-		{"mixed_types", diffmap.DiffMap{
-			"s": "hello", "i": 1, "i64": int64(2),
-			"f": 1.5, "b": true, "n": nil,
-			"m": diffmap.DiffMap{"x": "y"},
-		}},
-		{"repetitive_data", func() diffmap.DiffMap {
-			// highly compressible
-			m := make(diffmap.DiffMap, 50)
-			for i := range 50 {
-				m["k"+strconv.Itoa(i)] = "same-value-repeated"
-			}
-			return m
-		}()},
+		},
+		{
+			"large_string_value", diffmap.DiffMap{
+				"big": strings.Repeat("abcdef0123456789", 1000),
+			},
+		},
+		{
+			"many_keys", func() diffmap.DiffMap {
+				m := make(diffmap.DiffMap, 200)
+				for i := range 200 {
+					m["key-"+strconv.Itoa(i)] = strconv.Itoa(i)
+				}
+				return m
+			}(),
+		},
+		{
+			"mixed_types", diffmap.DiffMap{
+				"s": "hello", "i": 1, "i64": int64(2),
+				"f": 1.5, "b": true, "n": nil,
+				"m": diffmap.DiffMap{"x": "y"},
+			},
+		},
+		{
+			"repetitive_data", func() diffmap.DiffMap {
+				// highly compressible
+				m := make(diffmap.DiffMap, 50)
+				for i := range 50 {
+					m["k"+strconv.Itoa(i)] = "same-value-repeated"
+				}
+				return m
+			}(),
+		},
 	}
 
 	for i, tc := range cases {
@@ -557,7 +571,7 @@ func TestCompression_PayloadShapes(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Multi-object key isolation — different UIDs must never cross-contaminate.
+// Multi-object key isolation: different UIDs must never cross-contaminate.
 // ---------------------------------------------------------------------------
 
 func TestMultiObjectIsolation(t *testing.T) {
@@ -627,7 +641,12 @@ func TestMultiObjectIsolation(t *testing.T) {
 
 			// walk and verify all entries
 			seen := map[string]int{}
-			err := s.WalkObjectRevisions(func(uid string, revID store.RevisionID, snap *store.Snapshot, patch *store.Patch) bool {
+			err := s.WalkObjectRevisions(func(
+				uid string,
+				revID store.RevisionID,
+				snap *store.Snapshot,
+				patch *store.Patch,
+			) bool {
 				var data diffmap.DiffMap
 				if snap != nil {
 					data = snap.Object
@@ -656,7 +675,7 @@ func TestMultiObjectIsolation(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// DB persistence — close and reopen, verify data survives.
+// DB persistence: close and reopen, verify data survives.
 // ---------------------------------------------------------------------------
 
 func TestPersistence_CloseReopen(t *testing.T) {
@@ -747,7 +766,7 @@ func TestPersistence_CloseReopen(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Walk completeness — every entry returned by Walk matches individual Get.
+// Walk completeness: every entry returned by Walk matches individual Get.
 // ---------------------------------------------------------------------------
 
 func TestWalkMatchesGet(t *testing.T) {
@@ -780,7 +799,12 @@ func TestWalkMatchesGet(t *testing.T) {
 			}
 
 			// walk and compare each entry with a direct Get
-			err := s.WalkObjectRevisions(func(uid string, revID store.RevisionID, wSnap *store.Snapshot, wPatch *store.Patch) bool {
+			err := s.WalkObjectRevisions(func(
+				uid string,
+				revID store.RevisionID,
+				wSnap *store.Snapshot,
+				wPatch *store.Patch,
+			) bool {
 				gSnap, gPatch, err := s.Get(ctx, uid, revID)
 				if err != nil {
 					t.Errorf("Get(%s, %d) during walk: %v", uid, revID, err)
@@ -857,7 +881,7 @@ func TestEdgeCases(t *testing.T) {
 		if err != nil {
 			t.Fatalf("get: %v", err)
 		}
-		if got.Patch != nil && len(got.Patch) != 0 {
+		if len(got.Patch) != 0 {
 			t.Fatalf("expected nil/empty patch, got %v", got.Patch)
 		}
 	})
@@ -882,7 +906,7 @@ func TestEdgeCases(t *testing.T) {
 	t.Run("get_missing_revision", func(t *testing.T) {
 		s := openStore(t, Options{})
 		_, _, err := s.Get(ctx, "nonexistent", 999)
-		if err != store.ErrNotFound {
+		if !errors.Is(err, store.ErrNotFound) {
 			t.Fatalf("expected ErrNotFound, got %v", err)
 		}
 	})
@@ -890,7 +914,7 @@ func TestEdgeCases(t *testing.T) {
 	t.Run("get_latest_missing_object", func(t *testing.T) {
 		s := openStore(t, Options{})
 		_, err := s.GetLatestRevision(ctx, "nonexistent")
-		if err != store.ErrNotFound {
+		if !errors.Is(err, store.ErrNotFound) {
 			t.Fatalf("expected ErrNotFound, got %v", err)
 		}
 	})
@@ -912,7 +936,7 @@ func TestEdgeCases(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Codec pool correctness — rapid sequential marshal/unmarshal must not
+// Codec pool correctness: rapid sequential marshal/unmarshal must not
 // produce cross-contamination between calls.
 // ---------------------------------------------------------------------------
 
@@ -1028,7 +1052,7 @@ func TestCodecPoolConcurrency(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Periodic sync mode — verify writes are actually persisted to disk.
+// Periodic sync mode: verify writes are actually persisted to disk.
 // ---------------------------------------------------------------------------
 
 func TestPeriodicSync_DataPersists(t *testing.T) {
@@ -1091,7 +1115,7 @@ func TestPeriodicSync_DataPersists(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Compressed store — verify DB is actually smaller than uncompressed.
+// Compressed store: verify DB is actually smaller than uncompressed.
 // ---------------------------------------------------------------------------
 
 func TestCompression_ReducesSize(t *testing.T) {

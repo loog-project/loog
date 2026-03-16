@@ -90,26 +90,26 @@ type CompareItem struct {
 	Revision Revision
 }
 
-// ResourceData holds a resource and all its revisions.
-type ResourceData struct {
+// Data holds a resource and all its revisions.
+type Data struct {
 	Resource  Resource
 	Revisions []Revision // sorted oldest-first (index 0 = oldest)
 }
 
 // LatestRevision returns the most recent revision, or nil if empty.
-func (rd *ResourceData) LatestRevision() *Revision {
+func (rd *Data) LatestRevision() *Revision {
 	if len(rd.Revisions) == 0 {
 		return nil
 	}
 	return &rd.Revisions[len(rd.Revisions)-1]
 }
 
-func (rd *ResourceData) RevisionCount() int {
+func (rd *Data) RevisionCount() int {
 	return len(rd.Revisions)
 }
 
 // ChangeFrequency returns changes per minute over the resource's lifetime.
-func (rd *ResourceData) ChangeFrequency() float64 {
+func (rd *Data) ChangeFrequency() float64 {
 	if len(rd.Revisions) < 2 {
 		return 0
 	}
@@ -125,13 +125,13 @@ func (rd *ResourceData) ChangeFrequency() float64 {
 // KindGroup represents a collapsible group in the resource tree.
 type KindGroup struct {
 	Kind      string
-	Resources []*ResourceData
+	Resources []*Data
 	Expanded  bool
 }
 
-// ResourceKind represents a Kubernetes resource type (CRD or built-in)
+// Kind represents a Kubernetes resource type (CRD or built-in)
 // available on the cluster.
-type ResourceKind struct {
+type Kind struct {
 	Kind       string // e.g., "Pod", "Deployment", "Secret"
 	APIVersion string // e.g., "v1", "apps/v1"
 	Resource   string // plural resource name, e.g., "pods", "deployments"
@@ -139,12 +139,12 @@ type ResourceKind struct {
 }
 
 // String returns the Kind name (used for display and fuzzy matching).
-func (rk ResourceKind) String() string {
+func (rk Kind) String() string {
 	return rk.Kind
 }
 
 // GVR returns the "group/version/resource" string, e.g. "apps/v1/deployments" or "v1/pods".
-func (rk ResourceKind) GVR() string {
+func (rk Kind) GVR() string {
 	return rk.APIVersion + "/" + rk.Resource
 }
 

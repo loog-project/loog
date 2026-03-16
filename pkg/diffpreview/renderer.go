@@ -11,13 +11,8 @@ type RenderOptions struct {
 	EnableBackgroundHighlight bool
 }
 
-var DefaultRenderOptions = RenderOptions{
-	IndentSize:                2,
-	EnableBackgroundHighlight: true,
-}
-
 // RenderYAML turns an AnnotatedNode tree into syntax-highlighted YAML with
-// coloured backgrounds on changed lines.
+// colored backgrounds on changed lines.
 func RenderYAML(node *AnnotatedNode, theme Theme, opts RenderOptions) string {
 	r := renderer{theme: theme, opts: opts}
 	r.renderNode(node, 0)
@@ -79,7 +74,7 @@ func (r *renderer) renderList(items []*AnnotatedNode, level int, parentChange Ch
 
 // renderListMapItem writes a map inside a list. The first key shares the
 // "- " line; the rest are indented one level deeper.
-func (r *renderer) renderListMapItem(children map[string]*AnnotatedNode, prefix, dash string, level int, parentChange ChangeType) {
+func (r *renderer) renderListMapItem(children map[string]*AnnotatedNode, prefix, dash string, level int, _ ChangeType) {
 	keys := sortedKeys(children)
 	if len(keys) == 0 {
 		r.sb.WriteString(prefix + dash + "{}\n")

@@ -6,9 +6,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// ─── Explorer View ───
-// Three-column layout: ResourceTree | RevisionList | DetailView
-
 type ExplorerViewComponent struct {
 	width, height int
 	theme         Theme
@@ -108,7 +105,10 @@ func (ev *ExplorerViewComponent) SetCompareMarks(left, right *CompareItem) {
 	ev.revList.SetCompareMarks(left, right)
 }
 
-func (ev *ExplorerViewComponent) SetAnalysisTags(resourceTags map[string][]ChangeTag, revisionTags map[RevisionID][]ChangeTag) {
+func (ev *ExplorerViewComponent) SetAnalysisTags(
+	resourceTags map[string][]ChangeTag,
+	revisionTags map[RevisionID][]ChangeTag,
+) {
 	ev.tree.SetAnalysisTags(resourceTags)
 	ev.revList.SetAnalysisTags(revisionTags)
 }
@@ -204,9 +204,6 @@ func (ev *ExplorerViewComponent) ViewFullscreen(w, h int) string {
 	}
 	return ""
 }
-
-// ─── Timeline View ───
-// Two-column layout: TimelineList | DetailView
 
 type TimelineViewComponent struct {
 	width, height int
@@ -346,9 +343,9 @@ func (tv *TimelineViewComponent) IsFilterEditing() bool {
 func (tv *TimelineViewComponent) Update(msg tea.Msg) tea.Cmd {
 	switch tv.focusPanel {
 	case PanelLeft:
-		// Intercept "c" for compare marking — but only when NOT in filter editing mode.
+		// Intercept "c" for compare marking -- but only when NOT in filter editing mode.
 		// TimelineList doesn't have store access, so we resolve the
-		// TimelineEntry → ResourceData + revision index here.
+		// TimelineEntry -> ResourceData + revision index here.
 		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "c" && !tv.timeline.filterEditing {
 			if entry := tv.timeline.SelectedEntry(); entry != nil && tv.store != nil {
 				if rd := tv.store.GetResource(entry.Resource.UID); rd != nil {
@@ -393,9 +390,6 @@ func (tv *TimelineViewComponent) ViewFullscreen(w, h int) string {
 		return PanelBorderEx(tv.detail.View(), modeLabel, w, h, true, tv.theme, tv.detail.CanScrollUp(), tv.detail.CanScrollDown())
 	}
 }
-
-// ─── Compare View ───
-// Full-width side-by-side comparison panel.
 
 type CompareViewComponent struct {
 	width, height int

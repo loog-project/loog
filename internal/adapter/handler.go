@@ -12,7 +12,7 @@ import (
 )
 
 // LiveRevisionMsg tells the TUI that a new revision has been ingested into the LiveStore.
-// The TUI should refresh its views — data is already in the store.
+// The TUI should refresh its views: data is already in the store.
 type LiveRevisionMsg struct {
 	ResourceUID string
 }
@@ -73,7 +73,7 @@ func buildRevision(
 		rev.PreviousID = snapshot.PreviousID
 		rev.Time = snapshot.Time
 
-		// First revision (no previous) → ADDED, otherwise MODIFIED
+		// First revision (no previous) -> ADDED, otherwise MODIFIED
 		if snapshot.PreviousID == 0 {
 			rev.EventType = resource.EventAdded
 		} else {
