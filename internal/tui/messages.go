@@ -86,6 +86,12 @@ type ToggleTimelineStarredMsg struct{}
 type ToggleExplorerStarredMsg struct{}
 type CompareClearMsg struct{}
 
+// ExternalLogMsg carries a log line captured from stderr or klog into the TUI.
+type ExternalLogMsg struct {
+	Text    string
+	IsError bool
+}
+
 // Cmd wraps a message as a tea.Cmd.
 func Cmd(msg tea.Msg) tea.Cmd {
 	return func() tea.Msg {

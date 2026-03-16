@@ -1,13 +1,16 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -23,6 +26,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
+	"k8s.io/klog/v2"
 
 	"github.com/loog-project/loog/internal/adapter"
 	"github.com/loog-project/loog/internal/resource"
@@ -215,6 +219,9 @@ func setupDebugLogger() {
 func runSimulateMode() error {
 	setupLog.Info().Msg("Running in simulate mode with generated data")
 
+	klog.SetOutput(io.Discard)
+	os.Stderr, _ = os.Open(os.DevNull)
+
 	simStore := simulation.New()
 	app := tui.NewApp(simStore, tui.WithSimulator(simStore))
 	p := tea.NewProgram(app, tea.WithAltScreen())
@@ -367,6 +374,12 @@ func runInteractive(
 	)
 	program := tea.NewProgram(app, tea.WithAltScreen())
 
+	// Redirect klog (k8s client-go) into the TUI's debug log viewer
+	logCapture := &tuiLogWriter{program: program}
+	klog.SetOutput(logCapture)
+	savedStderr := os.Stderr
+	os.Stderr, _ = os.Open(os.DevNull)
+
 	// Discover cluster resource kinds in the background for WatchManager
 	go func() {
 		kinds, err := loadClusterResourceKinds(kubeConfigPath)
@@ -400,8 +413,10 @@ func runInteractive(
 	}()
 
 	if _, teaErr := program.Run(); teaErr != nil {
+		os.Stderr = savedStderr
 		setupLog.Error().Err(teaErr).Msg("Error running TUI program")
 	}
+	os.Stderr = savedStderr
 
 	setupLog.Info().Msg("TUI program exited, stopping collector")
 	cancel()
@@ -415,6 +430,35 @@ type revisionHandler interface {
 		snapshot *store.Snapshot,
 		patch *store.Patch,
 	) error
+}
+
+// tuiLogWriter is an io.Writer that captures lines written by external
+// libraries (klog, stray stderr) and forwards them to the TUI as
+// ExternalLogMsg via program.Send. Error-level keywords trigger a toast.
+type tuiLogWriter struct {
+	program *tea.Program
+	buf     []byte
+}
+
+func (w *tuiLogWriter) Write(p []byte) (int, error) {
+	w.buf = append(w.buf, p...)
+	for {
+		idx := bytes.IndexByte(w.buf, '\n')
+		if idx < 0 {
+			break
+		}
+		line := strings.TrimSpace(string(w.buf[:idx]))
+		w.buf = w.buf[idx+1:]
+		if line == "" {
+			continue
+		}
+		isErr := strings.Contains(line, "ERROR") ||
+			strings.Contains(line, "FATAL") ||
+			strings.Contains(line, "error") ||
+			strings.Contains(line, "fatal")
+		w.program.Send(tui.ExternalLogMsg{Text: line, IsError: isErr})
+	}
+	return len(p), nil
 }
 
 var _ revisionHandler = (*noOpRevisionHandler)(nil)

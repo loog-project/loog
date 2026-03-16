@@ -211,7 +211,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.height = msg.Height
 		a.ready = true
 		a.layout()
-		return a, nil
+		return a, tea.ClearScreen
 
 	case tickMsg:
 		a.header.Tick()
@@ -390,8 +390,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ResourceSelectedMsg:
 		a.explorer.SetResource(msg.Resource)
 		if msg.Resource != nil {
-			a.debugLog.Debug("app", "resource selected: %s (%d revs)",
-				msg.Resource.Resource.KindName(), msg.Resource.RevisionCount())
 			a.statusBar.SetResourceInfo(msg.Resource.Resource.KindName())
 			revCount := msg.Resource.RevisionCount()
 			a.statusBar.SetRevisionInfo(fmt.Sprintf("%d revisions", revCount))
@@ -406,8 +404,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.explorer.SetRevision(msg.Resource, msg.Index)
 		if msg.Index >= 0 && msg.Index < len(msg.Resource.Revisions) {
 			rev := msg.Resource.Revisions[msg.Index]
-			a.debugLog.Debug("app", "revision selected: %s [%d] %s",
-				msg.Resource.Resource.KindName(), msg.Index, rev.ID.String())
 			a.statusBar.SetRevisionInfo(rev.ID.String())
 			// Update window anchor to selected revision's timestamp
 			a.windowAnchor = rev.Time
@@ -613,6 +609,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case adapter.LiveRevisionMsg:
 		a.handleLiveRevision(msg.ResourceUID)
+
+	case ExternalLogMsg:
+		if msg.IsError {
+			a.debugLog.Error("external", "%s", msg.Text)
+			a.setStatus("external: "+msg.Text, true)
+		} else {
+			a.debugLog.Warn("external", "%s", msg.Text)
+		}
 
 	default:
 		// Route non-key messages (e.g. cursor blink ticks) to the active textinput.
@@ -962,8 +966,6 @@ func (a *App) handleSimulationTick(resourceUID string) {
 // Unlike handleSimulationTick, data is already in the store (added by the adapter handler).
 // We just need to refresh the UI.
 func (a *App) handleLiveRevision(resourceUID string) {
-	a.debugLog.Debug("live", "new revision for %s", resourceUID)
-
 	// If frozen, just buffer for later and update the count
 	if a.frozen {
 		a.pendingBuffer = append(a.pendingBuffer, pendingRevision{

@@ -94,6 +94,14 @@ func (dl *DebugLog) Info(source, format string, args ...any) {
 	dl.Log(LogInfo, source, format, args...)
 }
 
+func (dl *DebugLog) Warn(source, format string, args ...any) {
+	dl.Log(LogWarn, source, format, args...)
+}
+
+func (dl *DebugLog) Error(source, format string, args ...any) {
+	dl.Log(LogError, source, format, args...)
+}
+
 // Entries returns a snapshot of all entries in chronological order.
 func (dl *DebugLog) Entries() []LogEntry {
 	dl.mu.Lock()
