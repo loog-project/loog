@@ -8,6 +8,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/sahilm/fuzzy"
+
+	"github.com/loog-project/loog/internal/resource"
 )
 
 // fuzzyMatchAll performs a fuzzy search on names. When the query is empty all
@@ -285,7 +287,7 @@ type QuickSearch struct {
 	visible       bool
 	queryInput    textinput.Model
 	cursor        int
-	resources     []*ResourceData
+	resources     []*resource.Data
 	names         []string // precomputed KindName() for fuzzy matching
 	matches       []fuzzy.Match
 }
@@ -306,7 +308,7 @@ func (qs *QuickSearch) IsVisible() bool {
 	return qs.visible
 }
 
-func (qs *QuickSearch) Show(resources []*ResourceData) tea.Cmd {
+func (qs *QuickSearch) Show(resources []*resource.Data) tea.Cmd {
 	qs.visible = true
 	qs.queryInput.SetValue("")
 	cmd := qs.queryInput.Focus()
@@ -500,7 +502,7 @@ type WatchManager struct {
 	watchMatches     []fuzzy.Match
 
 	// Add tab
-	available     []ResourceKind
+	available     []resource.Kind
 	addCursor     int
 	addQueryInput textinput.Model
 	addNames      []string
@@ -528,7 +530,7 @@ func (wm *WatchManager) IsVisible() bool {
 // watchedKinds: unique kind names currently tracked.
 // store: used to get resource/revision counts per kind.
 // unwatchedKinds: resource types available but not yet watched.
-func (wm *WatchManager) Show(store Store, unwatchedKinds []ResourceKind) tea.Cmd {
+func (wm *WatchManager) Show(store Store, unwatchedKinds []resource.Kind) tea.Cmd {
 	wm.visible = true
 	wm.tab = wmTabWatching
 	wm.watchCursor = 0

@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/loog-project/loog/internal/adapter"
+	"github.com/loog-project/loog/internal/resource"
 )
 
 // App is the root tea.Model that wires everything together.
@@ -51,7 +52,7 @@ type App struct {
 	autoScroll bool
 
 	// Window mode
-	windowMode   WindowMode
+	windowMode   resource.WindowMode
 	windowAnchor time.Time // timestamp the window is centered on
 
 	// Simulation
@@ -68,17 +69,17 @@ type App struct {
 	pendingBuffer []pendingRevision // revisions that arrived while frozen
 
 	// Analysis results cache
-	analysisResults map[string]AnalysisResult // resourceUID -> result
+	analysisResults map[string]resource.AnalysisResult // resourceUID -> result
 
 	// External callbacks for watch kind management (production mode wiring)
-	onWatchKindAdded   func(rk ResourceKind) // called when user adds a watch kind
-	onWatchKindRemoved func(kind string)     // called when user removes a watch kind
+	onWatchKindAdded   func(rk resource.Kind) // called when user adds a watch kind
+	onWatchKindRemoved func(kind string)      // called when user removes a watch kind
 }
 
 // pendingRevision holds a revision that arrived during freeze.
 type pendingRevision struct {
 	ResourceUID string
-	Revision    Revision
+	Revision    resource.Revision
 }
 
 // AppOption configures optional behavior for the App.
@@ -105,7 +106,7 @@ func WithRecording() AppOption {
 
 // WithWatchCallbacks sets callbacks invoked when the user adds or removes a watched kind.
 // In production mode, these trigger mux.Add() / mux.Remove() on the dynamic informer.
-func WithWatchCallbacks(onAdd func(rk ResourceKind), onRemove func(kind string)) AppOption {
+func WithWatchCallbacks(onAdd func(rk resource.Kind), onRemove func(kind string)) AppOption {
 	return func(a *App) {
 		a.onWatchKindAdded = onAdd
 		a.onWatchKindRemoved = onRemove
@@ -123,7 +124,7 @@ func NewApp(store Store, opts ...AppOption) *App {
 		store:           store,
 		registry:        registry,
 		debugLog:        debugLog,
-		analysisResults: make(map[string]AnalysisResult),
+		analysisResults: make(map[string]resource.AnalysisResult),
 
 		// Chrome
 		header:    NewHeader(theme),
@@ -342,16 +343,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 
 		case key.Matches(msg, GlobalKeyMap.WindowMode):
-			a.windowMode = NextWindowMode(a.windowMode)
+			a.windowMode = resource.NextWindowMode(a.windowMode)
 			a.timeline.SetWindowAnchor(a.windowAnchor)
 			a.timeline.SetWindowMode(a.windowMode)
 			a.statusBar.SetWindowMode(a.windowMode)
-			if a.windowMode == WindowAll {
+			if a.windowMode == resource.WindowAll {
 				a.setStatus("Window mode: all (showing everything)", false)
 			} else if a.windowAnchor.IsZero() {
 				a.setStatus("Window mode: "+a.windowMode.String()+" (select a revision first for anchor)", false)
 			} else {
-				a.setStatus("Window mode: "+a.windowMode.String()+" around "+FormatTimestamp(a.windowAnchor), false)
+				a.setStatus("Window mode: "+a.windowMode.String()+" around "+resource.FormatTimestamp(a.windowAnchor), false)
 			}
 			return a, nil
 
@@ -415,7 +416,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.statusBar.SetRevisionInfo(rev.ID.String())
 			// Update window anchor to selected revision's timestamp
 			a.windowAnchor = rev.Time
-			if a.windowMode != WindowAll {
+			if a.windowMode != resource.WindowAll {
 				a.timeline.SetWindowAnchor(a.windowAnchor)
 			}
 		}
@@ -424,7 +425,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.timeline.SelectEntry(msg.Entry)
 		// Update window anchor
 		a.windowAnchor = msg.Entry.Revision.Time
-		if a.windowMode != WindowAll {
+		if a.windowMode != resource.WindowAll {
 			a.timeline.SetWindowAnchor(a.windowAnchor)
 		}
 
@@ -444,7 +445,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case CompareMarkMsg:
 		if msg.Resource != nil && msg.Index >= 0 && msg.Index < len(msg.Resource.Revisions) {
-			item := CompareItem{
+			item := resource.CompareItem{
 				Resource: msg.Resource.Resource,
 				Revision: msg.Resource.Revisions[msg.Index],
 			}
@@ -572,7 +573,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.statusBar.SetAutoScroll(a.autoScroll)
 
 	case ToggleWindowModeMsg:
-		a.windowMode = NextWindowMode(a.windowMode)
+		a.windowMode = resource.NextWindowMode(a.windowMode)
 		a.timeline.SetWindowAnchor(a.windowAnchor)
 		a.timeline.SetWindowMode(a.windowMode)
 		a.statusBar.SetWindowMode(a.windowMode)
@@ -687,8 +688,6 @@ func (a *App) View() string {
 
 	return mainView
 }
-
-// --- Internal Methods ---
 
 // overlay is the common interface for all modal overlays.
 type overlay interface {
@@ -862,7 +861,7 @@ func (a *App) syncCompareMarks() {
 // syncAnalysisTags propagates analysis results to view components.
 func (a *App) syncAnalysisTags() {
 	// Build per-resource tag summary (just the latest revision tags for tree display)
-	resourceTags := make(map[string][]ChangeTag)
+	resourceTags := make(map[string][]resource.ChangeTag)
 	for uid, result := range a.analysisResults {
 		if rd := a.store.GetResource(uid); rd != nil && len(rd.Revisions) > 0 {
 			latest := rd.Revisions[len(rd.Revisions)-1]
@@ -877,7 +876,7 @@ func (a *App) syncAnalysisTags() {
 }
 
 // currentRevisionTags returns revision-level tags for whatever resource is selected.
-func (a *App) currentRevisionTags() map[RevisionID][]ChangeTag {
+func (a *App) currentRevisionTags() map[resource.RevisionID][]resource.ChangeTag {
 	// Find the selected resource UID from the explorer tree
 	uid := a.explorer.tree.SelectedUID()
 	if result, ok := a.analysisResults[uid]; ok {

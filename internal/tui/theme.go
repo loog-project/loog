@@ -3,6 +3,7 @@ package tui
 import (
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/loog-project/loog/internal/resource"
 	"github.com/loog-project/loog/pkg/diffpreview"
 )
 
@@ -92,8 +93,6 @@ var CatppuccinMocha = Theme{
 	ModalShadowBg: lipgloss.Color("#0a0a14"),
 }
 
-// --- Style Factories ---
-
 func (t Theme) ActiveTabStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Background(t.Blue).
@@ -182,13 +181,13 @@ func (t Theme) DiffPreviewTheme() diffpreview.Theme {
 }
 
 // EventTypeStyle returns the appropriate style for an event type.
-func (t Theme) EventTypeStyle(et EventType) lipgloss.Style {
+func (t Theme) EventTypeStyle(et resource.EventType) lipgloss.Style {
 	switch et {
-	case EventAdded:
+	case resource.EventAdded:
 		return t.SuccessStyle()
-	case EventModified:
+	case resource.EventModified:
 		return t.WarningStyle()
-	case EventDeleted:
+	case resource.EventDeleted:
 		return t.ErrorStyle()
 	default:
 		return t.MutedStyle()

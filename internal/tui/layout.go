@@ -7,8 +7,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// --- Modal Overlay ---
-
 // ansiStripRe matches ANSI escape sequences for stripping during dimming.
 var ansiStripRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
@@ -192,8 +190,6 @@ func dimLine(line string, width int, dimStyle lipgloss.Style) string {
 	}
 	return dimStyle.Render(string(runes))
 }
-
-// --- Split Pane ---
 
 // SplitHorizontal renders two pre-rendered content blocks side by side
 // with a thin vertical separator.

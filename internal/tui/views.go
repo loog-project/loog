@@ -4,6 +4,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/loog-project/loog/internal/resource"
 )
 
 type ExplorerViewComponent struct {
@@ -14,7 +16,7 @@ type ExplorerViewComponent struct {
 	tree     *ResourceTree
 	revList  *RevisionList
 	detail   *DetailView
-	resource *ResourceData
+	resource *resource.Data
 
 	// Cached outer panel widths for View()
 	treeOuterW, revOuterW, detailOuterW int
@@ -47,7 +49,7 @@ func (ev *ExplorerViewComponent) SetSize(w, h int) {
 	ev.detail.SetSize(ev.detailOuterW-2, h-2)
 }
 
-func (ev *ExplorerViewComponent) SetGroups(groups []*KindGroup) {
+func (ev *ExplorerViewComponent) SetGroups(groups []*resource.KindGroup) {
 	ev.tree.SetGroups(groups)
 }
 
@@ -84,7 +86,7 @@ func (ev *ExplorerViewComponent) PrevPanel() {
 	}
 }
 
-func (ev *ExplorerViewComponent) SetResource(rd *ResourceData) {
+func (ev *ExplorerViewComponent) SetResource(rd *resource.Data) {
 	ev.resource = rd
 	ev.revList.SetResource(rd)
 	if rd != nil {
@@ -95,19 +97,19 @@ func (ev *ExplorerViewComponent) SetResource(rd *ResourceData) {
 	}
 }
 
-func (ev *ExplorerViewComponent) SetRevision(rd *ResourceData, index int) {
+func (ev *ExplorerViewComponent) SetRevision(rd *resource.Data, index int) {
 	ev.revList.SelectIndex(index)
 	ev.detail.SetRevision(rd, index)
 }
 
-func (ev *ExplorerViewComponent) SetCompareMarks(left, right *CompareItem) {
+func (ev *ExplorerViewComponent) SetCompareMarks(left, right *resource.CompareItem) {
 	ev.tree.SetCompareMarks(left, right)
 	ev.revList.SetCompareMarks(left, right)
 }
 
 func (ev *ExplorerViewComponent) SetAnalysisTags(
-	resourceTags map[string][]ChangeTag,
-	revisionTags map[RevisionID][]ChangeTag,
+	resourceTags map[string][]resource.ChangeTag,
+	revisionTags map[resource.RevisionID][]resource.ChangeTag,
 ) {
 	ev.tree.SetAnalysisTags(resourceTags)
 	ev.revList.SetAnalysisTags(revisionTags)
@@ -240,12 +242,12 @@ func (tv *TimelineViewComponent) SetSize(w, h int) {
 	tv.detail.SetSize(tv.detailOuterW-2, h-2)
 }
 
-func (tv *TimelineViewComponent) SetEntries(entries []TimelineEntry) {
+func (tv *TimelineViewComponent) SetEntries(entries []resource.TimelineEntry) {
 	tv.timeline.SetEntries(entries)
 }
 
 // ScrollToEntry finds and selects a specific timeline entry by matching revision ID.
-func (tv *TimelineViewComponent) ScrollToEntry(entry TimelineEntry) {
+func (tv *TimelineViewComponent) ScrollToEntry(entry resource.TimelineEntry) {
 	tv.timeline.ScrollToRevision(entry.Revision.ID)
 	// Also update the detail view
 	if sel := tv.timeline.SelectedEntry(); sel != nil {
@@ -286,7 +288,7 @@ func (tv *TimelineViewComponent) PrevPanel() {
 	tv.NextPanel()
 }
 
-func (tv *TimelineViewComponent) SelectEntry(entry TimelineEntry) {
+func (tv *TimelineViewComponent) SelectEntry(entry resource.TimelineEntry) {
 	if tv.store != nil {
 		if rd := tv.store.GetResource(entry.Resource.UID); rd != nil {
 			for i, rev := range rd.Revisions {
@@ -303,7 +305,7 @@ func (tv *TimelineViewComponent) SetAutoScroll(on bool) {
 	tv.timeline.SetAutoScroll(on)
 }
 
-func (tv *TimelineViewComponent) SetWindowMode(wm WindowMode) {
+func (tv *TimelineViewComponent) SetWindowMode(wm resource.WindowMode) {
 	tv.timeline.SetWindowMode(wm)
 }
 
@@ -311,7 +313,7 @@ func (tv *TimelineViewComponent) SetWindowAnchor(t time.Time) {
 	tv.timeline.SetWindowAnchor(t)
 }
 
-func (tv *TimelineViewComponent) SetCompareMarks(left, right *CompareItem) {
+func (tv *TimelineViewComponent) SetCompareMarks(left, right *resource.CompareItem) {
 	tv.timeline.SetCompareMarks(left, right)
 }
 
@@ -395,7 +397,7 @@ type CompareViewComponent struct {
 	width, height int
 	theme         Theme
 	panel         *ComparePanel
-	selection     CompareSelection
+	selection     resource.CompareSelection
 }
 
 func NewCompareViewComponent(theme Theme) *CompareViewComponent {
@@ -412,12 +414,12 @@ func (cv *CompareViewComponent) SetSize(w, h int) {
 	cv.panel.SetSize(w-2, h-2)
 }
 
-func (cv *CompareViewComponent) SetSelection(sel CompareSelection) {
+func (cv *CompareViewComponent) SetSelection(sel resource.CompareSelection) {
 	cv.selection = sel
 	cv.panel.SetItems(sel.Left, sel.Right)
 }
 
-func (cv *CompareViewComponent) AddItem(item CompareItem) CompareSelection {
+func (cv *CompareViewComponent) AddItem(item resource.CompareItem) resource.CompareSelection {
 	if cv.selection.Left == nil {
 		cv.selection.Left = &item
 	} else if cv.selection.Right == nil {
@@ -430,12 +432,12 @@ func (cv *CompareViewComponent) AddItem(item CompareItem) CompareSelection {
 	return cv.selection
 }
 
-func (cv *CompareViewComponent) Selection() CompareSelection {
+func (cv *CompareViewComponent) Selection() resource.CompareSelection {
 	return cv.selection
 }
 
 func (cv *CompareViewComponent) Clear() {
-	cv.selection = CompareSelection{}
+	cv.selection = resource.CompareSelection{}
 	cv.panel.SetItems(nil, nil)
 }
 

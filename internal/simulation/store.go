@@ -48,8 +48,6 @@ func NewStore(
 	}
 }
 
-// -- Query Methods --
-
 func (s *Store) AllResources() []*resource.Data {
 	result := make([]*resource.Data, 0, len(s.resources))
 	for _, rd := range s.resources {

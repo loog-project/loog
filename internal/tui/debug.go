@@ -10,6 +10,8 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/loog-project/loog/internal/resource"
 )
 
 // LogLevel categorizes debug log messages.
@@ -408,7 +410,7 @@ func (dc *DevConsole) execute(cmd string) {
 		})
 
 	case "resources":
-		dc.store.ForEachResource(func(uid string, rd *ResourceData) {
+		dc.store.ForEachResource(func(uid string, rd *resource.Data) {
 			star := " "
 			if rd.Resource.Starred {
 				star = "★"
@@ -424,7 +426,7 @@ func (dc *DevConsole) execute(cmd string) {
 		}
 		prefix := parts[1]
 		found := false
-		dc.store.ForEachResource(func(uid string, rd *ResourceData) {
+		dc.store.ForEachResource(func(uid string, rd *resource.Data) {
 			if strings.HasPrefix(uid, prefix) {
 				found = true
 				dc.output = append(dc.output, lipgloss.NewStyle().Foreground(dc.theme.Blue).Bold(true).Render(
@@ -451,7 +453,7 @@ func (dc *DevConsole) execute(cmd string) {
 
 	case "kinds":
 		kindCounts := make(map[string]int)
-		dc.store.ForEachResource(func(_ string, rd *ResourceData) {
+		dc.store.ForEachResource(func(_ string, rd *resource.Data) {
 			kindCounts[rd.Resource.Kind]++
 		})
 		for kind, count := range kindCounts {
@@ -507,7 +509,7 @@ func (dc *DevConsole) execute(cmd string) {
 			}
 		}
 		found := false
-		dc.store.ForEachResource(func(uid string, rd *ResourceData) {
+		dc.store.ForEachResource(func(uid string, rd *resource.Data) {
 			if strings.HasPrefix(uid, prefix) {
 				found = true
 				idx := revIdx

@@ -9,6 +9,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"gopkg.in/yaml.v3"
+
+	"github.com/loog-project/loog/internal/resource"
 )
 
 // Command represents an action executable from the command palette.
@@ -149,7 +151,7 @@ func (cr *CommandRegistry) Names() []string {
 }
 
 // exportYAMLCmd writes the current revision's object as YAML to a temporary file.
-func exportYAMLCmd(rd *ResourceData, revIdx int) tea.Cmd {
+func exportYAMLCmd(rd *resource.Data, revIdx int) tea.Cmd {
 	if rd == nil || revIdx < 0 || revIdx >= len(rd.Revisions) {
 		return Cmd(StatusMsg{Text: "No revision to export", IsError: true})
 	}
@@ -174,7 +176,7 @@ func exportYAMLCmd(rd *ResourceData, revIdx int) tea.Cmd {
 }
 
 // copyToClipboardCmd copies the current revision's object as YAML to the system clipboard.
-func copyToClipboardCmd(rd *ResourceData, revIdx int) tea.Cmd {
+func copyToClipboardCmd(rd *resource.Data, revIdx int) tea.Cmd {
 	if rd == nil || revIdx < 0 || revIdx >= len(rd.Revisions) {
 		return Cmd(StatusMsg{Text: "No revision to copy", IsError: true})
 	}

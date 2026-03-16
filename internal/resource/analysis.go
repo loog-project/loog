@@ -8,8 +8,6 @@ import (
 	"time"
 )
 
-// --- Change Tags ---
-
 // ChangeTag classifies what kind of change a revision represents.
 type ChangeTag string
 
@@ -117,8 +115,6 @@ func Analyze(rd *Data, loopWindowSize int) AnalysisResult {
 		LoopInfo:    rd.AnalyzeLoop(loopWindowSize),
 	}
 }
-
-// --- Loop Detection ---
 
 // LoopInfo holds detailed information about a detected reconcile loop.
 type LoopInfo struct {
@@ -294,8 +290,6 @@ func (rd *Data) AnalyzeLoop(windowSize int) LoopInfo {
 	}
 }
 
-// --- Window Mode ---
-
 // WindowMode represents a time window centered on a selected revision.
 type WindowMode int
 
@@ -354,8 +348,6 @@ func WindowHalfDuration(w WindowMode) time.Duration {
 		return 0
 	}
 }
-
-// --- Helpers ---
 
 // DeepEqual compares two maps for equality.
 func DeepEqual(a, b map[string]any) bool {

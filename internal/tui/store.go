@@ -1,19 +1,23 @@
 package tui
 
-import tea "github.com/charmbracelet/bubbletea"
+import (
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/loog-project/loog/internal/resource"
+)
 
 // Store is the data source interface consumed by the TUI.
 // Both the simulation package and the production adapter (adapter.LiveStore) implement this.
 type Store interface {
 
 	// AllResources returns all tracked resources, sorted by kind then name.
-	AllResources() []*ResourceData
+	AllResources() []*resource.Data
 
 	// StarredResources returns only starred resources.
-	StarredResources() []*ResourceData
+	StarredResources() []*resource.Data
 
 	// GetResource returns a single resource by UID, or nil if not found.
-	GetResource(uid string) *ResourceData
+	GetResource(uid string) *resource.Data
 
 	// TotalResourceCount returns the number of tracked resources.
 	TotalResourceCount() int
@@ -22,16 +26,16 @@ type Store interface {
 	TotalRevisionCount() int
 
 	// FilterResources returns resources matching a text filter expression.
-	FilterResources(expr string) []*ResourceData
+	FilterResources(expr string) []*resource.Data
 
 	// FilterTimeline returns timeline entries matching a text filter and/or starred-only flag.
-	FilterTimeline(expr string, starredOnly bool) []TimelineEntry
+	FilterTimeline(expr string, starredOnly bool) []resource.TimelineEntry
 
 	// Timeline returns all timeline entries (newest first).
-	Timeline() []TimelineEntry
+	Timeline() []resource.TimelineEntry
 
 	// KindGroups returns the current kind groups for tree display.
-	KindGroups() []*KindGroup
+	KindGroups() []*resource.KindGroup
 
 	// WatchedKinds returns a sorted list of kind names currently being watched.
 	WatchedKinds() []string
@@ -43,10 +47,10 @@ type Store interface {
 	RevisionCountByKind(kind string) int
 
 	// UnwatchedKinds returns resource types available on the cluster that aren't currently watched.
-	UnwatchedKinds() []ResourceKind
+	UnwatchedKinds() []resource.Kind
 
 	// AddWatchKind starts watching a resource type, returning any newly created resources.
-	AddWatchKind(rk ResourceKind) []*ResourceData
+	AddWatchKind(rk resource.Kind) []*resource.Data
 
 	// RemoveWatchKind removes all resources of a given kind from active watching.
 	RemoveWatchKind(kind string)
@@ -55,13 +59,13 @@ type Store interface {
 	ToggleStar(uid string) bool
 
 	// AddRevision adds a new revision for a resource and updates the timeline.
-	AddRevision(resourceUID string, rev Revision)
+	AddRevision(resourceUID string, rev resource.Revision)
 
 	// RebuildKindGroups rebuilds the kind groups (call after any mutation that affects the tree).
 	RebuildKindGroups()
 
 	// ForEachResource calls fn for each resource. Iteration order is undefined.
-	ForEachResource(fn func(uid string, rd *ResourceData))
+	ForEachResource(fn func(uid string, rd *resource.Data))
 }
 
 // Simulator is an optional interface for generating live data in the TUI.
@@ -73,5 +77,5 @@ type Simulator interface {
 	ScheduleNextTick() tea.Cmd
 
 	// GenerateRevision creates a new simulated revision for the given resource.
-	GenerateRevision(rd *ResourceData) Revision
+	GenerateRevision(rd *resource.Data) resource.Revision
 }

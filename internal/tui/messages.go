@@ -1,8 +1,12 @@
 package tui
 
-import tea "github.com/charmbracelet/bubbletea"
+import (
+	tea "github.com/charmbracelet/bubbletea"
 
-// --- Navigation Messages ---
+	"github.com/loog-project/loog/internal/resource"
+)
+
+// Navigation messages
 
 type SwitchViewMsg struct{ View ViewID }
 type FocusPanelMsg struct{ Panel PanelID }
@@ -10,26 +14,26 @@ type NextPanelMsg struct{}
 type PrevPanelMsg struct{}
 type ToggleFullscreenMsg struct{}
 
-// --- Data Selection Messages ---
+// Data selection messages
 
-type ResourceSelectedMsg struct{ Resource *ResourceData }
+type ResourceSelectedMsg struct{ Resource *resource.Data }
 type RevisionSelectedMsg struct {
-	Resource *ResourceData
+	Resource *resource.Data
 	Index    int
 }
-type TimelineEntrySelectedMsg struct{ Entry TimelineEntry }
+type TimelineEntrySelectedMsg struct{ Entry resource.TimelineEntry }
 
-// --- State Change Messages ---
+// State change messages
 
 type ToggleStarMsg struct{ UID string }
 type ViewModeChangedMsg struct{ Mode ViewMode }
 type CompareMarkMsg struct {
-	Resource *ResourceData
+	Resource *resource.Data
 	Index    int
 }
-type JumpToTimelineMsg struct{ Entry TimelineEntry }
+type JumpToTimelineMsg struct{ Entry resource.TimelineEntry }
 
-// --- Overlay Messages ---
+// Overlay messages
 
 type ShowCommandPaletteMsg struct{}
 type HideOverlayMsg struct{}
@@ -39,12 +43,12 @@ type ShowWatchManagerMsg struct{}
 type ShowDebugLogMsg struct{}
 type ShowDevConsoleMsg struct{}
 
-// --- Watch Management Messages ---
+// Watch management messages
 
-type AddWatchKindMsg struct{ Kind ResourceKind }
+type AddWatchKindMsg struct{ Kind resource.Kind }
 type RemoveWatchKindMsg struct{ Kind string }
 
-// --- Action Messages ---
+// Action messages
 
 type StatusMsg struct {
 	Text    string
@@ -53,20 +57,20 @@ type StatusMsg struct {
 
 // ExportYAMLMsg requests exporting the current revision's object as a YAML file.
 type ExportYAMLMsg struct {
-	Resource *ResourceData
+	Resource *resource.Data
 	RevIndex int
 }
 
 // CopyToClipboardMsg requests copying the current revision's object as YAML to the system clipboard.
 type CopyToClipboardMsg struct {
-	Resource *ResourceData
+	Resource *resource.Data
 	RevIndex int
 }
 
-// --- Analysis / Simulation Messages ---
+// Analysis and simulation messages
 
 type AnalysisCompleteMsg struct {
-	Result AnalysisResult
+	Result resource.AnalysisResult
 }
 
 type SimulationTickMsg struct {

@@ -24,6 +24,7 @@ import (
 	"k8s.io/client-go/util/homedir"
 
 	"github.com/loog-project/loog/internal/adapter"
+	"github.com/loog-project/loog/internal/resource"
 	"github.com/loog-project/loog/internal/service"
 	"github.com/loog-project/loog/internal/simulation"
 	"github.com/loog-project/loog/internal/store"
@@ -344,7 +345,7 @@ func runInteractive(
 	app := tui.NewApp(liveStore,
 		tui.WithRecording(),
 		tui.WithWatchCallbacks(
-			func(rk tui.ResourceKind) {
+			func(rk resource.Kind) {
 				gvr, err := util.ParseGroupVersionResource(rk.GVR())
 				if err != nil {
 					log.Error().Err(err).Str("gvr", rk.GVR()).Msg("Cannot parse GVR for watch add")

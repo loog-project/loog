@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-
-	"github.com/loog-project/loog/internal/resource"
 )
 
 // ViewID identifies which top-level view is active.
@@ -71,48 +69,6 @@ const (
 	PanelLeft PanelID = iota
 	PanelMiddle
 	PanelRight
-)
-
-// These re-export the domain types from internal/resource so that existing
-// TUI code can continue using tui.Resource, tui.Revision, etc.
-// Type aliases (=) make them identical types, not distinct wrappers.
-
-type (
-	RevisionID       = resource.RevisionID
-	EventType        = resource.EventType
-	Resource         = resource.Resource
-	Revision         = resource.Revision
-	TimelineEntry    = resource.TimelineEntry
-	CompareSelection = resource.CompareSelection
-	CompareItem      = resource.CompareItem
-	ResourceData     = resource.Data
-	KindGroup        = resource.KindGroup
-	ResourceKind     = resource.Kind
-	BurstGroup       = resource.BurstGroup
-	ChangeTag        = resource.ChangeTag
-	AnalysisResult   = resource.AnalysisResult
-	LoopInfo         = resource.LoopInfo
-	WindowMode       = resource.WindowMode
-)
-
-// Re-export constants. Type aliases don't carry constants, so we define them here.
-const (
-	EventAdded    = resource.EventAdded
-	EventModified = resource.EventModified
-	EventDeleted  = resource.EventDeleted
-)
-
-const (
-	WindowAll = resource.WindowAll
-)
-
-// Re-export domain functions so existing TUI code doesn't need to change imports.
-var (
-	RelativeTime         = resource.RelativeTime
-	FormatTimestamp      = resource.FormatTimestamp
-	GroupTimelineByBurst = resource.GroupTimelineByBurst
-	NextWindowMode       = resource.NextWindowMode
-	WindowHalfDuration   = resource.WindowHalfDuration
 )
 
 // RenderYAMLObject renders a map as simple YAML text with syntax highlighting.

@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/loog-project/loog/internal/resource"
 )
 
 // Header renders the top bar: logo, view tabs, and recording status.
@@ -118,7 +120,7 @@ type StatusBar struct {
 	statusIsError  bool
 	hint           string
 	autoScroll     bool
-	windowMode     WindowMode
+	windowMode     resource.WindowMode
 	simulating     bool
 	isSimMode      bool // true only in simulation mode (not production recording)
 }
@@ -159,7 +161,7 @@ func (sb *StatusBar) SetAutoScroll(on bool) {
 	sb.autoScroll = on
 }
 
-func (sb *StatusBar) SetWindowMode(wm WindowMode) {
+func (sb *StatusBar) SetWindowMode(wm resource.WindowMode) {
 	sb.windowMode = wm
 }
 
@@ -199,7 +201,7 @@ func (sb *StatusBar) View() string {
 	if sb.autoScroll {
 		leftParts = append(leftParts, lipgloss.NewStyle().Foreground(sb.theme.Teal).Bold(true).Render("[AUTO]"))
 	}
-	if sb.windowMode != WindowAll {
+	if sb.windowMode != resource.WindowAll {
 		leftParts = append(leftParts, lipgloss.NewStyle().Foreground(sb.theme.Sky).Render("[W:"+sb.windowMode.String()+"]"))
 	}
 	if sb.isSimMode {

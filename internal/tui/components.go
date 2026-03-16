@@ -61,7 +61,7 @@ func newSearchInput(prompt string, placeholder string, theme Theme, accentColor 
 type ResourceTree struct {
 	width, height int
 	theme         Theme
-	groups        []*KindGroup
+	groups        []*resource.KindGroup
 	focused       bool
 	cursor        int        // flat index in the visible items
 	items         []treeItem // flattened visible items
@@ -72,11 +72,11 @@ type ResourceTree struct {
 	expandState map[string]bool
 
 	// Compare mark support
-	compareLeft  *CompareItem
-	compareRight *CompareItem
+	compareLeft  *resource.CompareItem
+	compareRight *resource.CompareItem
 
 	// Analysis tags
-	analysisTags map[string][]ChangeTag // resourceUID -> tags for latest revision
+	analysisTags map[string][]resource.ChangeTag // resourceUID -> tags for latest revision
 
 	// Inline filter state
 	filterTextInput textinput.Model // text input for filter editing
@@ -97,8 +97,8 @@ const (
 
 type treeItem struct {
 	Type     treeItemType
-	Kind     string        // for both types
-	Resource *ResourceData // only for treeItemResource
+	Kind     string         // for both types
+	Resource *resource.Data // only for treeItemResource
 }
 
 func NewResourceTree(theme Theme) *ResourceTree {
@@ -118,7 +118,7 @@ func (rt *ResourceTree) SetSize(w, h int) {
 func (rt *ResourceTree) SetFocus(f bool) {
 	rt.focused = f
 }
-func (rt *ResourceTree) SetGroups(groups []*KindGroup) {
+func (rt *ResourceTree) SetGroups(groups []*resource.KindGroup) {
 	// Apply persistent expand state: if the user has previously collapsed a kind,
 	// carry that forward. New kinds default to expanded.
 	for _, g := range groups {
@@ -199,12 +199,12 @@ func (rt *ResourceTree) CanScrollDown() bool {
 	return startIdx+itemsHeight < len(rt.items)
 }
 
-func (rt *ResourceTree) SetCompareMarks(left, right *CompareItem) {
+func (rt *ResourceTree) SetCompareMarks(left, right *resource.CompareItem) {
 	rt.compareLeft = left
 	rt.compareRight = right
 }
 
-func (rt *ResourceTree) SetAnalysisTags(tags map[string][]ChangeTag) {
+func (rt *ResourceTree) SetAnalysisTags(tags map[string][]resource.ChangeTag) {
 	rt.analysisTags = tags
 }
 
@@ -289,7 +289,7 @@ func (rt *ResourceTree) totalResourceCount() int {
 	return count
 }
 
-func (rt *ResourceTree) matchesFilter(r Resource) bool {
+func (rt *ResourceTree) matchesFilter(r resource.Resource) bool {
 	if rt.filterProg == nil {
 		return false
 	}
@@ -324,7 +324,7 @@ func (rt *ResourceTree) buildItems() {
 	textFiltering := rt.filterApplied && !rt.filterEditing && rt.filterTextInput.Value() != ""
 
 	// shouldShow returns true if a resource passes all active filters (text + starred).
-	shouldShow := func(rd *ResourceData) bool {
+	shouldShow := func(rd *resource.Data) bool {
 		if rt.starredOnly && !rd.Resource.Starred {
 			return false
 		}
@@ -494,7 +494,7 @@ func (rt *ResourceTree) CurrentHint() string {
 		}
 		latest := rd.LatestRevision()
 		if latest != nil {
-			age := RelativeTime(latest.Time)
+			age := resource.RelativeTime(latest.Time)
 			if age == "now" || strings.HasSuffix(age, "s") {
 				hints = append(hints, "@=recently active")
 			} else {
@@ -581,7 +581,7 @@ func (rt *ResourceTree) View() string {
 			var line string
 			switch item.Type {
 			case treeItemKind:
-				var g *KindGroup
+				var g *resource.KindGroup
 				for _, grp := range rt.groups {
 					if grp.Kind == item.Kind {
 						g = grp
@@ -617,7 +617,7 @@ func (rt *ResourceTree) View() string {
 
 				indicator := lipgloss.NewStyle().Foreground(rt.theme.Overlay0).Render("○")
 				if latestRev := rd.LatestRevision(); latestRev != nil {
-					age := RelativeTime(latestRev.Time)
+					age := resource.RelativeTime(latestRev.Time)
 					if age == "now" || strings.HasSuffix(age, "s") {
 						indicator = lipgloss.NewStyle().Foreground(rt.theme.Peach).Render("●")
 					}
@@ -763,21 +763,21 @@ type RevisionList struct {
 	width, height int
 	theme         Theme
 	focused       bool
-	resource      *ResourceData
+	resource      *resource.Data
 	cursor        int // index into revisions slice (0 = oldest, len-1 = newest)
 
 	// Stable selection by ID
-	selectedID RevisionID
+	selectedID resource.RevisionID
 
 	// Compare mark support
-	compareLeft  *CompareItem
-	compareRight *CompareItem
+	compareLeft  *resource.CompareItem
+	compareRight *resource.CompareItem
 
 	// Auto-scroll
 	autoScroll bool
 
 	// Analysis tags
-	analysisTags map[RevisionID][]ChangeTag
+	analysisTags map[resource.RevisionID][]resource.ChangeTag
 }
 
 func NewRevisionList(theme Theme) *RevisionList {
@@ -793,7 +793,7 @@ func (rl *RevisionList) SetFocus(f bool) {
 	rl.focused = f
 }
 
-func (rl *RevisionList) SetResource(rd *ResourceData) {
+func (rl *RevisionList) SetResource(rd *resource.Data) {
 	oldResource := rl.resource
 	rl.resource = rd
 	if rd != nil && len(rd.Revisions) > 0 {
@@ -815,7 +815,7 @@ func (rl *RevisionList) SetResource(rd *ResourceData) {
 	}
 }
 
-func (rl *RevisionList) SetCompareMarks(left, right *CompareItem) {
+func (rl *RevisionList) SetCompareMarks(left, right *resource.CompareItem) {
 	rl.compareLeft = left
 	rl.compareRight = right
 }
@@ -824,7 +824,7 @@ func (rl *RevisionList) SetAutoScroll(on bool) {
 	rl.autoScroll = on
 }
 
-func (rl *RevisionList) SetAnalysisTags(tags map[RevisionID][]ChangeTag) {
+func (rl *RevisionList) SetAnalysisTags(tags map[resource.RevisionID][]resource.ChangeTag) {
 	rl.analysisTags = tags
 }
 
@@ -1122,7 +1122,7 @@ func (rl *RevisionList) View() string {
 		etStyle := rl.theme.EventTypeStyle(rev.EventType)
 		etStr := etStyle.Render(rev.EventType.Symbol())
 
-		timeStr := lipgloss.NewStyle().Foreground(timeColor(rl.theme, rev.Time)).Render(RelativeTime(rev.Time))
+		timeStr := lipgloss.NewStyle().Foreground(timeColor(rl.theme, rev.Time)).Render(resource.RelativeTime(rev.Time))
 
 		// Compare badges
 		compareBadge := ""
@@ -1184,7 +1184,7 @@ type DetailView struct {
 	theme         Theme
 	focused       bool
 	viewport      viewport.Model
-	resource      *ResourceData
+	resource      *resource.Data
 	revIndex      int
 	viewMode      ViewMode
 	content       string
@@ -1211,7 +1211,7 @@ func (dv *DetailView) SetFocus(f bool) {
 	dv.focused = f
 }
 
-func (dv *DetailView) SetRevision(rd *ResourceData, index int) {
+func (dv *DetailView) SetRevision(rd *resource.Data, index int) {
 	dv.resource = rd
 	dv.revIndex = index
 	dv.renderContent()
@@ -1259,7 +1259,7 @@ func (dv *DetailView) renderContent() {
 		dv.resource.Resource.KindName(),
 		lipgloss.NewStyle().Foreground(dv.theme.Mauve).Render(rev.ID.String()),
 		dv.theme.EventTypeStyle(rev.EventType).Render(rev.EventType.Symbol()),
-		lipgloss.NewStyle().Foreground(dv.theme.Overlay1).Render(FormatTimestamp(rev.Time)),
+		lipgloss.NewStyle().Foreground(dv.theme.Overlay1).Render(resource.FormatTimestamp(rev.Time)),
 	)
 	titleLine := lipgloss.NewStyle().Bold(true).Render(title)
 
@@ -1293,7 +1293,7 @@ func (dv *DetailView) renderContent() {
 	dv.viewport.GotoTop()
 }
 
-func (dv *DetailView) renderDiff(rev Revision) string {
+func (dv *DetailView) renderDiff(rev resource.Revision) string {
 	if rev.Object == nil {
 		return dv.theme.MutedStyle().Render("(no object data)")
 	}
@@ -1317,7 +1317,7 @@ func (dv *DetailView) renderDiff(rev Revision) string {
 }
 
 // renderRaw shows the revision as a raw database record.
-func (dv *DetailView) renderRaw(rev Revision) string {
+func (dv *DetailView) renderRaw(rev resource.Revision) string {
 	var lines []string
 	headerStyle := lipgloss.NewStyle().Foreground(dv.theme.Lavender).Bold(true)
 	keyStyle := lipgloss.NewStyle().Foreground(dv.theme.Blue)
@@ -1424,7 +1424,7 @@ func (dv *DetailView) Update(msg tea.Msg) tea.Cmd {
 			if dv.resource != nil && dv.revIndex < len(dv.resource.Revisions) {
 				rev := dv.resource.Revisions[dv.revIndex]
 				return Cmd(JumpToTimelineMsg{
-					Entry: TimelineEntry{
+					Entry: resource.TimelineEntry{
 						Resource: dv.resource.Resource,
 						Revision: rev,
 					},
@@ -1460,8 +1460,8 @@ type TimelineList struct {
 	width, height int
 	theme         Theme
 	focused       bool
-	entries       []TimelineEntry
-	groups        []any // TimelineEntry or BurstGroup
+	entries       []resource.TimelineEntry
+	groups        []any // resource.TimelineEntry or resource.BurstGroup
 	cursor        int
 	flatItems     []timelineFlatItem
 
@@ -1469,12 +1469,12 @@ type TimelineList struct {
 	autoScroll bool
 
 	// Window filter centered on anchor timestamp
-	windowMode   WindowMode
+	windowMode   resource.WindowMode
 	windowAnchor time.Time // the revision timestamp the window is centered on
 
 	// Compare mark support
-	compareLeft  *CompareItem
-	compareRight *CompareItem
+	compareLeft  *resource.CompareItem
+	compareRight *resource.CompareItem
 
 	// Inline filter state
 	filterTextInput textinput.Model // text input for filter editing
@@ -1487,7 +1487,7 @@ type TimelineList struct {
 }
 
 type timelineFlatItem struct {
-	entry        *TimelineEntry
+	entry        *resource.TimelineEntry
 	isBurstStart bool
 	isBurstEnd   bool
 	isBurstMid   bool
@@ -1510,7 +1510,7 @@ func (tl *TimelineList) SetFocus(f bool) {
 	tl.focused = f
 }
 
-func (tl *TimelineList) SetCompareMarks(left, right *CompareItem) {
+func (tl *TimelineList) SetCompareMarks(left, right *resource.CompareItem) {
 	tl.compareLeft = left
 	tl.compareRight = right
 }
@@ -1580,7 +1580,7 @@ func (tl *TimelineList) FilterCounts() (int, int) {
 	return match, len(tl.entries)
 }
 
-func (tl *TimelineList) matchesFilter(r Resource) bool {
+func (tl *TimelineList) matchesFilter(r resource.Resource) bool {
 	if tl.filterProg == nil {
 		return false
 	}
@@ -1608,19 +1608,19 @@ func (tl *TimelineList) handleFilterMsg(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
-func (tl *TimelineList) SetWindowMode(wm WindowMode) {
+func (tl *TimelineList) SetWindowMode(wm resource.WindowMode) {
 	tl.windowMode = wm
 	tl.rebuild()
 }
 
 func (tl *TimelineList) SetWindowAnchor(t time.Time) {
 	tl.windowAnchor = t
-	if tl.windowMode != WindowAll {
+	if tl.windowMode != resource.WindowAll {
 		tl.rebuild()
 	}
 }
 
-func (tl *TimelineList) SetEntries(entries []TimelineEntry) {
+func (tl *TimelineList) SetEntries(entries []resource.TimelineEntry) {
 	tl.entries = entries
 	tl.rebuild()
 }
@@ -1628,8 +1628,8 @@ func (tl *TimelineList) SetEntries(entries []TimelineEntry) {
 func (tl *TimelineList) rebuild() {
 	// Apply window filter centered on anchor timestamp
 	filtered := tl.entries
-	if tl.windowMode != WindowAll && !tl.windowAnchor.IsZero() {
-		halfDur := WindowHalfDuration(tl.windowMode)
+	if tl.windowMode != resource.WindowAll && !tl.windowAnchor.IsZero() {
+		halfDur := resource.WindowHalfDuration(tl.windowMode)
 		windowStart := tl.windowAnchor.Add(-halfDur)
 		windowEnd := tl.windowAnchor.Add(halfDur)
 		filtered = nil
@@ -1644,7 +1644,7 @@ func (tl *TimelineList) rebuild() {
 
 	// Apply inline filter when applied and not being edited (hide non-matches)
 	if tl.filterApplied && !tl.filterEditing && tl.filterTextInput.Value() != "" {
-		var matched []TimelineEntry
+		var matched []resource.TimelineEntry
 		for _, e := range filtered {
 			if tl.matchesFilter(e.Resource) {
 				matched = append(matched, e)
@@ -1653,7 +1653,7 @@ func (tl *TimelineList) rebuild() {
 		filtered = matched
 	}
 
-	tl.groups = GroupTimelineByBurst(filtered, 5*time.Second)
+	tl.groups = resource.GroupTimelineByBurst(filtered, 5*time.Second)
 	tl.buildFlatItems()
 	if tl.cursor >= len(tl.flatItems) && len(tl.flatItems) > 0 {
 		tl.cursor = len(tl.flatItems) - 1
@@ -1671,7 +1671,7 @@ func (tl *TimelineList) JumpToNewest() {
 }
 
 // ScrollToRevision finds a timeline entry by revision ID and moves the cursor to it.
-func (tl *TimelineList) ScrollToRevision(revID RevisionID) {
+func (tl *TimelineList) ScrollToRevision(revID resource.RevisionID) {
 	for i, item := range tl.flatItems {
 		if item.entry != nil && item.entry.Revision.ID == revID {
 			tl.cursor = i
@@ -1681,7 +1681,7 @@ func (tl *TimelineList) ScrollToRevision(revID RevisionID) {
 }
 
 // SelectedEntry returns the currently selected timeline entry, or nil.
-func (tl *TimelineList) SelectedEntry() *TimelineEntry {
+func (tl *TimelineList) SelectedEntry() *resource.TimelineEntry {
 	if tl.cursor >= 0 && tl.cursor < len(tl.flatItems) {
 		return tl.flatItems[tl.cursor].entry
 	}
@@ -1700,7 +1700,7 @@ func (tl *TimelineList) CanScrollUp() bool {
 	}
 	// Account for optional header lines and bottom filter bar
 	headerLines := 0
-	if tl.windowMode != WindowAll || tl.autoScroll {
+	if tl.windowMode != resource.WindowAll || tl.autoScroll {
 		headerLines = 1
 	}
 	visibleHeight := tl.height - 1 - headerLines // 1 for filter bar
@@ -1720,7 +1720,7 @@ func (tl *TimelineList) CanScrollDown() bool {
 		return false
 	}
 	headerLines := 0
-	if tl.windowMode != WindowAll || tl.autoScroll {
+	if tl.windowMode != resource.WindowAll || tl.autoScroll {
 		headerLines = 1
 	}
 	visibleHeight := tl.height - 1 - headerLines // 1 for filter bar
@@ -1738,9 +1738,9 @@ func (tl *TimelineList) buildFlatItems() {
 	tl.flatItems = nil
 	for _, g := range tl.groups {
 		switch v := g.(type) {
-		case TimelineEntry:
+		case resource.TimelineEntry:
 			tl.flatItems = append(tl.flatItems, timelineFlatItem{entry: new(v)})
-		case BurstGroup:
+		case resource.BurstGroup:
 			for i, e := range v.Entries {
 				item := timelineFlatItem{
 					entry:     new(e),
@@ -1783,10 +1783,10 @@ func (tl *TimelineList) CurrentHint() string {
 		parts = append(parts, "auto-scroll ON")
 	}
 
-	if tl.windowMode != WindowAll {
+	if tl.windowMode != resource.WindowAll {
 		anchor := "none"
 		if !tl.windowAnchor.IsZero() {
-			anchor = FormatTimestamp(tl.windowAnchor)
+			anchor = resource.FormatTimestamp(tl.windowAnchor)
 		}
 		parts = append(parts, "window: "+tl.windowMode.String()+" around "+anchor)
 	}
@@ -1876,12 +1876,12 @@ func (tl *TimelineList) View() string {
 	var lines []string
 
 	// Window mode banner when active
-	if tl.windowMode != WindowAll || tl.autoScroll {
+	if tl.windowMode != resource.WindowAll || tl.autoScroll {
 		var badges []string
-		if tl.windowMode != WindowAll {
+		if tl.windowMode != resource.WindowAll {
 			anchorStr := "no anchor"
 			if !tl.windowAnchor.IsZero() {
-				anchorStr = FormatTimestamp(tl.windowAnchor)
+				anchorStr = resource.FormatTimestamp(tl.windowAnchor)
 			}
 			badges = append(badges, lipgloss.NewStyle().Foreground(tl.theme.Sky).Render(
 				tl.windowMode.String()+" around "+anchorStr))
@@ -1934,10 +1934,10 @@ func (tl *TimelineList) View() string {
 			timeFg = dimColor
 		}
 		timeStr := lipgloss.NewStyle().Foreground(timeFg).
-			Render(FormatTimestamp(e.Revision.Time))
+			Render(resource.FormatTimestamp(e.Revision.Time))
 
 		anchorMark := " "
-		if tl.windowMode != WindowAll && !tl.windowAnchor.IsZero() {
+		if tl.windowMode != resource.WindowAll && !tl.windowAnchor.IsZero() {
 			diff := e.Revision.Time.Sub(tl.windowAnchor)
 			if diff < 0 {
 				diff = -diff
@@ -2022,8 +2022,8 @@ func (tl *TimelineList) renderFilterBar() string {
 type ComparePanel struct {
 	width, height int
 	theme         Theme
-	left          *CompareItem
-	right         *CompareItem
+	left          *resource.CompareItem
+	right         *resource.CompareItem
 	leftVP        viewport.Model
 	rightVP       viewport.Model
 	focusLeft     bool
@@ -2048,7 +2048,7 @@ func (cp *ComparePanel) SetSize(w, h int) {
 	cp.renderContent()
 }
 
-func (cp *ComparePanel) SetItems(left, right *CompareItem) {
+func (cp *ComparePanel) SetItems(left, right *resource.CompareItem) {
 	cp.left = left
 	cp.right = right
 	cp.renderContent()
