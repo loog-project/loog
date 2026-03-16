@@ -160,10 +160,12 @@ func (t *TrackerService) Commit(
 	if err != nil {
 		return 0, err
 	}
+	// Apply only the diff to the cached state instead of copying the
+	// entire object. This is O(changed keys) rather than O(all keys).
 	if ts.obj == nil {
 		ts.obj = make(diffmap.DiffMap)
 	}
-	maps.Copy(ts.obj, newObject.Object)
+	diffmap.Apply(ts.obj, diff)
 	ts.rev = p.ID
 
 	return p.ID, nil

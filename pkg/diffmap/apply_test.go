@@ -39,7 +39,7 @@ func BenchmarkApply_1k(b *testing.B) {
 	a, bb := genMaps(1000)
 	chg := diffmap.Diff(a, bb)
 	for i := 0; i < b.N; i++ {
-		var dst map[string]any
+		dst := make(map[string]any, len(a))
 		maps.Copy(dst, a)
 		diffmap.Apply(dst, chg)
 	}

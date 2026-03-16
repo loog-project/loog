@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
@@ -316,4 +317,114 @@ func benchCommit(b *testing.B, snapshotEvery uint64, durable, withCache bool) {
 	} else {
 		b.Fatalf("stat db file: %v", err)
 	}
+}
+
+// benchCommitWithOptions uses NewWithOptions for fine-grained control.
+func benchCommitWithOptions(b *testing.B, snapshotEvery uint64, withCache bool, opts bboltStore.Options) {
+	tempDir := b.TempDir()
+	dbPath := fmt.Sprintf("%s/bench-%d.db", tempDir, snapshotEvery)
+
+	db, err := bboltStore.NewWithOptions(dbPath, opts)
+	if err != nil {
+		b.Fatalf("init store: %v", err)
+	}
+	defer func(store *bboltStore.Store) {
+		_ = store.Close()
+	}(db)
+
+	svc := service.NewTrackerService(db, snapshotEvery, withCache)
+
+	m := map[string]any{}
+	for i := range 500 {
+		v := strings.Repeat(string(rune(i+65)), 26)
+		m[v] = v
+	}
+
+	base := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "v1",
+		"kind":       "ConfigMap",
+		"metadata": map[string]any{
+			"uid":        "bench-uid",
+			"namespace":  "default",
+			"name":       "cm-0",
+			"generation": int64(1),
+		},
+		"data": m,
+	}}
+
+	objectID := "bench-uid"
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		meta := base.Object["metadata"].(map[string]any)
+		meta["name"] = "cm-" + strconv.Itoa(i)
+		meta["generation"] = int64(i + 1)
+
+		if _, err := svc.Commit(b.Context(), objectID, base); err != nil {
+			b.Fatalf("commit error: %v", err)
+		}
+	}
+	b.StopTimer()
+
+	if fi, err := os.Stat(dbPath); err == nil {
+		b.ReportMetric(float64(fi.Size())/1e3, "KB_db")
+	} else {
+		b.Fatalf("stat db file: %v", err)
+	}
+}
+
+// Periodic sync benchmarks (the new recommended production mode)
+
+func BenchmarkCommit_PeriodicSync8_WithCache(b *testing.B) {
+	benchCommitWithOptions(b, 8, true, bboltStore.Options{
+		Durable:      true,
+		SyncInterval: 50 * time.Millisecond,
+	})
+}
+
+func BenchmarkCommit_PeriodicSync8_NoCache(b *testing.B) {
+	benchCommitWithOptions(b, 8, false, bboltStore.Options{
+		Durable:      true,
+		SyncInterval: 50 * time.Millisecond,
+	})
+}
+
+func BenchmarkCommit_PeriodicSync16_WithCache(b *testing.B) {
+	benchCommitWithOptions(b, 16, true, bboltStore.Options{
+		Durable:      true,
+		SyncInterval: 50 * time.Millisecond,
+	})
+}
+
+// Compressed benchmarks
+
+func BenchmarkCommit_Compressed8_WithCache(b *testing.B) {
+	benchCommitWithOptions(b, 8, true, bboltStore.Options{
+		Compress: true,
+	})
+}
+
+func BenchmarkCommit_Compressed8_Durable_WithCache(b *testing.B) {
+	benchCommitWithOptions(b, 8, true, bboltStore.Options{
+		Durable:  true,
+		Compress: true,
+	})
+}
+
+// The recommended production mode: periodic sync + compression
+func BenchmarkCommit_PeriodicSyncCompressed8_WithCache(b *testing.B) {
+	benchCommitWithOptions(b, 8, true, bboltStore.Options{
+		Durable:      true,
+		SyncInterval: 50 * time.Millisecond,
+		Compress:     true,
+	})
+}
+
+func BenchmarkCommit_PeriodicSyncCompressed16_WithCache(b *testing.B) {
+	benchCommitWithOptions(b, 16, true, bboltStore.Options{
+		Durable:      true,
+		SyncInterval: 50 * time.Millisecond,
+		Compress:     true,
+	})
 }

@@ -3,11 +3,20 @@ package bbolt
 import (
 	"context"
 	"encoding/binary"
+	"sync"
 
 	"go.etcd.io/bbolt"
 
 	"github.com/loog-project/loog/internal/store"
 )
+
+// payloadPool reuses buffers for type-tag + marshalled payload merging.
+var payloadPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 0, 2048)
+		return &b
+	},
+}
 
 func (s *Store) Get(
 	_ context.Context,
@@ -15,8 +24,9 @@ func (s *Store) Get(
 	revisionID store.RevisionID,
 ) (snapshot *store.Snapshot, patch *store.Patch, err error) {
 	err = s.db.View(func(tx *bbolt.Tx) error {
-		key := keyObjectRevision(uid, revisionID)
-		v := tx.Bucket(bucketSnapshots).Get(key)
+		bp := keyObjectRevisionPooled(uid, revisionID)
+		v := tx.Bucket(bucketSnapshots).Get(*bp)
+		putKeyBuf(bp)
 		if v == nil {
 			return store.ErrNotFound
 		}
@@ -26,6 +36,36 @@ func (s *Store) Get(
 	return
 }
 
+// storeRevision is the shared write logic for both snapshots and patches.
+// It claims a revision, sets the ID on the value, marshals, optionally
+// compresses, prepends the type tag, and puts the result into bbolt.
+func (s *Store) storeRevision(tx *bbolt.Tx, uid string, typeByte byte, revisionID store.RevisionID, v any) error {
+	key := keyObjectRevision(uid, revisionID)
+	payload, err := s.codec.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	if s.compress {
+		payload = compressPayload(payload)
+	}
+
+	// Merge type tag + payload using pooled buffer
+	bp := payloadPool.Get().(*[]byte)
+	needed := 1 + len(payload)
+	if cap(*bp) < needed {
+		*bp = make([]byte, needed)
+	} else {
+		*bp = (*bp)[:needed]
+	}
+	(*bp)[0] = typeByte
+	copy((*bp)[1:], payload)
+
+	err = tx.Bucket(bucketSnapshots).Put(key, *bp)
+	payloadPool.Put(bp)
+	return err
+}
+
 func (s *Store) SetSnapshot(_ context.Context, uid string, snapshot *store.Snapshot) error {
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		revisionID, err := s.claimNextRevision(tx, uid)
@@ -33,18 +73,7 @@ func (s *Store) SetSnapshot(_ context.Context, uid string, snapshot *store.Snaps
 			return err
 		}
 		snapshot.ID = revisionID
-
-		key := keyObjectRevision(uid, revisionID)
-		payload, err := s.codec.Marshal(snapshot)
-		if err != nil {
-			return err
-		}
-
-		buf := make([]byte, 1+len(payload))
-		buf[0] = TypeSnapshot
-		copy(buf[1:], payload)
-
-		return tx.Bucket(bucketSnapshots).Put(key, buf)
+		return s.storeRevision(tx, uid, TypeSnapshot, revisionID, snapshot)
 	})
 }
 
@@ -55,18 +84,7 @@ func (s *Store) SetPatch(_ context.Context, uid string, patch *store.Patch) erro
 			return err
 		}
 		patch.ID = revisionID
-
-		key := keyObjectRevision(uid, revisionID)
-		payload, err := s.codec.Marshal(patch)
-		if err != nil {
-			return err
-		}
-
-		buf := make([]byte, 1+len(payload))
-		buf[0] = TypePatch
-		copy(buf[1:], payload)
-
-		return tx.Bucket(bucketSnapshots).Put(key, buf)
+		return s.storeRevision(tx, uid, TypePatch, revisionID, patch)
 	})
 }
 
@@ -104,10 +122,8 @@ func (s *Store) GetLatestRevision(
 }
 
 func (s *Store) WalkObjectRevisions(yield func(string, store.RevisionID, *store.Snapshot, *store.Patch) bool) error {
-	err := s.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(bucketSnapshots)
-
-		c := b.Cursor()
+	return s.db.View(func(tx *bbolt.Tx) error {
+		c := tx.Bucket(bucketSnapshots).Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
 			uid, revisionID := splitObjectRevisionKey(k)
 			if uid == "" {
@@ -124,5 +140,4 @@ func (s *Store) WalkObjectRevisions(yield func(string, store.RevisionID, *store.
 		}
 		return nil
 	})
-	return err
 }

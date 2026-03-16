@@ -21,7 +21,7 @@ func Diff(a, b DiffMap) DiffMap {
 func diffRecursive(a, b DiffMap, out DiffMap) {
 	for keyA, valueA := range a {
 		valueBFromKeyA, hasAInB := b[keyA]
-		if !hasAInB { // the key was removed
+		if !hasAInB {
 			out[keyA] = nil
 			continue
 		}
@@ -41,7 +41,7 @@ func diffRecursive(a, b DiffMap, out DiffMap) {
 				continue
 			}
 		}
-		out[keyA] = valueBFromKeyA // scalar changed or type mismatch
+		out[keyA] = valueBFromKeyA
 	}
 	for k, vb := range b {
 		if _, already := a[k]; !already {
@@ -50,9 +50,7 @@ func diffRecursive(a, b DiffMap, out DiffMap) {
 	}
 }
 
-// equalFast is a tight equality test that avoids reflection.
-//
-// Fallback to reflect.DeepEqual only for _weird_ values (like structs, slices, pointers, ...)
+// equalFast is a tight equality test that avoids reflection for common types.
 func equalFast(a, b any) bool {
 	switch va := a.(type) {
 	case string:
@@ -73,9 +71,30 @@ func equalFast(a, b any) bool {
 	case nil:
 		return b == nil
 	case DiffMap:
-		// We do not recurse here; we only need to know “equal or not”.
 		vb, ok := b.(DiffMap)
-		return ok && len(va) == 0 && len(vb) == 0 // tiny shortcut
+		if !ok {
+			return false
+		}
+		return diffMapsEqual(va, vb)
 	}
 	return reflect.DeepEqual(a, b)
+}
+
+// diffMapsEqual recursively checks if two DiffMaps are equal without
+// allocating a diff map. This avoids the reflect.DeepEqual fallback
+// for the very common case of nested map[string]any values.
+func diffMapsEqual(a, b DiffMap) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, va := range a {
+		vb, ok := b[k]
+		if !ok {
+			return false
+		}
+		if !equalFast(va, vb) {
+			return false
+		}
+	}
+	return true
 }
