@@ -134,12 +134,12 @@ func (ev *ExplorerViewComponent) CurrentHint() string {
 }
 
 // StartFilter activates inline filter on the focused panel (only ResourceTree supports it).
-func (ev *ExplorerViewComponent) StartFilter() bool {
+func (ev *ExplorerViewComponent) StartFilter() (bool, tea.Cmd) {
 	if ev.focusPanel == PanelLeft {
-		ev.tree.StartFilter()
-		return true
+		cmd := ev.tree.StartFilter()
+		return true, cmd
 	}
-	return false
+	return false, nil
 }
 
 // IsFilterEditing returns true if the focused panel is currently editing a filter.
@@ -330,12 +330,12 @@ func (tv *TimelineViewComponent) CurrentHint() string {
 }
 
 // StartFilter activates inline filter on the focused panel (only TimelineList supports it).
-func (tv *TimelineViewComponent) StartFilter() bool {
+func (tv *TimelineViewComponent) StartFilter() (bool, tea.Cmd) {
 	if tv.focusPanel == PanelLeft {
-		tv.timeline.StartFilter()
-		return true
+		cmd := tv.timeline.StartFilter()
+		return true, cmd
 	}
-	return false
+	return false, nil
 }
 
 // IsFilterEditing returns true if the focused panel is currently editing a filter.

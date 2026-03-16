@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -15,6 +16,46 @@ import (
 	"github.com/loog-project/loog/internal/resource"
 	"github.com/loog-project/loog/pkg/diffpreview"
 )
+
+// newFilterInput creates a textinput.Model configured for inline panel filters.
+// ctrl+k is disabled (conflicts with CommandPalette toggle) and suggestion
+// navigation keys are disabled (filters don't use suggestions).
+func newFilterInput(theme Theme) textinput.Model {
+	ti := textinput.New()
+	ti.Prompt = "/"
+	ti.PromptStyle = lipgloss.NewStyle().Foreground(theme.Overlay1)
+	ti.TextStyle = lipgloss.NewStyle().Foreground(theme.Text)
+	ti.Cursor.Style = lipgloss.NewStyle().Foreground(theme.Text).Background(theme.Surface2)
+	ti.CharLimit = 256
+	km := textinput.DefaultKeyMap
+	km.DeleteAfterCursor.SetEnabled(false)
+	km.AcceptSuggestion.SetEnabled(false)
+	km.NextSuggestion.SetEnabled(false)
+	km.PrevSuggestion.SetEnabled(false)
+	ti.KeyMap = km
+	return ti
+}
+
+// newSearchInput creates a textinput.Model configured for overlay search fields.
+// ctrl+k and all suggestion/navigation keys are disabled since overlays
+// handle up/down/tab/enter themselves.
+func newSearchInput(prompt string, placeholder string, theme Theme, accentColor lipgloss.Color) textinput.Model {
+	ti := textinput.New()
+	ti.Prompt = prompt
+	ti.Placeholder = placeholder
+	ti.PromptStyle = lipgloss.NewStyle().Foreground(accentColor).Bold(true)
+	ti.TextStyle = lipgloss.NewStyle().Foreground(theme.Text)
+	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(theme.Overlay0).Italic(true)
+	ti.Cursor.Style = lipgloss.NewStyle().Foreground(theme.Base).Background(theme.Text)
+	ti.CharLimit = 256
+	km := textinput.DefaultKeyMap
+	km.DeleteAfterCursor.SetEnabled(false)
+	km.AcceptSuggestion.SetEnabled(false)
+	km.NextSuggestion.SetEnabled(false)
+	km.PrevSuggestion.SetEnabled(false)
+	ti.KeyMap = km
+	return ti
+}
 
 // ─── Resource Tree ───
 
@@ -40,10 +81,10 @@ type ResourceTree struct {
 	analysisTags map[string][]ChangeTag // resourceUID -> tags for latest revision
 
 	// Inline filter state
-	filterInput   string      // current filter text
-	filterEditing bool        // true while user is typing in filter
-	filterApplied bool        // true after user pressed Enter to apply filter
-	filterProg    *vm.Program // compiled expr-lang program (nil for substring match)
+	filterTextInput textinput.Model // text input for filter editing
+	filterEditing   bool            // true while user is typing in filter
+	filterApplied   bool            // true after user pressed Enter to apply filter
+	filterProg      *vm.Program     // compiled expr-lang program (nil for substring match)
 
 	// Starred-only filter
 	starredOnly bool
@@ -63,7 +104,11 @@ type treeItem struct {
 }
 
 func NewResourceTree(theme Theme) *ResourceTree {
-	return &ResourceTree{theme: theme, expandState: make(map[string]bool)}
+	return &ResourceTree{
+		theme:           theme,
+		expandState:     make(map[string]bool),
+		filterTextInput: newFilterInput(theme),
+	}
 }
 
 func (rt *ResourceTree) SetSize(w, h int) {
@@ -178,17 +223,20 @@ func (rt *ResourceTree) StarredOnly() bool {
 }
 
 // StartFilter activates inline filter editing mode.
-func (rt *ResourceTree) StartFilter() {
+func (rt *ResourceTree) StartFilter() tea.Cmd {
 	rt.filterEditing = true
+	cmd := rt.filterTextInput.Focus()
 	// If resuming from an applied filter, rebuild to show all items (for preview)
 	if rt.filterApplied {
 		rt.buildItems()
 	}
+	return cmd
 }
 
 // ClearFilter resets filter state entirely.
 func (rt *ResourceTree) ClearFilter() {
-	rt.filterInput = ""
+	rt.filterTextInput.SetValue("")
+	rt.filterTextInput.Blur()
 	rt.filterEditing = false
 	rt.filterApplied = false
 	rt.filterProg = nil
@@ -197,10 +245,11 @@ func (rt *ResourceTree) ClearFilter() {
 
 // ApplyFilter applies the current filter input: hides non-matching items.
 func (rt *ResourceTree) ApplyFilter() {
-	if rt.filterInput == "" {
+	if rt.filterTextInput.Value() == "" {
 		rt.ClearFilter()
 		return
 	}
+	rt.filterTextInput.Blur()
 	rt.filterEditing = false
 	rt.filterApplied = true
 	rt.buildItems()
@@ -213,12 +262,12 @@ func (rt *ResourceTree) IsFilterActive() bool {
 
 // FilterState returns the current filter state for title rendering.
 func (rt *ResourceTree) FilterState() (input string, editing bool, applied bool) {
-	return rt.filterInput, rt.filterEditing, rt.filterApplied
+	return rt.filterTextInput.Value(), rt.filterEditing, rt.filterApplied
 }
 
 // FilterCounts returns (matchCount, totalCount) for title display.
 func (rt *ResourceTree) FilterCounts() (int, int) {
-	if rt.filterInput == "" {
+	if rt.filterTextInput.Value() == "" {
 		return 0, rt.totalResourceCount()
 	}
 	match := 0
@@ -250,38 +299,31 @@ func (rt *ResourceTree) matchesFilter(r Resource) bool {
 }
 
 func (rt *ResourceTree) updateFilterProg() {
-	rt.filterProg = resource.CompileFilter(rt.filterInput)
+	rt.filterProg = resource.CompileFilter(rt.filterTextInput.Value())
 }
 
-func (rt *ResourceTree) handleFilterKey(msg tea.KeyMsg) tea.Cmd {
-	switch msg.String() {
-	case "enter":
-		rt.ApplyFilter()
-		return nil
-	case "esc":
-		rt.ClearFilter()
-		return nil
-	case "backspace":
-		if len(rt.filterInput) > 0 {
-			rt.filterInput = rt.filterInput[:len(rt.filterInput)-1]
-			rt.updateFilterProg()
+func (rt *ResourceTree) handleFilterMsg(msg tea.Msg) tea.Cmd {
+	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		switch keyMsg.String() {
+		case "enter":
+			rt.ApplyFilter()
+			return nil
+		case "esc":
+			rt.ClearFilter()
+			return nil
 		}
-		return nil
-	default:
-		// Only accept printable runes (single char, no ctrl sequences)
-		if msg.Type == tea.KeyRunes {
-			rt.filterInput += string(msg.Runes)
-			rt.updateFilterProg()
-		}
-		return nil
 	}
+	var cmd tea.Cmd
+	rt.filterTextInput, cmd = rt.filterTextInput.Update(msg)
+	rt.updateFilterProg()
+	return cmd
 }
 
 func (rt *ResourceTree) buildItems() {
 	rt.items = nil
 	// When filter is applied and NOT being edited, hide non-matching items.
 	// During editing (even with a previously applied filter), show everything for preview.
-	textFiltering := rt.filterApplied && !rt.filterEditing && rt.filterInput != ""
+	textFiltering := rt.filterApplied && !rt.filterEditing && rt.filterTextInput.Value() != ""
 
 	// shouldShow returns true if a resource passes all active filters (text + starred).
 	shouldShow := func(rd *ResourceData) bool {
@@ -334,12 +376,12 @@ func (rt *ResourceTree) Update(msg tea.Msg) tea.Cmd {
 	if !rt.focused {
 		return nil
 	}
+	// When filter editing is active, route all messages to the filter input
+	if rt.filterEditing {
+		return rt.handleFilterMsg(msg)
+	}
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		// When filter editing is active, intercept all keys
-		if rt.filterEditing {
-			return rt.handleFilterKey(msg)
-		}
 		switch msg.String() {
 		case "j", "down":
 			if rt.cursor < len(rt.items)-1 {
@@ -513,7 +555,7 @@ func (rt *ResourceTree) View() string {
 				item.Resource != nil && item.Resource.Resource.UID == rt.selected && rt.selected != ""
 
 			// Filter preview: dim non-matching resources when typing a filter
-			previewing := rt.filterEditing && rt.filterInput != ""
+			previewing := rt.filterEditing && rt.filterTextInput.Value() != ""
 			isDimmed := false
 			if previewing && item.Type == treeItemResource && item.Resource != nil {
 				if !rt.matchesFilter(item.Resource.Resource) {
@@ -656,28 +698,34 @@ func (rt *ResourceTree) renderFilterBar() string {
 	sepStyle := lipgloss.NewStyle().Foreground(rt.theme.Surface1)
 	sep := sepStyle.Render("─")
 
-	// Green when expr compiles, Peach (orange) when it doesn't.
-	inputColor := rt.theme.Peach
-	if rt.filterProg != nil {
-		inputColor = rt.theme.Green
-	}
-
 	if rt.filterEditing {
 		matchCount, totalCount := rt.FilterCounts()
-		prefix := lipgloss.NewStyle().Foreground(rt.theme.Overlay1).Render("/")
-		input := lipgloss.NewStyle().Foreground(inputColor).Render(rt.filterInput)
-		cursor := lipgloss.NewStyle().Foreground(rt.theme.Text).Background(rt.theme.Surface2).Render(" ")
+		var icon string
+		if rt.filterProg != nil {
+			icon = lipgloss.NewStyle().Foreground(rt.theme.Green).Render("✓")
+		} else if rt.filterTextInput.Value() != "" {
+			icon = lipgloss.NewStyle().Foreground(rt.theme.Peach).Render("!")
+		}
 		counts := lipgloss.NewStyle().Foreground(rt.theme.Overlay0).Render(fmt.Sprintf(" %d/%d", matchCount, totalCount))
-		bar := sep + prefix + input + cursor + counts
+		bar := sep + rt.filterTextInput.View() + counts
+		if icon != "" {
+			bar += " " + icon
+		}
 		return PadRight(bar, rt.width)
 	}
 
-	if rt.filterApplied && rt.filterInput != "" {
+	if rt.filterApplied && rt.filterTextInput.Value() != "" {
 		matchCount, totalCount := rt.FilterCounts()
+		var icon string
+		if rt.filterProg != nil {
+			icon = lipgloss.NewStyle().Foreground(rt.theme.Green).Render("✓")
+		} else {
+			icon = lipgloss.NewStyle().Foreground(rt.theme.Peach).Render("!")
+		}
 		prefix := lipgloss.NewStyle().Foreground(rt.theme.Overlay1).Render("/")
-		input := lipgloss.NewStyle().Foreground(inputColor).Render(rt.filterInput)
+		input := lipgloss.NewStyle().Foreground(rt.theme.Text).Render(rt.filterTextInput.Value())
 		counts := lipgloss.NewStyle().Foreground(rt.theme.Overlay0).Render(fmt.Sprintf(" %d/%d", matchCount, totalCount))
-		bar := sep + prefix + input + counts
+		bar := sep + prefix + input + counts + " " + icon
 		return PadRight(bar, rt.width)
 	}
 
@@ -1415,10 +1463,10 @@ type TimelineList struct {
 	compareRight *CompareItem
 
 	// Inline filter state
-	filterInput   string      // current filter text
-	filterEditing bool        // true while user is typing in filter
-	filterApplied bool        // true after user pressed Enter to apply filter
-	filterProg    *vm.Program // compiled expr-lang program (nil for substring match)
+	filterTextInput textinput.Model // text input for filter editing
+	filterEditing   bool            // true while user is typing in filter
+	filterApplied   bool            // true after user pressed Enter to apply filter
+	filterProg      *vm.Program     // compiled expr-lang program (nil for substring match)
 
 	// Display-only flag so the filter bar can show a ★ badge
 	starredOnly bool
@@ -1433,7 +1481,10 @@ type timelineFlatItem struct {
 }
 
 func NewTimelineList(theme Theme) *TimelineList {
-	return &TimelineList{theme: theme}
+	return &TimelineList{
+		theme:           theme,
+		filterTextInput: newFilterInput(theme),
+	}
 }
 
 func (tl *TimelineList) SetSize(w, h int) {
@@ -1459,17 +1510,20 @@ func (tl *TimelineList) SetStarredOnly(on bool) {
 }
 
 // StartFilter activates inline filter editing mode.
-func (tl *TimelineList) StartFilter() {
+func (tl *TimelineList) StartFilter() tea.Cmd {
 	tl.filterEditing = true
+	cmd := tl.filterTextInput.Focus()
 	// If resuming from an applied filter, rebuild to show all entries (for preview)
 	if tl.filterApplied {
 		tl.rebuild()
 	}
+	return cmd
 }
 
 // ClearFilter resets filter state entirely.
 func (tl *TimelineList) ClearFilter() {
-	tl.filterInput = ""
+	tl.filterTextInput.SetValue("")
+	tl.filterTextInput.Blur()
 	tl.filterEditing = false
 	tl.filterApplied = false
 	tl.filterProg = nil
@@ -1478,10 +1532,11 @@ func (tl *TimelineList) ClearFilter() {
 
 // ApplyFilter applies the current filter input: hides non-matching entries.
 func (tl *TimelineList) ApplyFilter() {
-	if tl.filterInput == "" {
+	if tl.filterTextInput.Value() == "" {
 		tl.ClearFilter()
 		return
 	}
+	tl.filterTextInput.Blur()
 	tl.filterEditing = false
 	tl.filterApplied = true
 	tl.rebuild()
@@ -1494,12 +1549,12 @@ func (tl *TimelineList) IsFilterActive() bool {
 
 // FilterState returns the current filter state for title rendering.
 func (tl *TimelineList) FilterState() (input string, editing bool, applied bool) {
-	return tl.filterInput, tl.filterEditing, tl.filterApplied
+	return tl.filterTextInput.Value(), tl.filterEditing, tl.filterApplied
 }
 
 // FilterCounts returns (matchCount, totalCount) for title display.
 func (tl *TimelineList) FilterCounts() (int, int) {
-	if tl.filterInput == "" {
+	if tl.filterTextInput.Value() == "" {
 		return 0, len(tl.entries)
 	}
 	match := 0
@@ -1519,30 +1574,24 @@ func (tl *TimelineList) matchesFilter(r Resource) bool {
 }
 
 func (tl *TimelineList) updateFilterProg() {
-	tl.filterProg = resource.CompileFilter(tl.filterInput)
+	tl.filterProg = resource.CompileFilter(tl.filterTextInput.Value())
 }
 
-func (tl *TimelineList) handleFilterKey(msg tea.KeyMsg) tea.Cmd {
-	switch msg.String() {
-	case "enter":
-		tl.ApplyFilter()
-		return nil
-	case "esc":
-		tl.ClearFilter()
-		return nil
-	case "backspace":
-		if len(tl.filterInput) > 0 {
-			tl.filterInput = tl.filterInput[:len(tl.filterInput)-1]
-			tl.updateFilterProg()
+func (tl *TimelineList) handleFilterMsg(msg tea.Msg) tea.Cmd {
+	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		switch keyMsg.String() {
+		case "enter":
+			tl.ApplyFilter()
+			return nil
+		case "esc":
+			tl.ClearFilter()
+			return nil
 		}
-		return nil
-	default:
-		if msg.Type == tea.KeyRunes {
-			tl.filterInput += string(msg.Runes)
-			tl.updateFilterProg()
-		}
-		return nil
 	}
+	var cmd tea.Cmd
+	tl.filterTextInput, cmd = tl.filterTextInput.Update(msg)
+	tl.updateFilterProg()
+	return cmd
 }
 
 func (tl *TimelineList) SetWindowMode(wm WindowMode) {
@@ -1580,7 +1629,7 @@ func (tl *TimelineList) rebuild() {
 	}
 
 	// Apply inline filter when applied and not being edited (hide non-matches)
-	if tl.filterApplied && !tl.filterEditing && tl.filterInput != "" {
+	if tl.filterApplied && !tl.filterEditing && tl.filterTextInput.Value() != "" {
 		var matched []TimelineEntry
 		for _, e := range filtered {
 			if tl.matchesFilter(e.Resource) {
@@ -1739,12 +1788,12 @@ func (tl *TimelineList) Update(msg tea.Msg) tea.Cmd {
 	if !tl.focused {
 		return nil
 	}
+	// When filter editing is active, route all messages to the filter input
+	if tl.filterEditing {
+		return tl.handleFilterMsg(msg)
+	}
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		// When filter editing is active, intercept all keys
-		if tl.filterEditing {
-			return tl.handleFilterKey(msg)
-		}
 		switch msg.String() {
 		case "j", "down":
 			if tl.cursor < len(tl.flatItems)-1 {
@@ -1852,7 +1901,7 @@ func (tl *TimelineList) View() string {
 		isPassive := i == tl.cursor && !tl.focused
 		e := item.entry
 
-		previewing := tl.filterEditing && tl.filterInput != ""
+		previewing := tl.filterEditing && tl.filterTextInput.Value() != ""
 		isDimmed := previewing && !tl.matchesFilter(e.Resource)
 
 		dimColor := tl.theme.Surface2
@@ -1949,27 +1998,34 @@ func (tl *TimelineList) renderFilterBar() string {
 	sepStyle := lipgloss.NewStyle().Foreground(tl.theme.Surface1)
 	sep := sepStyle.Render("─")
 
-	inputColor := tl.theme.Peach
-	if tl.filterProg != nil {
-		inputColor = tl.theme.Green
-	}
-
 	if tl.filterEditing {
 		matchCount, totalCount := tl.FilterCounts()
-		prefix := lipgloss.NewStyle().Foreground(tl.theme.Overlay1).Render("/")
-		input := lipgloss.NewStyle().Foreground(inputColor).Render(tl.filterInput)
-		cursor := lipgloss.NewStyle().Foreground(tl.theme.Text).Background(tl.theme.Surface2).Render(" ")
+		var icon string
+		if tl.filterProg != nil {
+			icon = lipgloss.NewStyle().Foreground(tl.theme.Green).Render("✓")
+		} else if tl.filterTextInput.Value() != "" {
+			icon = lipgloss.NewStyle().Foreground(tl.theme.Peach).Render("!")
+		}
 		counts := lipgloss.NewStyle().Foreground(tl.theme.Overlay0).Render(fmt.Sprintf(" %d/%d", matchCount, totalCount))
-		bar := sep + prefix + input + cursor + counts
+		bar := sep + tl.filterTextInput.View() + counts
+		if icon != "" {
+			bar += " " + icon
+		}
 		return PadRight(bar, tl.width)
 	}
 
-	if tl.filterApplied && tl.filterInput != "" {
+	if tl.filterApplied && tl.filterTextInput.Value() != "" {
 		matchCount, totalCount := tl.FilterCounts()
+		var icon string
+		if tl.filterProg != nil {
+			icon = lipgloss.NewStyle().Foreground(tl.theme.Green).Render("✓")
+		} else {
+			icon = lipgloss.NewStyle().Foreground(tl.theme.Peach).Render("!")
+		}
 		prefix := lipgloss.NewStyle().Foreground(tl.theme.Overlay1).Render("/")
-		input := lipgloss.NewStyle().Foreground(inputColor).Render(tl.filterInput)
+		input := lipgloss.NewStyle().Foreground(tl.theme.Text).Render(tl.filterTextInput.Value())
 		counts := lipgloss.NewStyle().Foreground(tl.theme.Overlay0).Render(fmt.Sprintf(" %d/%d", matchCount, totalCount))
-		bar := sep + prefix + input + counts
+		bar := sep + prefix + input + counts + " " + icon
 		return PadRight(bar, tl.width)
 	}
 

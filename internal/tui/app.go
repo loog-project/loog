@@ -264,8 +264,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, tea.Quit
 
 		case key.Matches(msg, GlobalKeyMap.CommandPalette):
-			a.commandPalette.Show()
-			return a, nil
+			return a, a.commandPalette.Show()
 
 		case key.Matches(msg, GlobalKeyMap.Help):
 			a.helpOverlay.Show()
@@ -275,12 +274,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Activate per-panel inline filter on the focused panel
 			switch a.activeView {
 			case ExplorerView:
-				if a.explorer.StartFilter() {
+				if ok, cmd := a.explorer.StartFilter(); ok {
 					a.updateHint()
+					return a, cmd
 				}
 			case TimelineView:
-				if a.timeline.StartFilter() {
+				if ok, cmd := a.timeline.StartFilter(); ok {
 					a.updateHint()
+					return a, cmd
 				}
 			}
 			return a, nil
@@ -360,16 +361,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, Cmd(ToggleFreezeMsg{})
 
 		case key.Matches(msg, GlobalKeyMap.WatchManager):
-			a.watchManager.Show(a.store, a.store.UnwatchedKinds())
-			return a, nil
+			return a, a.watchManager.Show(a.store, a.store.UnwatchedKinds())
 
 		case key.Matches(msg, GlobalKeyMap.DebugLog):
 			a.debugLogViewer.Show()
 			return a, nil
 
 		case key.Matches(msg, GlobalKeyMap.DevConsole):
-			a.devConsole.Show()
-			return a, nil
+			return a, a.devConsole.Show()
 		}
 
 		// Delegate to active view
@@ -458,7 +457,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.timeline.ScrollToEntry(msg.Entry)
 
 	case ShowCommandPaletteMsg:
-		a.commandPalette.Show()
+		cmds = append(cmds, a.commandPalette.Show())
 
 	case HideOverlayMsg:
 		// overlays handle their own hiding
@@ -467,16 +466,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.helpOverlay.Show()
 
 	case ShowQuickSearchMsg:
-		a.quickSearch.Show(a.store.AllResources())
+		cmds = append(cmds, a.quickSearch.Show(a.store.AllResources()))
 
 	case ShowWatchManagerMsg:
-		a.watchManager.Show(a.store, a.store.UnwatchedKinds())
+		cmds = append(cmds, a.watchManager.Show(a.store, a.store.UnwatchedKinds()))
 
 	case ShowDebugLogMsg:
 		a.debugLogViewer.Show()
 
 	case ShowDevConsoleMsg:
-		a.devConsole.Show()
+		cmds = append(cmds, a.devConsole.Show())
 
 	case AddWatchKindMsg:
 		created := a.store.AddWatchKind(msg.Kind)
@@ -613,6 +612,30 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case adapter.LiveRevisionMsg:
 		a.handleLiveRevision(msg.ResourceUID)
+
+	default:
+		// Route non-key messages (e.g. cursor blink ticks) to the active textinput.
+		if a.commandPalette.IsVisible() {
+			if cmd := a.commandPalette.Update(msg); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		} else if a.quickSearch.IsVisible() {
+			if cmd := a.quickSearch.Update(msg); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		} else if a.watchManager.IsVisible() {
+			if cmd := a.watchManager.Update(msg); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		} else if a.devConsole.IsVisible() {
+			if cmd := a.devConsole.Update(msg); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		} else if a.isFilterEditing() {
+			if cmd := a.updateActiveView(msg); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
 	}
 
 	return a, tea.Batch(cmds...)

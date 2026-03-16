@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/sahilm/fuzzy"
@@ -14,7 +15,7 @@ type CommandPalette struct {
 	width, height int
 	theme         Theme
 	registry      *CommandRegistry
-	query         string
+	queryInput    textinput.Model
 	cursor        int
 	visible       bool
 	matches       []fuzzy.Match
@@ -22,8 +23,9 @@ type CommandPalette struct {
 
 func NewCommandPalette(theme Theme, registry *CommandRegistry) *CommandPalette {
 	return &CommandPalette{
-		theme:    theme,
-		registry: registry,
+		theme:      theme,
+		registry:   registry,
+		queryInput: newSearchInput("> ", "Type to search...", theme, theme.Blue),
 	}
 }
 
@@ -36,29 +38,33 @@ func (cp *CommandPalette) IsVisible() bool {
 	return cp.visible
 }
 
-func (cp *CommandPalette) Show() {
+func (cp *CommandPalette) Show() tea.Cmd {
 	cp.visible = true
-	cp.query = ""
+	cp.queryInput.SetValue("")
+	cmd := cp.queryInput.Focus()
 	cp.cursor = 0
 	cp.updateMatches()
+	return cmd
 }
 
 func (cp *CommandPalette) Hide() {
 	cp.visible = false
-	cp.query = ""
+	cp.queryInput.SetValue("")
+	cp.queryInput.Blur()
 	cp.cursor = 0
 }
 
 func (cp *CommandPalette) updateMatches() {
 	names := cp.registry.Names()
-	if cp.query == "" {
+	q := cp.queryInput.Value()
+	if q == "" {
 		// Show all commands
 		cp.matches = make([]fuzzy.Match, len(names))
 		for i, name := range names {
 			cp.matches[i] = fuzzy.Match{Str: name, Index: i}
 		}
 	} else {
-		cp.matches = fuzzy.Find(cp.query, names)
+		cp.matches = fuzzy.Find(q, names)
 	}
 	if cp.cursor >= len(cp.matches) {
 		cp.cursor = 0
@@ -99,22 +105,16 @@ func (cp *CommandPalette) Update(msg tea.Msg) tea.Cmd {
 			if cp.cursor < len(cp.matches)-1 {
 				cp.cursor++
 			}
-		case "backspace":
-			if len(cp.query) > 0 {
-				cp.query = cp.query[:len(cp.query)-1]
-				cp.updateMatches()
-			}
-		case "ctrl+u":
-			cp.query = ""
-			cp.updateMatches()
 		default:
-			keyStr := msg.String()
-			// Only accept printable characters
-			if len(keyStr) == 1 && keyStr[0] >= 32 && keyStr[0] < 127 {
-				cp.query += keyStr
-				cp.updateMatches()
-			}
+			var cmd tea.Cmd
+			cp.queryInput, cmd = cp.queryInput.Update(msg)
+			cp.updateMatches()
+			return cmd
 		}
+	default:
+		var cmd tea.Cmd
+		cp.queryInput, cmd = cp.queryInput.Update(msg)
+		return cmd
 	}
 	return nil
 }
@@ -160,28 +160,8 @@ func (cp *CommandPalette) View() string {
 		Bold(true).
 		Render("Commands")
 
-	// Search input
-	searchPrefix := lipgloss.NewStyle().
-		Foreground(cp.theme.Blue).
-		Bold(true).
-		Render("> ")
-
-	queryDisplay := cp.query
-	if queryDisplay == "" {
-		queryDisplay = lipgloss.NewStyle().
-			Foreground(cp.theme.Overlay0).
-			Italic(true).
-			Render("Type to search...")
-	} else {
-		queryDisplay = lipgloss.NewStyle().
-			Foreground(cp.theme.Text).
-			Render(queryDisplay)
-	}
-	cursor := lipgloss.NewStyle().
-		Background(cp.theme.Text).
-		Foreground(cp.theme.Base).
-		Render(" ")
-	searchLine := searchPrefix + queryDisplay + cursor
+	// Search input (prompt, text, cursor, and placeholder handled by textinput.View)
+	searchLine := cp.queryInput.View()
 
 	// Separator
 	sep := lipgloss.NewStyle().
@@ -283,7 +263,7 @@ type QuickSearch struct {
 	width, height int
 	theme         Theme
 	visible       bool
-	query         string
+	queryInput    textinput.Model
 	cursor        int
 	resources     []*ResourceData
 	names         []string // precomputed KindName() for fuzzy matching
@@ -291,7 +271,10 @@ type QuickSearch struct {
 }
 
 func NewQuickSearch(theme Theme) *QuickSearch {
-	return &QuickSearch{theme: theme}
+	return &QuickSearch{
+		theme:      theme,
+		queryInput: newSearchInput("// ", "Fuzzy search resources...", theme, theme.Green),
+	}
 }
 
 func (qs *QuickSearch) SetSize(w, h int) {
@@ -303,9 +286,10 @@ func (qs *QuickSearch) IsVisible() bool {
 	return qs.visible
 }
 
-func (qs *QuickSearch) Show(resources []*ResourceData) {
+func (qs *QuickSearch) Show(resources []*ResourceData) tea.Cmd {
 	qs.visible = true
-	qs.query = ""
+	qs.queryInput.SetValue("")
+	cmd := qs.queryInput.Focus()
 	qs.cursor = 0
 	qs.resources = resources
 	qs.names = make([]string, len(resources))
@@ -313,22 +297,25 @@ func (qs *QuickSearch) Show(resources []*ResourceData) {
 		qs.names[i] = rd.Resource.KindName()
 	}
 	qs.updateMatches()
+	return cmd
 }
 
 func (qs *QuickSearch) Hide() {
 	qs.visible = false
-	qs.query = ""
+	qs.queryInput.SetValue("")
+	qs.queryInput.Blur()
 	qs.cursor = 0
 }
 
 func (qs *QuickSearch) updateMatches() {
-	if qs.query == "" {
+	q := qs.queryInput.Value()
+	if q == "" {
 		qs.matches = make([]fuzzy.Match, len(qs.names))
 		for i, name := range qs.names {
 			qs.matches[i] = fuzzy.Match{Str: name, Index: i}
 		}
 	} else {
-		qs.matches = fuzzy.Find(qs.query, qs.names)
+		qs.matches = fuzzy.Find(q, qs.names)
 	}
 	if qs.cursor >= len(qs.matches) {
 		qs.cursor = 0
@@ -339,6 +326,7 @@ func (qs *QuickSearch) Update(msg tea.Msg) tea.Cmd {
 	if !qs.visible {
 		return nil
 	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -367,21 +355,16 @@ func (qs *QuickSearch) Update(msg tea.Msg) tea.Cmd {
 			if qs.cursor < len(qs.matches)-1 {
 				qs.cursor++
 			}
-		case "backspace":
-			if len(qs.query) > 0 {
-				qs.query = qs.query[:len(qs.query)-1]
-				qs.updateMatches()
-			}
-		case "ctrl+u":
-			qs.query = ""
-			qs.updateMatches()
 		default:
-			keyStr := msg.String()
-			if len(keyStr) == 1 && keyStr[0] >= 32 && keyStr[0] < 127 {
-				qs.query += keyStr
-				qs.updateMatches()
-			}
+			var cmd tea.Cmd
+			qs.queryInput, cmd = qs.queryInput.Update(msg)
+			qs.updateMatches()
+			return cmd
 		}
+	default:
+		var cmd tea.Cmd
+		qs.queryInput, cmd = qs.queryInput.Update(msg)
+		return cmd
 	}
 	return nil
 }
@@ -402,24 +385,7 @@ func (qs *QuickSearch) View() string {
 		Bold(true).
 		Render("Quick Search")
 
-	searchPrefix := lipgloss.NewStyle().
-		Foreground(qs.theme.Green).Bold(true).
-		Render("// ")
-
-	queryDisplay := qs.query
-	if queryDisplay == "" {
-		queryDisplay = lipgloss.NewStyle().
-			Foreground(qs.theme.Overlay0).Italic(true).
-			Render("Fuzzy search resources...")
-	} else {
-		queryDisplay = lipgloss.NewStyle().
-			Foreground(qs.theme.Text).
-			Render(queryDisplay)
-	}
-	cursor := lipgloss.NewStyle().
-		Background(qs.theme.Text).Foreground(qs.theme.Base).
-		Render(" ")
-	searchLine := searchPrefix + queryDisplay + cursor
+	searchLine := qs.queryInput.View()
 
 	sep := lipgloss.NewStyle().
 		Foreground(qs.theme.Surface1).
@@ -535,22 +501,26 @@ type WatchManager struct {
 	tab           watchManagerTab
 
 	// Watching tab
-	watched      []watchedKindEntry
-	watchCursor  int
-	watchFilter  string
-	watchNames   []string
-	watchMatches []fuzzy.Match
+	watched          []watchedKindEntry
+	watchCursor      int
+	watchFilterInput textinput.Model
+	watchNames       []string
+	watchMatches     []fuzzy.Match
 
 	// Add tab
-	available  []ResourceKind
-	addCursor  int
-	addQuery   string
-	addNames   []string
-	addMatches []fuzzy.Match
+	available     []ResourceKind
+	addCursor     int
+	addQueryInput textinput.Model
+	addNames      []string
+	addMatches    []fuzzy.Match
 }
 
 func NewWatchManager(theme Theme) *WatchManager {
-	return &WatchManager{theme: theme}
+	return &WatchManager{
+		theme:            theme,
+		watchFilterInput: newSearchInput("> ", "Filter watched types...", theme, theme.Mauve),
+		addQueryInput:    newSearchInput("> ", "Search resource types...", theme, theme.Green),
+	}
 }
 
 func (wm *WatchManager) SetSize(w, h int) {
@@ -566,13 +536,14 @@ func (wm *WatchManager) IsVisible() bool {
 // watchedKinds: unique kind names currently tracked.
 // store: used to get resource/revision counts per kind.
 // unwatchedKinds: resource types available but not yet watched.
-func (wm *WatchManager) Show(store Store, unwatchedKinds []ResourceKind) {
+func (wm *WatchManager) Show(store Store, unwatchedKinds []ResourceKind) tea.Cmd {
 	wm.visible = true
 	wm.tab = wmTabWatching
 	wm.watchCursor = 0
-	wm.watchFilter = ""
+	wm.watchFilterInput.SetValue("")
+	cmd := wm.watchFilterInput.Focus()
 	wm.addCursor = 0
-	wm.addQuery = ""
+	wm.addQueryInput.SetValue("")
 
 	// Build watching entries
 	kinds := store.WatchedKinds()
@@ -595,20 +566,24 @@ func (wm *WatchManager) Show(store Store, unwatchedKinds []ResourceKind) {
 		wm.addNames[i] = rk.Kind
 	}
 	wm.updateAddMatches()
+	return cmd
 }
 
 func (wm *WatchManager) Hide() {
 	wm.visible = false
+	wm.watchFilterInput.Blur()
+	wm.addQueryInput.Blur()
 }
 
 func (wm *WatchManager) updateWatchMatches() {
-	if wm.watchFilter == "" {
+	q := wm.watchFilterInput.Value()
+	if q == "" {
 		wm.watchMatches = make([]fuzzy.Match, len(wm.watchNames))
 		for i, name := range wm.watchNames {
 			wm.watchMatches[i] = fuzzy.Match{Str: name, Index: i}
 		}
 	} else {
-		wm.watchMatches = fuzzy.Find(wm.watchFilter, wm.watchNames)
+		wm.watchMatches = fuzzy.Find(q, wm.watchNames)
 	}
 	if wm.watchCursor >= len(wm.watchMatches) {
 		wm.watchCursor = 0
@@ -616,13 +591,14 @@ func (wm *WatchManager) updateWatchMatches() {
 }
 
 func (wm *WatchManager) updateAddMatches() {
-	if wm.addQuery == "" {
+	q := wm.addQueryInput.Value()
+	if q == "" {
 		wm.addMatches = make([]fuzzy.Match, len(wm.addNames))
 		for i, name := range wm.addNames {
 			wm.addMatches[i] = fuzzy.Match{Str: name, Index: i}
 		}
 	} else {
-		wm.addMatches = fuzzy.Find(wm.addQuery, wm.addNames)
+		wm.addMatches = fuzzy.Find(q, wm.addNames)
 	}
 	if wm.addCursor >= len(wm.addMatches) {
 		wm.addCursor = 0
@@ -633,6 +609,7 @@ func (wm *WatchManager) Update(msg tea.Msg) tea.Cmd {
 	if !wm.visible {
 		return nil
 	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -640,103 +617,106 @@ func (wm *WatchManager) Update(msg tea.Msg) tea.Cmd {
 			wm.Hide()
 			return Cmd(HideOverlayMsg{})
 		case "tab":
+			var cmd tea.Cmd
 			if wm.tab == wmTabWatching {
 				wm.tab = wmTabAdd
+				wm.watchFilterInput.Blur()
+				cmd = wm.addQueryInput.Focus()
 			} else {
 				wm.tab = wmTabWatching
+				wm.addQueryInput.Blur()
+				cmd = wm.watchFilterInput.Focus()
 			}
-			return nil
+			return cmd
 		}
 
 		if wm.tab == wmTabWatching {
 			return wm.updateWatching(msg)
 		}
 		return wm.updateAdd(msg)
+	default:
+		if wm.tab == wmTabWatching {
+			return wm.updateWatching(msg)
+		}
+		return wm.updateAdd(msg)
+	}
+}
+
+func (wm *WatchManager) updateWatching(msg tea.Msg) tea.Cmd {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "up", "ctrl+p", "k":
+			if wm.watchCursor > 0 {
+				wm.watchCursor--
+			}
+		case "down", "ctrl+n", "j":
+			if wm.watchCursor < len(wm.watchMatches)-1 {
+				wm.watchCursor++
+			}
+		case "d", "delete":
+			if wm.watchCursor < len(wm.watchMatches) {
+				match := wm.watchMatches[wm.watchCursor]
+				if match.Index < len(wm.watched) {
+					entry := wm.watched[match.Index]
+					wm.Hide()
+					return tea.Batch(
+						Cmd(HideOverlayMsg{}),
+						Cmd(RemoveWatchKindMsg{Kind: entry.Kind}),
+					)
+				}
+			}
+		case "enter":
+			wm.Hide()
+			return Cmd(HideOverlayMsg{})
+		default:
+			var cmd tea.Cmd
+			wm.watchFilterInput, cmd = wm.watchFilterInput.Update(msg)
+			wm.updateWatchMatches()
+			return cmd
+		}
+	default:
+		var cmd tea.Cmd
+		wm.watchFilterInput, cmd = wm.watchFilterInput.Update(msg)
+		return cmd
 	}
 	return nil
 }
 
-func (wm *WatchManager) updateWatching(msg tea.KeyMsg) tea.Cmd {
-	switch msg.String() {
-	case "up", "ctrl+p", "k":
-		if wm.watchCursor > 0 {
-			wm.watchCursor--
-		}
-	case "down", "ctrl+n", "j":
-		if wm.watchCursor < len(wm.watchMatches)-1 {
-			wm.watchCursor++
-		}
-	case "d", "delete":
-		if wm.watchCursor < len(wm.watchMatches) {
-			match := wm.watchMatches[wm.watchCursor]
-			if match.Index < len(wm.watched) {
-				entry := wm.watched[match.Index]
-				wm.Hide()
-				return tea.Batch(
-					Cmd(HideOverlayMsg{}),
-					Cmd(RemoveWatchKindMsg{Kind: entry.Kind}),
-				)
+func (wm *WatchManager) updateAdd(msg tea.Msg) tea.Cmd {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "up", "ctrl+p":
+			if wm.addCursor > 0 {
+				wm.addCursor--
 			}
-		}
-	case "enter":
-		// Navigate to first resource of this kind in the explorer
-		// (for now, just close — navigating by kind would require extra msg)
-		wm.Hide()
-		return Cmd(HideOverlayMsg{})
-	case "backspace":
-		if len(wm.watchFilter) > 0 {
-			wm.watchFilter = wm.watchFilter[:len(wm.watchFilter)-1]
-			wm.updateWatchMatches()
-		}
-	case "ctrl+u":
-		wm.watchFilter = ""
-		wm.updateWatchMatches()
-	default:
-		keyStr := msg.String()
-		if len(keyStr) == 1 && keyStr[0] >= 32 && keyStr[0] < 127 {
-			wm.watchFilter += keyStr
-			wm.updateWatchMatches()
-		}
-	}
-	return nil
-}
-
-func (wm *WatchManager) updateAdd(msg tea.KeyMsg) tea.Cmd {
-	switch msg.String() {
-	case "up", "ctrl+p":
-		if wm.addCursor > 0 {
-			wm.addCursor--
-		}
-	case "down", "ctrl+n":
-		if wm.addCursor < len(wm.addMatches)-1 {
-			wm.addCursor++
-		}
-	case "enter":
-		if wm.addCursor < len(wm.addMatches) {
-			match := wm.addMatches[wm.addCursor]
-			if match.Index < len(wm.available) {
-				rk := wm.available[match.Index]
-				wm.Hide()
-				return tea.Batch(
-					Cmd(HideOverlayMsg{}),
-					Cmd(AddWatchKindMsg{Kind: rk}),
-				)
+		case "down", "ctrl+n":
+			if wm.addCursor < len(wm.addMatches)-1 {
+				wm.addCursor++
 			}
-		}
-	case "backspace":
-		if len(wm.addQuery) > 0 {
-			wm.addQuery = wm.addQuery[:len(wm.addQuery)-1]
+		case "enter":
+			if wm.addCursor < len(wm.addMatches) {
+				match := wm.addMatches[wm.addCursor]
+				if match.Index < len(wm.available) {
+					rk := wm.available[match.Index]
+					wm.Hide()
+					return tea.Batch(
+						Cmd(HideOverlayMsg{}),
+						Cmd(AddWatchKindMsg{Kind: rk}),
+					)
+				}
+			}
+		default:
+			var cmd tea.Cmd
+			wm.addQueryInput, cmd = wm.addQueryInput.Update(msg)
 			wm.updateAddMatches()
+			return cmd
 		}
-	case "ctrl+u":
-		wm.addQuery = ""
-		wm.updateAddMatches()
 	default:
-		keyStr := msg.String()
-		if len(keyStr) == 1 && keyStr[0] >= 32 && keyStr[0] < 127 {
-			wm.addQuery += keyStr
-			wm.updateAddMatches()
-		}
+		var cmd tea.Cmd
+		wm.addQueryInput, cmd = wm.addQueryInput.Update(msg)
+		return cmd
 	}
 	return nil
 }
@@ -811,16 +791,7 @@ func (wm *WatchManager) View() string {
 
 func (wm *WatchManager) viewWatching(contentW int) string {
 	// Search input
-	searchPrefix := lipgloss.NewStyle().Foreground(wm.theme.Mauve).Bold(true).Render("> ")
-	queryDisplay := wm.watchFilter
-	if queryDisplay == "" {
-		queryDisplay = lipgloss.NewStyle().Foreground(wm.theme.Overlay0).Italic(true).
-			Render("Filter watched types...")
-	} else {
-		queryDisplay = lipgloss.NewStyle().Foreground(wm.theme.Text).Render(queryDisplay)
-	}
-	cursor := lipgloss.NewStyle().Background(wm.theme.Text).Foreground(wm.theme.Base).Render(" ")
-	searchLine := searchPrefix + queryDisplay + cursor
+	searchLine := wm.watchFilterInput.View()
 
 	// Chrome lines: border(2) + padding(2) + title(1) + tabs(1) + sep(1) + search(1) + sep(1) + footer(1) = 10
 	maxVisible := 12
@@ -875,16 +846,7 @@ func (wm *WatchManager) viewWatching(contentW int) string {
 
 func (wm *WatchManager) viewAdd(contentW int) string {
 	// Search input
-	searchPrefix := lipgloss.NewStyle().Foreground(wm.theme.Green).Bold(true).Render("> ")
-	queryDisplay := wm.addQuery
-	if queryDisplay == "" {
-		queryDisplay = lipgloss.NewStyle().Foreground(wm.theme.Overlay0).Italic(true).
-			Render("Search resource types...")
-	} else {
-		queryDisplay = lipgloss.NewStyle().Foreground(wm.theme.Text).Render(queryDisplay)
-	}
-	cursor := lipgloss.NewStyle().Background(wm.theme.Text).Foreground(wm.theme.Base).Render(" ")
-	searchLine := searchPrefix + queryDisplay + cursor
+	searchLine := wm.addQueryInput.View()
 
 	// Chrome lines: border(2) + padding(2) + title(1) + tabs(1) + sep(1) + search(1) + sep(1) + footer(1) = 10
 	maxVisible := 12

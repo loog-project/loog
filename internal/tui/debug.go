@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -302,8 +303,7 @@ type DevConsole struct {
 	width, height int
 	theme         Theme
 	visible       bool
-	input         string
-	cursor        int
+	textInput     textinput.Model
 	history       []string
 	historyIdx    int
 	output        []string // rendered output lines
@@ -313,6 +313,27 @@ type DevConsole struct {
 	pendingCmd    tea.Cmd // command to return from Update after execute()
 }
 
+// newConsoleInput creates a textinput.Model for the dev console.
+// ctrl+k is disabled (conflicts with CommandPalette), suggestion keys are disabled,
+// but all cursor navigation (left/right, home/end, word movement) is preserved.
+func newConsoleInput(theme Theme) textinput.Model {
+	ti := textinput.New()
+	ti.Prompt = "> "
+	ti.Placeholder = "enter command..."
+	ti.CharLimit = 512
+	ti.PromptStyle = lipgloss.NewStyle().Foreground(theme.Green).Bold(true)
+	ti.TextStyle = lipgloss.NewStyle().Foreground(theme.Text)
+	ti.PlaceholderStyle = lipgloss.NewStyle().Foreground(theme.Overlay0).Italic(true)
+	ti.Cursor.Style = lipgloss.NewStyle().Foreground(theme.Green)
+	km := textinput.DefaultKeyMap
+	km.DeleteAfterCursor.SetEnabled(false)
+	km.AcceptSuggestion.SetEnabled(false)
+	km.NextSuggestion.SetEnabled(false)
+	km.PrevSuggestion.SetEnabled(false)
+	ti.KeyMap = km
+	return ti
+}
+
 func NewDevConsole(theme Theme, store Store, log *DebugLog) *DevConsole {
 	vp := viewport.New(0, 0)
 	return &DevConsole{
@@ -320,6 +341,7 @@ func NewDevConsole(theme Theme, store Store, log *DebugLog) *DevConsole {
 		store:      store,
 		log:        log,
 		viewport:   vp,
+		textInput:  newConsoleInput(theme),
 		historyIdx: -1,
 	}
 }
@@ -336,14 +358,16 @@ func (dc *DevConsole) SetSize(w, h int) {
 func (dc *DevConsole) IsVisible() bool {
 	return dc.visible
 }
-func (dc *DevConsole) Show() {
+func (dc *DevConsole) Show() tea.Cmd {
 	dc.visible = true
-	dc.input = ""
-	dc.cursor = 0
+	dc.textInput.SetValue("")
+	cmd := dc.textInput.Focus()
 	dc.historyIdx = -1
+	return cmd
 }
 func (dc *DevConsole) Hide() {
 	dc.visible = false
+	dc.textInput.Blur()
 }
 
 func (dc *DevConsole) execute(cmd string) {
@@ -571,24 +595,13 @@ func (dc *DevConsole) Update(msg tea.Msg) tea.Cmd {
 			dc.Hide()
 			return Cmd(HideOverlayMsg{})
 		case "enter":
-			dc.execute(dc.input)
-			dc.input = ""
-			dc.cursor = 0
-			// Return any pending command from the executed console command
+			dc.execute(dc.textInput.Value())
+			dc.textInput.SetValue("")
 			if dc.pendingCmd != nil {
 				cmd := dc.pendingCmd
 				dc.pendingCmd = nil
 				return cmd
 			}
-		case "backspace":
-			if dc.cursor > 0 {
-				runes := []rune(dc.input)
-				dc.input = string(runes[:dc.cursor-1]) + string(runes[dc.cursor:])
-				dc.cursor--
-			}
-		case "ctrl+u":
-			dc.input = ""
-			dc.cursor = 0
 		case "up":
 			if len(dc.history) > 0 {
 				if dc.historyIdx < 0 {
@@ -596,41 +609,29 @@ func (dc *DevConsole) Update(msg tea.Msg) tea.Cmd {
 				} else if dc.historyIdx > 0 {
 					dc.historyIdx--
 				}
-				dc.input = dc.history[dc.historyIdx]
-				dc.cursor = len([]rune(dc.input))
+				dc.textInput.SetValue(dc.history[dc.historyIdx])
+				dc.textInput.CursorEnd()
 			}
 		case "down":
 			if dc.historyIdx >= 0 {
 				dc.historyIdx++
 				if dc.historyIdx >= len(dc.history) {
 					dc.historyIdx = -1
-					dc.input = ""
+					dc.textInput.SetValue("")
 				} else {
-					dc.input = dc.history[dc.historyIdx]
+					dc.textInput.SetValue(dc.history[dc.historyIdx])
 				}
-				dc.cursor = len([]rune(dc.input))
-			}
-		case "ctrl+a", "home":
-			dc.cursor = 0
-		case "ctrl+e", "end":
-			dc.cursor = len([]rune(dc.input))
-		case "left":
-			if dc.cursor > 0 {
-				dc.cursor--
-			}
-		case "right":
-			if dc.cursor < len([]rune(dc.input)) {
-				dc.cursor++
+				dc.textInput.CursorEnd()
 			}
 		default:
-			// Only insert single printable characters (not control sequences like "tab", "space", "alt+x")
-			runes := []rune(msg.String())
-			if len(runes) == 1 && msg.String() == string(runes[0]) {
-				inputRunes := []rune(dc.input)
-				dc.input = string(inputRunes[:dc.cursor]) + msg.String() + string(inputRunes[dc.cursor:])
-				dc.cursor += 1
-			}
+			var cmd tea.Cmd
+			dc.textInput, cmd = dc.textInput.Update(msg)
+			return cmd
 		}
+	default:
+		var cmd tea.Cmd
+		dc.textInput, cmd = dc.textInput.Update(msg)
+		return cmd
 	}
 
 	return nil
@@ -652,25 +653,8 @@ func (dc *DevConsole) View() string {
 	sep := lipgloss.NewStyle().Foreground(dc.theme.Surface1).
 		Render(strings.Repeat("─", innerW))
 
-	// Input line with accurate cursor position
-	prompt := lipgloss.NewStyle().Foreground(dc.theme.Green).Bold(true).Render("> ")
-	textStyle := lipgloss.NewStyle().Foreground(dc.theme.Text)
-	cursorStyle := lipgloss.NewStyle().Background(dc.theme.Text).Foreground(dc.theme.Base)
-	var inputRendered string
-	if dc.input == "" {
-		placeholder := lipgloss.NewStyle().Foreground(dc.theme.Overlay0).Italic(true).Render("enter command...")
-		inputRendered = prompt + placeholder + cursorStyle.Render(" ")
-	} else {
-		runes := []rune(dc.input)
-		before := string(runes[:dc.cursor])
-		if dc.cursor < len(runes) {
-			atCursor := string(runes[dc.cursor : dc.cursor+1])
-			after := string(runes[dc.cursor+1:])
-			inputRendered = prompt + textStyle.Render(before) + cursorStyle.Render(atCursor) + textStyle.Render(after)
-		} else {
-			inputRendered = prompt + textStyle.Render(before) + cursorStyle.Render(" ")
-		}
-	}
+	// Input line rendered by textinput.View (includes prompt, text, cursor, and placeholder)
+	inputRendered := dc.textInput.View()
 
 	content := title + subtitle + "\n" + sep + "\n" + dc.viewport.View() + "\n" + sep + "\n" + inputRendered
 
