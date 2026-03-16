@@ -122,7 +122,7 @@ type StatusBar struct {
 	autoScroll     bool
 	windowMode     resource.WindowMode
 	simulating     bool
-	isSimMode      bool // true only in simulation mode (not production recording)
+	isSimMode      bool
 }
 
 func NewStatusBar(theme Theme) *StatusBar {
@@ -236,16 +236,13 @@ func (sb *StatusBar) View() string {
 		Width(sb.width).
 		Render(line)
 
-	// Second line: always rendered for stable layout height.
-	// Shows context-sensitive hint when available, otherwise empty.
 	hintContent := " "
 	if sb.hint != "" {
 		hintContent = " " + sb.hint
 	}
 	hintLine := lipgloss.NewStyle().
-		Background(sb.theme.Crust).
-		Foreground(sb.theme.Overlay0).
 		Width(sb.width).
+		MaxWidth(sb.width).
 		Render(hintContent)
 
 	return statusLine + "\n" + hintLine

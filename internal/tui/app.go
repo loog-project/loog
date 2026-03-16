@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -199,6 +200,8 @@ type tickMsg time.Time
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
+	defer a.updateHint()
+
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
@@ -214,8 +217,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.statusText = ""
 			a.statusBar.SetStatus("", false)
 		}
-		// Update hint from focused component
-		a.updateHint()
 		return a, tickCmd()
 
 	case tea.KeyMsg:
@@ -255,7 +256,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if cmd != nil {
 				cmds = append(cmds, cmd)
 			}
-			a.updateHint()
 			return a, tea.Batch(cmds...)
 		}
 
@@ -276,12 +276,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch a.activeView {
 			case ExplorerView:
 				if ok, cmd := a.explorer.StartFilter(); ok {
-					a.updateHint()
 					return a, cmd
 				}
 			case TimelineView:
 				if ok, cmd := a.timeline.StartFilter(); ok {
-					a.updateHint()
 					return a, cmd
 				}
 			default:
@@ -894,7 +892,13 @@ func (a *App) updateHint() {
 	case TimelineView:
 		hint = a.timeline.CurrentHint()
 	case CompareView:
-		hint = "j/k: scroll  tab: switch pane  ctrl+d/u: page  X: clear compare"
+		hint = strings.Join([]string{
+			a.theme.KeyHint("j/k", "scroll"),
+			a.theme.KeyHint("tab", "switch pane"),
+			a.theme.KeyHint("ctrl+d/u", "page"),
+			a.theme.KeyHint("X", "clear compare"),
+		}, "  ")
+	default:
 	}
 	a.statusBar.SetHint(hint)
 }

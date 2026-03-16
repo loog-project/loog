@@ -467,38 +467,35 @@ func (rt *ResourceTree) CurrentHint() string {
 	item := rt.items[rt.cursor]
 	switch item.Type {
 	case treeItemKind:
-		return "Enter: expand/collapse  ctrl+d/u: page"
+		return strings.Join([]string{
+			rt.theme.KeyHint("Enter", "expand/collapse"),
+			rt.theme.KeyHint("ctrl+d/u", "page"),
+		}, "  ")
 	case treeItemResource:
 		if item.Resource == nil {
 			return ""
 		}
+		hints := []string{
+			rt.theme.KeyHint("Enter", "select"),
+			rt.theme.KeyHint("s", "star"),
+			rt.theme.KeyHint("c", "compare"),
+			rt.theme.KeyHint("ctrl+d/u", "page"),
+			"|",
+		}
 		rd := item.Resource
-		var hints []string
 		if rd.Resource.Starred {
-			hints = append(hints, "*=starred")
+			hints = append(hints, rt.theme.KeyHint("★", "starred"))
 		}
 		if rd.DetectLoop(6) {
-			hints = append(hints, "~=loop detected")
+			hints = append(hints, rt.theme.KeyHint("↻", "loop"))
 		}
-		freq := rd.ChangeFrequency()
-		if freq > 5 {
-			hints = append(hints, "!=high frequency")
-		} else if freq > 2 {
-			hints = append(hints, "~=warm frequency")
-		}
-		latest := rd.LatestRevision()
-		if latest != nil {
-			age := resource.RelativeTime(latest.Time)
+		if latestRev := rd.LatestRevision(); latestRev != nil {
+			age := resource.RelativeTime(latestRev.Time)
 			if age == "now" || strings.HasSuffix(age, "s") {
-				hints = append(hints, "@=recently active")
-			} else {
-				hints = append(hints, "o=idle")
+				hints = append(hints, rt.theme.KeyHint("●", "active"))
 			}
 		}
-		if len(hints) > 0 {
-			return strings.Join(hints, "  ")
-		}
-		return "Enter: select  s: star  c: compare  ctrl+d/u: page"
+		return strings.Join(hints, "  ")
 	}
 	return ""
 }
@@ -969,35 +966,24 @@ func (rl *RevisionList) CurrentHint() string {
 		return ""
 	}
 	rev := rl.resource.Revisions[rl.cursor]
-	var parts []string
+	hints := []string{
+		rl.theme.KeyHint("c", "compare"),
+		rl.theme.KeyHint("s", "star"),
+		rl.theme.KeyHint("ctrl+d/u", "page"),
+		"|",
+	}
 
-	// Compare badges
 	if rl.compareLeft != nil && rl.compareLeft.Resource.UID == rl.resource.Resource.UID && rl.compareLeft.Revision.ID == rev.ID {
-		parts = append(parts, "[C1]=compare left")
+		hints = append(hints, rl.theme.KeyHint("[C1]", "compare left"))
 	}
 	if rl.compareRight != nil && rl.compareRight.Resource.UID == rl.resource.Resource.UID && rl.compareRight.Revision.ID == rev.ID {
-		parts = append(parts, "[C2]=compare right")
+		hints = append(hints, rl.theme.KeyHint("[C2]", "compare right"))
 	}
-
-	// Analysis tags
-	if rl.analysisTags != nil {
-		if tags, ok := rl.analysisTags[rev.ID]; ok {
-			var tagStrs []string
-			for _, t := range tags {
-				tagStrs = append(tagStrs, string(t))
-			}
-			parts = append(parts, "changes: "+strings.Join(tagStrs, ","))
-		}
-	}
-
 	if rl.autoScroll {
-		parts = append(parts, "auto-scroll ON")
+		hints = append(hints, rl.theme.KeyHint("[AUTO]", "on"))
 	}
 
-	if len(parts) > 0 {
-		return strings.Join(parts, "  ")
-	}
-	return "c: compare  s: star  ctrl+d/u: page"
+	return strings.Join(hints, "  ")
 }
 
 func (rl *RevisionList) View() string {
@@ -1218,7 +1204,16 @@ func (dv *DetailView) CurrentHint() string {
 	if dv.resource == nil {
 		return ""
 	}
-	return "d=diff  o=object  p=patch  J=json  r=raw  [/]=prev/next  c=compare  t=timeline  e=export  y=copy"
+	return strings.Join([]string{
+		dv.theme.KeyHint("d", "diff"),
+		dv.theme.KeyHint("o", "object"),
+		dv.theme.KeyHint("p", "patch"),
+		dv.theme.KeyHint("J", "json"),
+		dv.theme.KeyHint("r", "raw"),
+		dv.theme.KeyHint("[/]", "prev/next"),
+		dv.theme.KeyHint("e", "export"),
+		dv.theme.KeyHint("y", "copy"),
+	}, "  ")
 }
 
 func (dv *DetailView) renderContent() {
@@ -1736,37 +1731,30 @@ func (tl *TimelineList) CurrentHint() string {
 	if tl.cursor >= len(tl.flatItems) || tl.cursor < 0 {
 		return ""
 	}
+	hints := []string{
+		tl.theme.KeyHint("s", "star"),
+		tl.theme.KeyHint("S", "starred"),
+		tl.theme.KeyHint("Enter", "select"),
+		tl.theme.KeyHint("w", "window"),
+		tl.theme.KeyHint("ctrl+d/u", "page"),
+		"|",
+	}
+
 	item := tl.flatItems[tl.cursor]
-	var parts []string
-
 	if item.isBurstStart {
-		parts = append(parts, fmt.Sprintf("╭=burst start (%d events)", item.burstSize))
-	} else if item.isBurstMid {
-		parts = append(parts, "│=burst middle")
-	} else if item.isBurstEnd {
-		parts = append(parts, "╰=burst end")
+		hints = append(hints, tl.theme.KeyHint("╭", fmt.Sprintf("burst (%d)", item.burstSize)))
 	}
-
 	if item.entry != nil && item.entry.Resource.Starred {
-		parts = append(parts, "*=starred")
+		hints = append(hints, tl.theme.KeyHint("★", "starred"))
 	}
-
 	if tl.autoScroll {
-		parts = append(parts, "auto-scroll ON")
+		hints = append(hints, tl.theme.KeyHint("[AUTO]", "on"))
 	}
-
 	if tl.windowMode != resource.WindowAll {
-		anchor := "none"
-		if !tl.windowAnchor.IsZero() {
-			anchor = resource.FormatTimestamp(tl.windowAnchor)
-		}
-		parts = append(parts, "window: "+tl.windowMode.String()+" around "+anchor)
+		hints = append(hints, tl.theme.KeyHint("window", tl.windowMode.String()))
 	}
 
-	if len(parts) > 0 {
-		return strings.Join(parts, "  ")
-	}
-	return "s: star  S: starred-only  Enter: select  w: time window  ctrl+d/u: page"
+	return strings.Join(hints, "  ")
 }
 
 func (tl *TimelineList) Update(msg tea.Msg) tea.Cmd {

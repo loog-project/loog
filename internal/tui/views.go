@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -124,7 +125,12 @@ func (ev *ExplorerViewComponent) CurrentHint() string {
 	switch ev.focusPanel {
 	case PanelLeft:
 		if ev.tree.filterEditing {
-			return "Type to filter  Enter: apply  Esc: clear"
+			return strings.Join([]string{
+				ev.tree.theme.KeyHint("type", "filter"),
+				ev.tree.theme.KeyHint("Enter", "apply"),
+				ev.tree.theme.KeyHint("Esc", "clear"),
+				ev.tree.theme.KeyHint("//", "quick jump"),
+			}, "  ")
 		}
 		return ev.tree.CurrentHint()
 	case PanelMiddle:
@@ -321,7 +327,12 @@ func (tv *TimelineViewComponent) SetCompareMarks(left, right *resource.CompareIt
 func (tv *TimelineViewComponent) CurrentHint() string {
 	if tv.focusPanel == PanelLeft {
 		if tv.timeline.filterEditing {
-			return "Type to filter  Enter: apply  Esc: clear"
+			return strings.Join([]string{
+				tv.timeline.theme.KeyHint("type", "filter"),
+				tv.timeline.theme.KeyHint("Enter", "apply"),
+				tv.timeline.theme.KeyHint("Esc", "clear"),
+				tv.timeline.theme.KeyHint("//", "quick jump"),
+			}, "  ")
 		}
 		return tv.timeline.CurrentHint()
 	}
