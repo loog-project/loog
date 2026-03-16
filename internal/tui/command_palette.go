@@ -280,8 +280,8 @@ func (cp *CommandPalette) View() string {
 	return dialog
 }
 
-// QuickSearch is a fuzzy resource finder overlay triggered by // (slash-slash).
-type QuickSearch struct {
+// QuickJump is a fuzzy resource finder overlay triggered by //.
+type QuickJump struct {
 	width, height int
 	theme         Theme
 	visible       bool
@@ -292,23 +292,23 @@ type QuickSearch struct {
 	matches       []fuzzy.Match
 }
 
-func NewQuickSearch(theme Theme) *QuickSearch {
-	return &QuickSearch{
+func NewQuickJump(theme Theme) *QuickJump {
+	return &QuickJump{
 		theme:      theme,
 		queryInput: newSearchInput("// ", "Fuzzy search resources...", theme, theme.Green),
 	}
 }
 
-func (qs *QuickSearch) SetSize(w, h int) {
+func (qs *QuickJump) SetSize(w, h int) {
 	qs.width = w
 	qs.height = h
 }
 
-func (qs *QuickSearch) IsVisible() bool {
+func (qs *QuickJump) IsVisible() bool {
 	return qs.visible
 }
 
-func (qs *QuickSearch) Show(resources []*resource.Data) tea.Cmd {
+func (qs *QuickJump) Show(resources []*resource.Data) tea.Cmd {
 	qs.visible = true
 	qs.queryInput.SetValue("")
 	cmd := qs.queryInput.Focus()
@@ -322,18 +322,18 @@ func (qs *QuickSearch) Show(resources []*resource.Data) tea.Cmd {
 	return cmd
 }
 
-func (qs *QuickSearch) Hide() {
+func (qs *QuickJump) Hide() {
 	qs.visible = false
 	qs.queryInput.SetValue("")
 	qs.queryInput.Blur()
 	qs.cursor = 0
 }
 
-func (qs *QuickSearch) updateMatches() {
+func (qs *QuickJump) updateMatches() {
 	qs.matches, qs.cursor = fuzzyMatchAll(qs.queryInput.Value(), qs.names, qs.cursor)
 }
 
-func (qs *QuickSearch) Update(msg tea.Msg) tea.Cmd {
+func (qs *QuickJump) Update(msg tea.Msg) tea.Cmd {
 	if !qs.visible {
 		return nil
 	}
@@ -380,7 +380,7 @@ func (qs *QuickSearch) Update(msg tea.Msg) tea.Cmd {
 	return nil
 }
 
-func (qs *QuickSearch) View() string {
+func (qs *QuickJump) View() string {
 	if !qs.visible {
 		return ""
 	}
@@ -394,7 +394,7 @@ func (qs *QuickSearch) View() string {
 	title := lipgloss.NewStyle().
 		Foreground(qs.theme.Green).
 		Bold(true).
-		Render("Quick Search")
+		Render("Quick Jump")
 
 	searchLine := qs.queryInput.View()
 

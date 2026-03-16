@@ -79,8 +79,8 @@ func NewCommandRegistry() *CommandRegistry {
 		Action: func() tea.Cmd { return Cmd(ViewModeChangedMsg{Mode: RawMode}) },
 	})
 	cr.Register(Command{
-		Name: "Quick Search", Description: "Fuzzy search for resources by name", Shortcut: "//",
-		Action: func() tea.Cmd { return Cmd(ShowQuickSearchMsg{}) },
+		Name: "Quick Jump", Description: "Fuzzy jump to a resource by name", Shortcut: "//",
+		Action: func() tea.Cmd { return Cmd(ShowQuickJumpMsg{}) },
 	})
 	cr.Register(Command{
 		Name: "Toggle Fullscreen", Description: "Expand focused panel", Shortcut: "f",

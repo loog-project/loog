@@ -38,7 +38,7 @@ type JumpToTimelineMsg struct{ Entry resource.TimelineEntry }
 type ShowCommandPaletteMsg struct{}
 type HideOverlayMsg struct{}
 type ShowHelpMsg struct{}
-type ShowQuickSearchMsg struct{}
+type ShowQuickJumpMsg struct{}
 type ShowWatchManagerMsg struct{}
 type ShowDebugLogMsg struct{}
 type ShowDevConsoleMsg struct{}

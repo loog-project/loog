@@ -125,11 +125,10 @@ func (s *LiveStore) FilterResources(expr string) []*resource.Data {
 		return s.allResourcesLocked()
 	}
 
-	prog := resource.CompileFilter(expr)
 	lower := strings.ToLower(expr)
 	var result []*resource.Data
 	for _, rd := range s.resources {
-		if resource.MatchesFilterOrSubstring(prog, rd.Resource, lower) {
+		if resource.MatchesSubstring(lower, rd.Resource) {
 			result = append(result, rd)
 		}
 	}
@@ -142,13 +141,11 @@ func (s *LiveStore) FilterTimeline(expr string, starredOnly bool) []resource.Tim
 	defer s.mu.RUnlock()
 
 	if expr == "" && !starredOnly {
-		// Return a copy
 		result := make([]resource.TimelineEntry, len(s.timeline))
 		copy(result, s.timeline)
 		return result
 	}
 
-	prog := resource.CompileFilter(expr)
 	lower := strings.ToLower(expr)
 	var result []resource.TimelineEntry
 	for _, e := range s.timeline {
@@ -158,7 +155,7 @@ func (s *LiveStore) FilterTimeline(expr string, starredOnly bool) []resource.Tim
 				continue
 			}
 		}
-		if expr != "" && !resource.MatchesFilterOrSubstring(prog, e.Resource, lower) {
+		if expr != "" && !resource.MatchesSubstring(lower, e.Resource) {
 			continue
 		}
 		result = append(result, e)

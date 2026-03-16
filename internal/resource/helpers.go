@@ -1,13 +1,9 @@
 package resource
 
 import (
-	"slices"
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/expr-lang/expr"
-	"github.com/expr-lang/expr/vm"
 )
 
 // BuildKindGroups organizes resources into kind groups for tree display.
@@ -124,100 +120,15 @@ func CloneMap(m map[string]any) map[string]any {
 	return result
 }
 
-// resourceFilterEnv is an expr-lang environment that evaluates filter expressions
-// against in-memory Resource data. It mirrors the method signatures from
-// internal/util.EventEntryEnv but operates on Resource fields instead of
-// *unstructured.Unstructured, avoiding k8s imports.
-type resourceFilterEnv struct {
-	Res Resource
-}
-
-func (e resourceFilterEnv) All() bool {
-	return true
-}
-
-func (e resourceFilterEnv) None() bool {
-	return false
-}
-
-func (e resourceFilterEnv) Namespaces(vals ...string) bool {
-	if len(vals) == 0 {
+// MatchesSubstring returns true if the query (already lowercased) appears as a
+// case-insensitive substring in any of the resource's name, kind, namespace, or
+// kind/name combination. Returns true for an empty query.
+func MatchesSubstring(query string, r Resource) bool {
+	if query == "" {
 		return true
 	}
-	return slices.Contains(vals, e.Res.Namespace)
-}
-
-func (e resourceFilterEnv) Namespace(vals ...string) bool {
-	return e.Namespaces(vals...)
-}
-
-func (e resourceFilterEnv) Names(vals ...string) bool {
-	if len(vals) == 0 {
-		return true
-	}
-	return slices.Contains(vals, e.Res.Name)
-}
-
-func (e resourceFilterEnv) Name(vals ...string) bool {
-	return e.Names(vals...)
-}
-
-func (e resourceFilterEnv) Namespaced(namespace, name string) bool {
-	return e.Res.Namespace == namespace && e.Res.Name == name
-}
-
-func (e resourceFilterEnv) LabelExists(_ ...string) bool {
-	// Labels are not stored in Resource - always match (conservative).
-	return true
-}
-
-func (e resourceFilterEnv) Label(_, _ string) bool {
-	// Labels are not stored in Resource - always match (conservative).
-	return true
-}
-
-// CompileFilter compiles a filter expression string for use with MatchesFilter.
-// Returns nil if the expression is empty or not a valid expr-lang expression.
-func CompileFilter(expression string) *vm.Program {
-	if expression == "" {
-		return nil
-	}
-	prog, err := expr.Compile(expression, expr.Env(resourceFilterEnv{}), expr.AsBool())
-	if err != nil {
-		return nil
-	}
-	return prog
-}
-
-// MatchesFilter evaluates a compiled filter program against a Resource.
-// Returns true if the resource matches. Returns true if prog is nil (no filter).
-func MatchesFilter(prog *vm.Program, r Resource) bool {
-	if prog == nil {
-		return true
-	}
-	result, err := expr.Run(prog, resourceFilterEnv{Res: r})
-	if err != nil {
-		return true // conservative: show on error
-	}
-	b, ok := result.(bool)
-	if !ok {
-		return true
-	}
-	return b
-}
-
-// MatchesFilterOrSubstring first tries the compiled expr-lang program, and if prog
-// is nil, falls back to case-insensitive substring matching on kind/name/namespace.
-func MatchesFilterOrSubstring(prog *vm.Program, r Resource, lowerExpr string) bool {
-	if prog != nil {
-		return MatchesFilter(prog, r)
-	}
-	// Fallback: substring match for plain text queries
-	if lowerExpr == "" {
-		return true
-	}
-	return strings.Contains(strings.ToLower(r.Name), lowerExpr) ||
-		strings.Contains(strings.ToLower(r.Kind), lowerExpr) ||
-		strings.Contains(strings.ToLower(r.Namespace), lowerExpr) ||
-		strings.Contains(strings.ToLower(r.KindName()), lowerExpr)
+	return strings.Contains(strings.ToLower(r.Name), query) ||
+		strings.Contains(strings.ToLower(r.Kind), query) ||
+		strings.Contains(strings.ToLower(r.Namespace), query) ||
+		strings.Contains(strings.ToLower(r.KindName()), query)
 }

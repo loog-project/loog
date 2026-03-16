@@ -11,7 +11,6 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/expr-lang/expr/vm"
 
 	"github.com/loog-project/loog/internal/resource"
 	"github.com/loog-project/loog/pkg/diffpreview"
@@ -82,9 +81,8 @@ type ResourceTree struct {
 	filterTextInput textinput.Model // text input for filter editing
 	filterEditing   bool            // true while user is typing in filter
 	filterApplied   bool            // true after user pressed Enter to apply filter
-	filterProg      *vm.Program     // compiled expr-lang program (nil for substring match)
 
-	// Starred-only filter
+	// Display-only flag so the filter bar can show a star badge
 	starredOnly bool
 }
 
@@ -237,7 +235,6 @@ func (rt *ResourceTree) ClearFilter() {
 	rt.filterTextInput.Blur()
 	rt.filterEditing = false
 	rt.filterApplied = false
-	rt.filterProg = nil
 	rt.buildItems()
 }
 
@@ -290,14 +287,7 @@ func (rt *ResourceTree) totalResourceCount() int {
 }
 
 func (rt *ResourceTree) matchesFilter(r resource.Resource) bool {
-	if rt.filterProg == nil {
-		return false
-	}
-	return resource.MatchesFilter(rt.filterProg, r)
-}
-
-func (rt *ResourceTree) updateFilterProg() {
-	rt.filterProg = resource.CompileFilter(rt.filterTextInput.Value())
+	return resource.MatchesSubstring(strings.ToLower(rt.filterTextInput.Value()), r)
 }
 
 func (rt *ResourceTree) handleFilterMsg(msg tea.Msg) tea.Cmd {
@@ -309,11 +299,15 @@ func (rt *ResourceTree) handleFilterMsg(msg tea.Msg) tea.Cmd {
 		case "esc":
 			rt.ClearFilter()
 			return nil
+		case "/":
+			if rt.filterTextInput.Value() == "" {
+				rt.ClearFilter()
+				return Cmd(ShowQuickJumpMsg{})
+			}
 		}
 	}
 	var cmd tea.Cmd
 	rt.filterTextInput, cmd = rt.filterTextInput.Update(msg)
-	rt.updateFilterProg()
 	return cmd
 }
 
@@ -698,49 +692,32 @@ func renderFilterBarCommon(
 	width int,
 	editing bool,
 	applied bool,
-	filterValid bool,
 	filterValue string,
 	filterView string,
 	matchCount, totalCount int,
 	starredOnly bool,
 ) string {
-	sep := lipgloss.NewStyle().Foreground(theme.Surface1).Render("─")
+	sep := " "
 
 	if editing {
-		var icon string
-		if filterValid {
-			icon = lipgloss.NewStyle().Foreground(theme.Green).Render("✓")
-		} else if filterValue != "" {
-			icon = lipgloss.NewStyle().Foreground(theme.Peach).Render("!")
-		}
 		counts := lipgloss.NewStyle().Foreground(theme.Overlay0).Render(fmt.Sprintf(" %d/%d", matchCount, totalCount))
 		bar := sep + filterView + counts
-		if icon != "" {
-			bar += " " + icon
-		}
 		return PadRight(bar, width)
 	}
 
 	if applied && filterValue != "" {
-		var icon string
-		if filterValid {
-			icon = lipgloss.NewStyle().Foreground(theme.Green).Render("✓")
-		} else {
-			icon = lipgloss.NewStyle().Foreground(theme.Peach).Render("!")
-		}
 		prefix := lipgloss.NewStyle().Foreground(theme.Overlay1).Render("/")
 		input := lipgloss.NewStyle().Foreground(theme.Text).Render(filterValue)
 		counts := lipgloss.NewStyle().Foreground(theme.Overlay0).Render(fmt.Sprintf(" %d/%d", matchCount, totalCount))
-		bar := sep + prefix + input + counts + " " + icon
+		bar := sep + prefix + input + counts
 		return PadRight(bar, width)
 	}
 
-	// Inactive: show dim hint
 	var badges []string
 	if starredOnly {
 		badges = append(badges, lipgloss.NewStyle().Foreground(theme.Yellow).Render("★ starred"))
 	}
-	hint := lipgloss.NewStyle().Foreground(theme.Surface2).Render("/ filter")
+	hint := lipgloss.NewStyle().Foreground(theme.Surface2).Render("/ Quick Filter")
 	badges = append(badges, hint)
 	bar := sep + strings.Join(badges, " ")
 	return PadRight(bar, width)
@@ -752,7 +729,7 @@ func (rt *ResourceTree) renderFilterBar() string {
 	return renderFilterBarCommon(
 		rt.theme, rt.width,
 		rt.filterEditing, rt.filterApplied,
-		rt.filterProg != nil, rt.filterTextInput.Value(), rt.filterTextInput.View(),
+		rt.filterTextInput.Value(), rt.filterTextInput.View(),
 		matchCount, totalCount,
 		rt.starredOnly,
 	)
@@ -1480,7 +1457,6 @@ type TimelineList struct {
 	filterTextInput textinput.Model // text input for filter editing
 	filterEditing   bool            // true while user is typing in filter
 	filterApplied   bool            // true after user pressed Enter to apply filter
-	filterProg      *vm.Program     // compiled expr-lang program (nil for substring match)
 
 	// Display-only flag so the filter bar can show a star badge
 	starredOnly bool
@@ -1540,7 +1516,6 @@ func (tl *TimelineList) ClearFilter() {
 	tl.filterTextInput.Blur()
 	tl.filterEditing = false
 	tl.filterApplied = false
-	tl.filterProg = nil
 	tl.rebuild()
 }
 
@@ -1581,14 +1556,7 @@ func (tl *TimelineList) FilterCounts() (int, int) {
 }
 
 func (tl *TimelineList) matchesFilter(r resource.Resource) bool {
-	if tl.filterProg == nil {
-		return false
-	}
-	return resource.MatchesFilter(tl.filterProg, r)
-}
-
-func (tl *TimelineList) updateFilterProg() {
-	tl.filterProg = resource.CompileFilter(tl.filterTextInput.Value())
+	return resource.MatchesSubstring(strings.ToLower(tl.filterTextInput.Value()), r)
 }
 
 func (tl *TimelineList) handleFilterMsg(msg tea.Msg) tea.Cmd {
@@ -1600,11 +1568,15 @@ func (tl *TimelineList) handleFilterMsg(msg tea.Msg) tea.Cmd {
 		case "esc":
 			tl.ClearFilter()
 			return nil
+		case "/":
+			if tl.filterTextInput.Value() == "" {
+				tl.ClearFilter()
+				return Cmd(ShowQuickJumpMsg{})
+			}
 		}
 	}
 	var cmd tea.Cmd
 	tl.filterTextInput, cmd = tl.filterTextInput.Update(msg)
-	tl.updateFilterProg()
 	return cmd
 }
 
@@ -2012,7 +1984,7 @@ func (tl *TimelineList) renderFilterBar() string {
 	return renderFilterBarCommon(
 		tl.theme, tl.width,
 		tl.filterEditing, tl.filterApplied,
-		tl.filterProg != nil, tl.filterTextInput.Value(), tl.filterTextInput.View(),
+		tl.filterTextInput.Value(), tl.filterTextInput.View(),
 		matchCount, totalCount,
 		tl.starredOnly,
 	)

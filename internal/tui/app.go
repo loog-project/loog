@@ -31,7 +31,7 @@ type App struct {
 	// Overlays
 	commandPalette *CommandPalette
 	helpOverlay    *HelpOverlay
-	quickSearch    *QuickSearch
+	quickJump      *QuickJump
 	watchManager   *WatchManager
 	debugLogViewer *DebugLogViewer
 	devConsole     *DevConsole
@@ -139,7 +139,7 @@ func NewApp(store Store, opts ...AppOption) *App {
 		// Overlays
 		commandPalette: NewCommandPalette(theme, registry),
 		helpOverlay:    NewHelpOverlay(theme),
-		quickSearch:    NewQuickSearch(theme),
+		quickJump:      NewQuickJump(theme),
 		watchManager:   NewWatchManager(theme),
 		debugLogViewer: NewDebugLogViewer(theme, debugLog),
 		devConsole:     NewDevConsole(theme, store, debugLog),
@@ -228,8 +228,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd := a.helpOverlay.Update(msg)
 			return a, cmd
 		}
-		if a.quickSearch.IsVisible() {
-			cmd := a.quickSearch.Update(msg)
+		if a.quickJump.IsVisible() {
+			cmd := a.quickJump.Update(msg)
 			return a, cmd
 		}
 		if a.watchManager.IsVisible() {
@@ -468,8 +468,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ShowHelpMsg:
 		a.helpOverlay.Show()
 
-	case ShowQuickSearchMsg:
-		cmds = append(cmds, a.quickSearch.Show(a.store.AllResources()))
+	case ShowQuickJumpMsg:
+		cmds = append(cmds, a.quickJump.Show(a.store.AllResources()))
 
 	case ShowWatchManagerMsg:
 		cmds = append(cmds, a.watchManager.Show(a.store, a.store.UnwatchedKinds()))
@@ -622,8 +622,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if cmd := a.commandPalette.Update(msg); cmd != nil {
 				cmds = append(cmds, cmd)
 			}
-		} else if a.quickSearch.IsVisible() {
-			if cmd := a.quickSearch.Update(msg); cmd != nil {
+		} else if a.quickJump.IsVisible() {
+			if cmd := a.quickJump.Update(msg); cmd != nil {
 				cmds = append(cmds, cmd)
 			}
 		} else if a.watchManager.IsVisible() {
@@ -700,7 +700,7 @@ func (a *App) overlays() []overlay {
 	return []overlay{
 		a.commandPalette,
 		a.helpOverlay,
-		a.quickSearch,
+		a.quickJump,
 		a.watchManager,
 		a.debugLogViewer,
 		a.devConsole,
@@ -721,7 +721,7 @@ func (a *App) layout() {
 
 	a.commandPalette.SetSize(a.width, a.height)
 	a.helpOverlay.SetSize(a.width, a.height)
-	a.quickSearch.SetSize(a.width, a.height)
+	a.quickJump.SetSize(a.width, a.height)
 	a.watchManager.SetSize(a.width, a.height)
 	a.debugLogViewer.SetSize(a.width, a.height)
 	a.devConsole.SetSize(a.width, a.height)
