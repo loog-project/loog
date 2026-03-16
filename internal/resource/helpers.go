@@ -22,7 +22,6 @@ func BuildKindGroups(resources []*Data) []*KindGroup {
 	kindOrder := map[string]int{
 		"Pod": 0, "Deployment": 1, "ReplicaSet": 2, "StatefulSet": 3,
 		"Service": 4, "Ingress": 5, "ConfigMap": 6, "Secret": 7,
-		"MyApp": 8,
 	}
 
 	groups := make([]*KindGroup, 0, len(kindMap))
@@ -104,20 +103,28 @@ func CloneMap(m map[string]any) map[string]any {
 		case map[string]any:
 			result[k] = CloneMap(val)
 		case []any:
-			cloned := make([]any, len(val))
-			for i, item := range val {
-				if sub, ok := item.(map[string]any); ok {
-					cloned[i] = CloneMap(sub)
-				} else {
-					cloned[i] = item
-				}
-			}
-			result[k] = cloned
+			result[k] = cloneSlice(val)
 		default:
 			result[k] = v
 		}
 	}
 	return result
+}
+
+// cloneSlice recursively clones a []any, handling nested maps and slices.
+func cloneSlice(s []any) []any {
+	cloned := make([]any, len(s))
+	for i, item := range s {
+		switch v := item.(type) {
+		case map[string]any:
+			cloned[i] = CloneMap(v)
+		case []any:
+			cloned[i] = cloneSlice(v)
+		default:
+			cloned[i] = item
+		}
+	}
+	return cloned
 }
 
 // MatchesSubstring returns true if the query (already lowercased) appears as a

@@ -1,7 +1,7 @@
 package adapter
 
 import (
-	"maps"
+	"fmt"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -38,6 +38,10 @@ func (h *TUIRevisionHandler) HandleRevision(
 	snapshot *store.Snapshot,
 	patch *store.Patch,
 ) error {
+	if obj == nil {
+		return fmt.Errorf("nil unstructured object")
+	}
+
 	uid := string(obj.GetUID())
 	kind := obj.GetKind()
 	name := obj.GetName()
@@ -89,12 +93,8 @@ func buildRevision(
 	return rev
 }
 
-// cloneDiffMap creates a shallow clone of a DiffMap.
+// cloneDiffMap creates a deep clone of a DiffMap (map[string]any) using
+// resource.CloneMap, which recursively clones nested maps and slices.
 func cloneDiffMap(m diffmap.DiffMap) diffmap.DiffMap {
-	if m == nil {
-		return nil
-	}
-	result := make(diffmap.DiffMap, len(m))
-	maps.Copy(result, m)
-	return result
+	return resource.CloneMap(m)
 }

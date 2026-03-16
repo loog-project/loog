@@ -4,6 +4,7 @@ import (
 	"math/rand"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -15,6 +16,8 @@ import (
 // Store is an in-memory tui.Store implementation for simulation and testing.
 // It also implements tui.Simulator so it can generate live data.
 type Store struct {
+	mu sync.RWMutex
+
 	resources            map[string]*resource.Data
 	timeline             []resource.TimelineEntry
 	kindGroups           []*resource.KindGroup
@@ -49,20 +52,16 @@ func NewStore(
 }
 
 func (s *Store) AllResources() []*resource.Data {
-	result := make([]*resource.Data, 0, len(s.resources))
-	for _, rd := range s.resources {
-		result = append(result, rd)
-	}
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].Resource.Kind != result[j].Resource.Kind {
-			return result[i].Resource.Kind < result[j].Resource.Kind
-		}
-		return result[i].Resource.Name < result[j].Resource.Name
-	})
-	return result
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.allResourcesLocked()
 }
 
 func (s *Store) StarredResources() []*resource.Data {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	var result []*resource.Data
 	for _, rd := range s.resources {
 		if rd.Resource.Starred {
@@ -73,20 +72,32 @@ func (s *Store) StarredResources() []*resource.Data {
 }
 
 func (s *Store) GetResource(uid string) *resource.Data {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	return s.resources[uid]
 }
 
 func (s *Store) TotalResourceCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	return len(s.resources)
 }
 
 func (s *Store) TotalRevisionCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	return s.totalRevisions
 }
 
 func (s *Store) FilterResources(expr string) []*resource.Data {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if expr == "" {
-		return s.AllResources()
+		return s.allResourcesLocked()
 	}
 	lower := strings.ToLower(expr)
 	var result []*resource.Data
@@ -99,6 +110,9 @@ func (s *Store) FilterResources(expr string) []*resource.Data {
 }
 
 func (s *Store) FilterTimeline(expr string, starredOnly bool) []resource.TimelineEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if expr == "" && !starredOnly {
 		return s.timeline
 	}
@@ -117,14 +131,27 @@ func (s *Store) FilterTimeline(expr string, starredOnly bool) []resource.Timelin
 }
 
 func (s *Store) Timeline() []resource.TimelineEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	return s.timeline
 }
 
 func (s *Store) KindGroups() []*resource.KindGroup {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	return s.kindGroups
 }
 
 func (s *Store) WatchedKinds() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.watchedKindsLocked()
+}
+
+func (s *Store) watchedKindsLocked() []string {
 	kindSet := make(map[string]bool)
 	for _, rd := range s.resources {
 		kindSet[rd.Resource.Kind] = true
@@ -138,6 +165,9 @@ func (s *Store) WatchedKinds() []string {
 }
 
 func (s *Store) ResourceCountByKind(kind string) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	count := 0
 	for _, rd := range s.resources {
 		if rd.Resource.Kind == kind {
@@ -148,6 +178,9 @@ func (s *Store) ResourceCountByKind(kind string) int {
 }
 
 func (s *Store) RevisionCountByKind(kind string) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	count := 0
 	for _, rd := range s.resources {
 		if rd.Resource.Kind == kind {
@@ -158,7 +191,10 @@ func (s *Store) RevisionCountByKind(kind string) int {
 }
 
 func (s *Store) UnwatchedKinds() []resource.Kind {
-	watched := s.WatchedKinds()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	watched := s.watchedKindsLocked()
 	watchedSet := make(map[string]bool, len(watched))
 	for _, k := range watched {
 		watchedSet[k] = true
@@ -173,6 +209,9 @@ func (s *Store) UnwatchedKinds() []resource.Kind {
 }
 
 func (s *Store) AddWatchKind(rk resource.Kind) []*resource.Data {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	now := time.Now()
 	var created []*resource.Data
 
@@ -217,6 +256,9 @@ func (s *Store) AddWatchKind(rk resource.Kind) []*resource.Data {
 }
 
 func (s *Store) RemoveWatchKind(kind string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	var toRemove []string
 	for uid, rd := range s.resources {
 		if rd.Resource.Kind == kind {
@@ -232,7 +274,7 @@ func (s *Store) RemoveWatchKind(kind string) {
 	for _, uid := range toRemove {
 		removeSet[uid] = true
 	}
-	filtered := s.timeline[:0]
+	filtered := make([]resource.TimelineEntry, 0, len(s.timeline)-len(toRemove))
 	for _, e := range s.timeline {
 		if !removeSet[e.Resource.UID] {
 			filtered = append(filtered, e)
@@ -242,6 +284,9 @@ func (s *Store) RemoveWatchKind(kind string) {
 }
 
 func (s *Store) ToggleStar(uid string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	rd, ok := s.resources[uid]
 	if !ok {
 		return false
@@ -256,6 +301,9 @@ func (s *Store) ToggleStar(uid string) bool {
 }
 
 func (s *Store) AddRevision(resourceUID string, rev resource.Revision) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	rd, ok := s.resources[resourceUID]
 	if !ok {
 		return
@@ -274,18 +322,43 @@ func (s *Store) AddRevision(resourceUID string, rev resource.Revision) {
 }
 
 func (s *Store) RebuildKindGroups() {
-	s.kindGroups = resource.BuildKindGroups(s.AllResources())
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.kindGroups = resource.BuildKindGroups(s.allResourcesLocked())
 }
 
 func (s *Store) ForEachResource(fn func(uid string, rd *resource.Data)) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	for uid, rd := range s.resources {
 		fn(uid, rd)
 	}
 }
 
+// allResourcesLocked returns all resources sorted by kind/name.
+// Must be called with at least s.mu.RLock held.
+func (s *Store) allResourcesLocked() []*resource.Data {
+	result := make([]*resource.Data, 0, len(s.resources))
+	for _, rd := range s.resources {
+		result = append(result, rd)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Resource.Kind != result[j].Resource.Kind {
+			return result[i].Resource.Kind < result[j].Resource.Kind
+		}
+		return result[i].Resource.Name < result[j].Resource.Name
+	})
+	return result
+}
+
 // ScheduleNextTick returns a tea.Cmd that generates a SimulationTickMsg
 // for a random resource after a 3-5 second delay.
 func (s *Store) ScheduleNextTick() tea.Cmd {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	if len(s.resources) == 0 {
 		return nil
 	}
@@ -303,6 +376,9 @@ func (s *Store) ScheduleNextTick() tea.Cmd {
 
 // GenerateRevision creates a new MODIFIED revision for the given resource.
 func (s *Store) GenerateRevision(rd *resource.Data) resource.Revision {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	now := time.Now()
 	latest := rd.LatestRevision()
 

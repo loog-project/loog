@@ -77,6 +77,7 @@ type Mux struct {
 	cfg    muxConfig
 
 	events chan watch.Event
+	wg     sync.WaitGroup // tracks in-flight dispatch calls
 
 	mu      sync.RWMutex
 	watches map[schema.GroupVersionResource]context.CancelFunc
@@ -219,8 +220,13 @@ func (m *Mux) Stop() {
 	m.stopped = true
 	m.mu.Unlock()
 
-	// Canceling the parent context cascades to every informer context.
+	// Canceling the parent context cascades to every informer context
+	// and unblocks any dispatch calls waiting on a send.
 	m.cancel()
+
+	// Wait for all in-flight dispatch calls to return before closing
+	// the channel so no goroutine can send on a closed channel.
+	m.wg.Wait()
 	close(m.events)
 }
 
@@ -251,6 +257,19 @@ func (m *Mux) tweakListOptions(lo *metav1.ListOptions) {
 // truly lost).
 func (m *Mux) dispatch(eventType watch.EventType) func(obj any) {
 	return func(obj any) {
+		// Acquire a read-lock to register with the WaitGroup. This
+		// pairs with the write-lock in Stop: once Stop sets
+		// m.stopped=true and releases the lock, no new dispatch can
+		// call wg.Add, so the subsequent wg.Wait is safe.
+		m.mu.RLock()
+		if m.stopped {
+			m.mu.RUnlock()
+			return
+		}
+		m.wg.Add(1)
+		m.mu.RUnlock()
+		defer m.wg.Done()
+
 		ro, ok := toRuntimeObject(obj)
 		if !ok {
 			return
@@ -258,6 +277,15 @@ func (m *Mux) dispatch(eventType watch.EventType) func(obj any) {
 
 		event := watch.Event{Type: eventType, Object: ro}
 
+		// Fast path: non-blocking send avoids allocating a timer when
+		// the channel has capacity.
+		select {
+		case m.events <- event:
+			return
+		default:
+		}
+
+		// Channel full – apply backpressure with timeout.
 		timer := time.NewTimer(eventDeliveryTimeout)
 		defer timer.Stop()
 

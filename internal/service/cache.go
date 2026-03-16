@@ -26,9 +26,10 @@ type trackerState struct {
 
 // stateCache is a cache of trackerState objects.
 type stateCache struct {
-	mu     sync.RWMutex
-	data   map[string]*trackerState
-	stopCh chan struct{}
+	mu        sync.RWMutex
+	data      map[string]*trackerState
+	stopCh    chan struct{}
+	closeOnce sync.Once
 }
 
 // newStateCache returns a new state cache with a janitor that evicts cold entries.
@@ -43,13 +44,15 @@ func newStateCache() *stateCache {
 
 // close stops the janitor and clears the cache.
 func (c *stateCache) close() {
-	close(c.stopCh)
-	c.mu.Lock()
-	for _, e := range c.data {
-		e.obj = nil
-	}
-	c.data = nil
-	c.mu.Unlock()
+	c.closeOnce.Do(func() {
+		close(c.stopCh)
+		c.mu.Lock()
+		for _, e := range c.data {
+			e.obj = nil
+		}
+		c.data = nil
+		c.mu.Unlock()
+	})
 }
 
 func (c *stateCache) evictCold() {

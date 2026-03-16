@@ -355,16 +355,24 @@ func DeepEqual(a, b map[string]any) bool {
 }
 
 // hasImageChange checks if any container image changed between two spec maps.
+// Containers are matched by name to avoid false positives when order changes.
 func hasImageChange(prevSpec, currSpec map[string]any) bool {
 	prevContainers := extractContainers(prevSpec)
 	currContainers := extractContainers(currSpec)
 	if len(prevContainers) != len(currContainers) {
 		return true
 	}
-	for i := range prevContainers {
-		prevImg, _ := prevContainers[i]["image"].(string)
-		currImg, _ := currContainers[i]["image"].(string)
-		if prevImg != currImg {
+	prevByName := make(map[string]string, len(prevContainers))
+	for _, c := range prevContainers {
+		name, _ := c["name"].(string)
+		img, _ := c["image"].(string)
+		prevByName[name] = img
+	}
+	for _, c := range currContainers {
+		name, _ := c["name"].(string)
+		img, _ := c["image"].(string)
+		prevImg, exists := prevByName[name]
+		if !exists || prevImg != img {
 			return true
 		}
 	}

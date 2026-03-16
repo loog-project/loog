@@ -76,6 +76,17 @@ func equalFast(a, b any) bool {
 			return false
 		}
 		return diffMapsEqual(va, vb)
+	case []any:
+		vb, ok := b.([]any)
+		if !ok || len(va) != len(vb) {
+			return false
+		}
+		for i := range va {
+			if !equalFast(va[i], vb[i]) {
+				return false
+			}
+		}
+		return true
 	}
 	return reflect.DeepEqual(a, b)
 }

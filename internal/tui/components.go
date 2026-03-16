@@ -1690,7 +1690,7 @@ func (tl *TimelineList) CursorInfo() (int, int) {
 	return tl.cursor, len(tl.flatItems)
 }
 
-// CanScrollUp returns true if there are items above the visible window.
+// Reversed returns true when the timeline is showing oldest-first.
 func (tl *TimelineList) Reversed() bool {
 	return tl.reversed
 }

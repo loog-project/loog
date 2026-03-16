@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -166,7 +167,7 @@ func run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	var wg sync.WaitGroup
@@ -243,7 +244,7 @@ func setupProduction(ctx context.Context, args []string) (
 	if outputFile == "" {
 		file, fileErr := os.CreateTemp("", "loog-output-*.loog")
 		if fileErr != nil {
-			setupLog.Fatal().Err(fileErr).Msg("Cannot create temp file")
+			return cleanup, nil, nil, nil, nil, fmt.Errorf("cannot create temp file: %w", fileErr)
 		}
 		cleanups = append(cleanups, func() {
 			_ = file.Close()
@@ -260,7 +261,7 @@ func setupProduction(ctx context.Context, args []string) (
 		Msg("Compiling filter expression...")
 	prog, err = expr.Compile(filterExpr, expr.Env(util.EventEntryEnv{}), expr.AsBool())
 	if err != nil {
-		setupLog.Fatal().Err(err).Msg("Error compiling filter expression")
+		return cleanup, nil, nil, nil, nil, fmt.Errorf("error compiling filter expression: %w", err)
 	}
 
 	setupLog.Info().
@@ -272,33 +273,35 @@ func setupProduction(ctx context.Context, args []string) (
 		Compress:     !disableCompress,
 	})
 	if err != nil {
-		setupLog.Fatal().Err(err).Msg("Error preparing store")
+		return cleanup, nil, nil, nil, nil, fmt.Errorf("error preparing store: %w", err)
 	}
+	cleanups = append(cleanups, func() { _ = rps.Close() })
 	trackerService = service.NewTrackerService(rps, snapshotInterval, !disableCache)
+	cleanups = append(cleanups, func() { _ = trackerService.Close() })
 
 	setupLog.Info().Msg("Preparing dynamic Kubernetes watch client...")
 	cfg, cfgErr := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
 	if cfgErr != nil {
-		setupLog.Fatal().Err(cfgErr).Msg("Error loading kubeconfig")
+		return cleanup, nil, nil, nil, nil, fmt.Errorf("error loading kubeconfig: %w", cfgErr)
 	}
 	dyn, dynErr := dynamic.NewForConfig(cfg)
 	if dynErr != nil {
-		setupLog.Fatal().Err(dynErr).Msg("Error creating dynamic watch client")
+		return cleanup, nil, nil, nil, nil, fmt.Errorf("error creating dynamic watch client: %w", dynErr)
 	}
 
 	m, err = mux.New(ctx, dyn)
 	if err != nil {
-		setupLog.Fatal().Err(err).Msg("Error creating dynamic mux")
+		return cleanup, nil, nil, nil, nil, fmt.Errorf("error creating dynamic mux: %w", err)
 	}
 	cleanups = append(cleanups, func() { m.Stop() })
 
 	for _, r := range args {
 		gvr, gvrParseErr := util.ParseGroupVersionResource(r)
 		if gvrParseErr != nil {
-			setupLog.Fatal().Err(gvrParseErr).Msgf("Cannot parse argument '%s' to GVR", r)
+			return cleanup, nil, nil, nil, nil, fmt.Errorf("cannot parse argument '%s' to GVR: %w", r, gvrParseErr)
 		}
 		if muxAddErr := m.Add(gvr); muxAddErr != nil {
-			setupLog.Fatal().Err(muxAddErr).Msgf("Cannot add GVR '%s' to dynamic mux", gvr)
+			return cleanup, nil, nil, nil, nil, fmt.Errorf("cannot add GVR '%s' to dynamic mux: %w", gvr, muxAddErr)
 		}
 	}
 
@@ -322,7 +325,7 @@ func runHeadless(
 	})
 
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	<-c
 
 	setupLog.Info().Msg("Received interrupt signal, stopping collector...")
@@ -474,7 +477,12 @@ func runCollector(
 				l.Error().Err(err).Msg("Error executing filter expression")
 				continue
 			}
-			if !pass.(bool) {
+			passBool, ok := pass.(bool)
+			if !ok {
+				l.Error().Msgf("Filter expression returned %T instead of bool", pass)
+				continue
+			}
+			if !passBool {
 				continue
 			}
 
@@ -537,8 +545,16 @@ func loadHistoryFromDB(
 			}
 		} else {
 			// patch: apply on top of last state
+			prev := objectRevisionState[objectUID]
+			if prev == nil {
+				log.Warn().
+					Str("objectUID", objectUID).
+					Stringer("revisionID", revisionID).
+					Msg("Patch arrived before any snapshot; skipping")
+				return true
+			}
 			base := make(diffmap.DiffMap)
-			maps.Copy(base, objectRevisionState[objectUID].Object)
+			maps.Copy(base, prev.Object)
 			diffmap.Apply(base, patch.Patch)
 			current = &store.Snapshot{
 				ID:     revisionID,
@@ -547,7 +563,7 @@ func loadHistoryFromDB(
 			}
 		}
 		objectRevisionState[objectUID] = current
-		trackerService.WarmCache(objectUID, current)
+		trackerService.WarmCache(objectUID, current.Object, current.ID)
 		unstructuredObj := &unstructured.Unstructured{Object: current.Object}
 
 		// make sure we want to track this object
@@ -557,7 +573,13 @@ func loadHistoryFromDB(
 				unstructuredObj.GetNamespace(), unstructuredObj.GetName(), unstructuredObj.GetKind())
 			return true
 		}
-		if !pass.(bool) {
+		passBool, ok := pass.(bool)
+		if !ok {
+			log.Error().Msgf("Filter expression returned %T instead of bool for historic object %s/%s/%s",
+				pass, unstructuredObj.GetNamespace(), unstructuredObj.GetName(), unstructuredObj.GetKind())
+			return true
+		}
+		if !passBool {
 			return true
 		}
 

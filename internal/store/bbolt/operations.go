@@ -60,9 +60,14 @@ func (s *Store) storeRevision(tx *bbolt.Tx, uid string, typeByte byte, revisionI
 	(*bp)[0] = typeByte
 	copy((*bp)[1:], payload)
 
-	err = tx.Bucket(bucketSnapshots).Put(key, *bp)
+	// Copy into a fresh slice before Put — bbolt may hold a reference to the
+	// value bytes beyond the lifetime of the transaction, so we must not
+	// return the pooled buffer while bbolt might still read from it.
+	data := make([]byte, needed)
+	copy(data, *bp)
 	payloadPool.Put(bp)
-	return err
+
+	return tx.Bucket(bucketSnapshots).Put(key, data)
 }
 
 func (s *Store) SetSnapshot(_ context.Context, uid string, snapshot *store.Snapshot) error {

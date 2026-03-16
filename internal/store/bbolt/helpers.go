@@ -51,19 +51,12 @@ func putKeyBuf(bp *[]byte) {
 
 func splitObjectRevisionKey(key []byte) (string, store.RevisionID) {
 	before, after, ok := bytes.Cut(key, []byte{'|'})
-	if !ok {
+	if !ok || len(after) < 8 {
 		return "", 0
 	}
 	objectUID := string(before)
 	id := binary.BigEndian.Uint64(after)
 	return objectUID, store.RevisionID(id)
-}
-
-// uint64 encoding buffer pool
-var u64Pool = sync.Pool{
-	New: func() any {
-		return new(make([]byte, 8))
-	},
 }
 
 // claimNextRevision atomically increments the nextRevisionCounter in bucketLatest
@@ -78,10 +71,9 @@ func (s *Store) claimNextRevision(tx *bbolt.Tx, objectID string) (store.Revision
 	revisionNumber := store.RevisionID(next)
 	next++
 
-	bp := u64Pool.Get().(*[]byte)
-	binary.BigEndian.PutUint64(*bp, next)
-	err := latest.Put([]byte(objectID), *bp)
-	u64Pool.Put(bp)
+	buf := make([]byte, 8)
+	binary.BigEndian.PutUint64(buf, next)
+	err := latest.Put([]byte(objectID), buf)
 	if err != nil {
 		return 0, err
 	}
@@ -117,6 +109,9 @@ func decompressPayload(compressed []byte) ([]byte, error) {
 }
 
 func (s *Store) parsePatchOrSnapshot(v []byte) (*store.Snapshot, *store.Patch, error) {
+	if len(v) < 1 {
+		return nil, nil, store.ErrInvalidRevision
+	}
 	payload := v[1:]
 	if s.compress {
 		var err error

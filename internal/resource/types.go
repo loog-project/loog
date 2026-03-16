@@ -53,13 +53,14 @@ func (r Resource) KindName() string {
 
 // ShortName returns a truncated name for narrow panels.
 func (r Resource) ShortName(maxLen int) string {
-	if maxLen <= 3 {
+	runes := []rune(r.Name)
+	if maxLen <= 0 || len(runes) <= maxLen {
 		return r.Name
 	}
-	if len(r.Name) > maxLen {
-		return r.Name[:maxLen-1] + "…"
+	if maxLen <= 1 {
+		return "…"
 	}
-	return r.Name
+	return string(runes[:maxLen-1]) + "…"
 }
 
 // Revision represents a single recorded version of a resource.
@@ -182,6 +183,9 @@ type BurstGroup struct {
 // RelativeTime formats a time as a human-readable relative string (e.g., "5m", "2h").
 func RelativeTime(t time.Time) string {
 	d := time.Since(t)
+	if d < 0 {
+		return "future"
+	}
 	switch {
 	case d < time.Second:
 		return "now"

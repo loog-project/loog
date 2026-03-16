@@ -566,6 +566,59 @@ func TestStop_RemoveAfterStop(t *testing.T) {
 	_ = m.Remove(podGVR)
 }
 
+// TestStop_ConcurrentDispatchNoPanic verifies that calling Stop while
+// dispatch goroutines are actively sending events does not cause a
+// "send on closed channel" panic.
+func TestStop_ConcurrentDispatchNoPanic(t *testing.T) {
+	client := fakedynamic.NewSimpleDynamicClientWithCustomListKinds(
+		runtime.NewScheme(), gvrListKinds,
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Use a tiny buffer so the channel fills up quickly and dispatch
+	// goroutines are more likely to be mid-send when Stop is called.
+	m, err := New(ctx, client, WithBuffer(1))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if err := m.Add(podGVR); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	// Fire many events concurrently to maximize the chance of a
+	// dispatch in flight when Stop is called.
+	var wg sync.WaitGroup
+	for i := range 200 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			pod := testPod(fmt.Sprintf("pod-%d", i), "default")
+			_, _ = client.Resource(podGVR).Namespace("default").Create(
+				context.Background(), pod, metav1.CreateOptions{},
+			)
+		}()
+	}
+
+	// Give some events time to start flowing, then stop.
+	time.Sleep(10 * time.Millisecond)
+	m.Stop()
+
+	// Wait for all creators to finish (they may error after Stop,
+	// that's fine).
+	wg.Wait()
+
+	// If we reach here without a panic, the race is fixed.
+	// Verify the channel is closed.
+	_, ok := <-m.Events()
+	if ok {
+		// Drain remaining buffered events.
+		for range m.Events() {
+		}
+	}
+}
+
 func TestConcurrentAddRemove(t *testing.T) {
 	gvrs := make([]schema.GroupVersionResource, 20)
 	listKinds := make(map[schema.GroupVersionResource]string, 20)

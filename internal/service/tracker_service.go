@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	"github.com/loog-project/loog/internal/resource"
 	"github.com/loog-project/loog/internal/store"
 	"github.com/loog-project/loog/internal/util"
 	"github.com/loog-project/loog/pkg/diffmap"
@@ -30,6 +30,7 @@ type TrackerService struct {
 	commitLocks           map[string]*lockWrap
 	commitLockMutex       sync.RWMutex
 	stopCommitLockJanitor chan struct{}
+	closeOnce             sync.Once
 }
 
 type lockWrap struct {
@@ -59,15 +60,17 @@ func NewTrackerService(rps store.ResourcePatchStore, snapshotEvery uint64, withC
 // Close closes the TrackerService and releases any resources it holds.
 // After you call Close, the TrackerService should not be used anymore.
 func (t *TrackerService) Close() error {
-	close(t.stopCommitLockJanitor)
+	t.closeOnce.Do(func() {
+		close(t.stopCommitLockJanitor)
 
-	if t.cache != nil {
-		t.cache.close()
-	}
+		if t.cache != nil {
+			t.cache.close()
+		}
 
-	t.commitLockMutex.Lock()
-	t.commitLocks = nil
-	t.commitLockMutex.Unlock()
+		t.commitLockMutex.Lock()
+		t.commitLocks = nil
+		t.commitLockMutex.Unlock()
+	})
 
 	return nil
 }
@@ -146,10 +149,7 @@ func (t *TrackerService) Commit(
 		if err != nil {
 			return 0, err
 		}
-		if ts.obj == nil {
-			ts.obj = make(diffmap.DiffMap)
-		}
-		maps.Copy(ts.obj, newObject.Object)
+		ts.obj = resource.CloneMap(newObject.Object)
 		ts.rev = snapshot.ID
 		return snapshot.ID, nil
 	}
@@ -263,9 +263,12 @@ func (t *TrackerService) objLock(uid string) *lockWrap {
 	return mu
 }
 
-func (t *TrackerService) WarmCache(uid string, snapshot *store.Snapshot) {
+func (t *TrackerService) WarmCache(uid string, obj diffmap.DiffMap, rev store.RevisionID) {
 	if t.cache == nil {
 		return
 	}
-	t.cache.set(uid, &trackerState{obj: snapshot.Object, rev: snapshot.ID})
+	lock := t.objLock(uid)
+	lock.mu.Lock()
+	defer lock.mu.Unlock()
+	t.cache.set(uid, &trackerState{obj: obj, rev: rev})
 }

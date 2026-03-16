@@ -66,13 +66,13 @@ func (s *LiveStore) IngestRevision(
 		s.watchedKinds[kind] = true
 	}
 
-	// Append revision (oldest-first order: new revisions go at the end)
-	rd.Revisions = append(rd.Revisions, rev)
+	// Create a new Data snapshot with the appended revision (copy-on-write).
+	newData := s.appendRevision(uid, rd, rev)
 	s.totalRevisions++
 
 	// Prepend to timeline (newest-first)
 	entry := resource.TimelineEntry{
-		Resource: rd.Resource,
+		Resource: newData.Resource,
 		Revision: rev,
 	}
 	s.timeline = append(s.timeline, resource.TimelineEntry{}) // grow
@@ -262,7 +262,7 @@ func (s *LiveStore) RemoveWatchKind(kind string) {
 	}
 
 	// Remove timeline entries for this kind
-	filtered := s.timeline[:0]
+	filtered := make([]resource.TimelineEntry, 0, len(s.timeline))
 	for _, e := range s.timeline {
 		if e.Resource.Kind != kind {
 			filtered = append(filtered, e)
@@ -279,13 +279,20 @@ func (s *LiveStore) ToggleStar(uid string) bool {
 	if !ok {
 		return false
 	}
-	rd.Resource.Starred = !rd.Resource.Starred
+	// Create a NEW Data with the toggled Starred flag instead of mutating in-place.
+	newResource := rd.Resource
+	newResource.Starred = !newResource.Starred
+	newData := &resource.Data{
+		Resource:  newResource,
+		Revisions: rd.Revisions,
+	}
+	s.resources[uid] = newData
 	for i := range s.timeline {
 		if s.timeline[i].Resource.UID == uid {
-			s.timeline[i].Resource.Starred = rd.Resource.Starred
+			s.timeline[i].Resource.Starred = newResource.Starred
 		}
 	}
-	return rd.Resource.Starred
+	return newResource.Starred
 }
 
 func (s *LiveStore) AddRevision(resourceUID string, rev resource.Revision) {
@@ -297,11 +304,12 @@ func (s *LiveStore) AddRevision(resourceUID string, rev resource.Revision) {
 		return
 	}
 
-	rd.Revisions = append(rd.Revisions, rev)
+	// Create a new Data snapshot with the appended revision (copy-on-write).
+	newData := s.appendRevision(resourceUID, rd, rev)
 	s.totalRevisions++
 
 	entry := resource.TimelineEntry{
-		Resource: rd.Resource,
+		Resource: newData.Resource,
 		Revision: rev,
 	}
 	s.timeline = append(s.timeline, resource.TimelineEntry{})
@@ -349,4 +357,19 @@ func (s *LiveStore) allResourcesLocked() []*resource.Data {
 	}
 	sortByKindName(result)
 	return result
+}
+
+// appendRevision creates a new *resource.Data with the revision appended,
+// stores it in the map, and returns it. The old pointer remains valid for
+// anyone who already holds it (copy-on-write).
+func (s *LiveStore) appendRevision(uid string, rd *resource.Data, rev resource.Revision) *resource.Data {
+	newRevisions := make([]resource.Revision, len(rd.Revisions)+1)
+	copy(newRevisions, rd.Revisions)
+	newRevisions[len(rd.Revisions)] = rev
+	newData := &resource.Data{
+		Resource:  rd.Resource,
+		Revisions: newRevisions,
+	}
+	s.resources[uid] = newData
+	return newData
 }

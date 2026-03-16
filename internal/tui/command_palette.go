@@ -12,6 +12,17 @@ import (
 	"github.com/loog-project/loog/internal/resource"
 )
 
+// renderDialog wraps content in a bordered dialog box.
+func renderDialog(content string, width int, bg, borderColor lipgloss.Color) string {
+	return lipgloss.NewStyle().
+		Background(bg).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(borderColor).
+		Padding(1, 2).
+		Width(width - 2).
+		Render(content)
+}
+
 // fuzzyMatchAll performs a fuzzy search on names. When the query is empty all
 // names are returned as identity matches. The cursor is clamped to the result
 // length.
@@ -261,7 +272,6 @@ func (cp *CommandPalette) View() string {
 		Foreground(cp.theme.Overlay0).
 		Render(fmt.Sprintf("  %d results", len(cp.matches)))
 
-	// Build dialog content
 	content := title + "\n" +
 		searchLine + "\n" +
 		sep + "\n" +
@@ -269,15 +279,7 @@ func (cp *CommandPalette) View() string {
 		sep + "\n" +
 		countLine
 
-	dialog := lipgloss.NewStyle().
-		Background(cp.theme.Mantle).
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(cp.theme.Blue).
-		Padding(1, 2).
-		Width(dialogW - 2). // minus border chars
-		Render(content)
-
-	return dialog
+	return renderDialog(content, dialogW, cp.theme.Mantle, cp.theme.Blue)
 }
 
 // QuickJump is a fuzzy resource finder overlay triggered by //.
@@ -463,15 +465,7 @@ func (qs *QuickJump) View() string {
 		sep + "\n" +
 		countLine
 
-	dialog := lipgloss.NewStyle().
-		Background(qs.theme.Mantle).
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(qs.theme.Green).
-		Padding(1, 2).
-		Width(dialogW - 2).
-		Render(content)
-
-	return dialog
+	return renderDialog(content, dialogW, qs.theme.Mantle, qs.theme.Green)
 }
 
 type watchManagerTab int
@@ -750,15 +744,7 @@ func (wm *WatchManager) View() string {
 		sep + "\n" +
 		footer
 
-	dialog := lipgloss.NewStyle().
-		Background(wm.theme.Mantle).
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(wm.theme.Mauve).
-		Padding(1, 2).
-		Width(dialogW - 2).
-		Render(content)
-
-	return dialog
+	return renderDialog(content, dialogW, wm.theme.Mantle, wm.theme.Mauve)
 }
 
 func (wm *WatchManager) viewWatching(contentW int) string {

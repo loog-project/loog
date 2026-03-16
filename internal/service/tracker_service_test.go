@@ -123,6 +123,7 @@ func TestHotCache_FastPath(t *testing.T) {
 }
 
 func TestTrackerService_ConcurrentCommits(t *testing.T) {
+	baseline := runtime.NumGoroutine()
 	ctx := context.Background()
 	svc, raw := mustNewSvc(t, 8, true, false)
 
@@ -157,9 +158,9 @@ func TestTrackerService_ConcurrentCommits(t *testing.T) {
 		t.Fatalf("latest want %d got %d", want, latest)
 	}
 
-	// leak check: janitor + GC + main should stay under 8 goroutines
-	if g := runtime.NumGoroutine(); g > 8 {
-		t.Fatalf("goroutine leak: %d still running", g)
+	// leak check: goroutine count should not grow significantly
+	if g := runtime.NumGoroutine(); g > baseline+2 {
+		t.Fatalf("goroutine leak: %d still running (baseline was %d)", g, baseline)
 	}
 }
 
@@ -277,6 +278,7 @@ func benchCommit(b *testing.B, snapshotEvery uint64, durable, withCache bool) {
 	}(db)
 
 	svc := service.NewTrackerService(db, snapshotEvery, withCache)
+	defer func() { _ = svc.Close() }()
 
 	// make this object large
 	m := map[string]any{}
@@ -338,6 +340,7 @@ func benchCommitWithOptions(b *testing.B, snapshotEvery uint64, withCache bool, 
 	}(db)
 
 	svc := service.NewTrackerService(db, snapshotEvery, withCache)
+	defer func() { _ = svc.Close() }()
 
 	m := map[string]any{}
 	for i := range 500 {

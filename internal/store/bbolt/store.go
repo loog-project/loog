@@ -78,7 +78,7 @@ func NewWithOptions(path string, opts Options) (*Store, error) {
 		noSync = true
 	}
 
-	db, err := bbolt.Open(path, 0666, &bbolt.Options{
+	db, err := bbolt.Open(path, 0600, &bbolt.Options{
 		Timeout:      0,
 		NoSync:       noSync,
 		NoGrowSync:   noSync,
