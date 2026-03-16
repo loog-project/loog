@@ -17,6 +17,7 @@ type Header struct {
 	activeView ViewID
 	recording  bool
 	frozen     bool
+	blinkOn    bool
 }
 
 func NewHeader(theme Theme) *Header {
@@ -40,6 +41,10 @@ func (h *Header) SetRecording(on bool) {
 
 func (h *Header) SetFrozen(frozen bool) {
 	h.frozen = frozen
+}
+
+func (h *Header) Tick() {
+	h.blinkOn = !h.blinkOn
 }
 
 func (h *Header) View() string {
@@ -76,7 +81,12 @@ func (h *Header) View() string {
 
 	// Recording / paused state
 	if h.recording {
-		indicator := lipgloss.NewStyle().Foreground(h.theme.Red).Bold(true).Render("◆")
+		var indicator string
+		if h.blinkOn {
+			indicator = lipgloss.NewStyle().Foreground(h.theme.Red).Bold(true).Render("◆")
+		} else {
+			indicator = lipgloss.NewStyle().Foreground(h.theme.Surface1).Render("◆")
+		}
 		label := lipgloss.NewStyle().Foreground(h.theme.Subtext0).Render("recording")
 		rightParts = append(rightParts, indicator+" "+label)
 	} else {

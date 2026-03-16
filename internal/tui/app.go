@@ -212,7 +212,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tickMsg:
-		// Clear status message after 3 seconds
+		a.header.Tick()
 		if a.statusText != "" && time.Since(a.statusTime) > 3*time.Second {
 			a.statusText = ""
 			a.statusBar.SetStatus("", false)
