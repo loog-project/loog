@@ -757,6 +757,7 @@ type RevisionList struct {
 	focused       bool
 	resource      *resource.Data
 	cursor        int // index into revisions slice (0 = oldest, len-1 = newest)
+	scrollTop     int // visual scroll position for sticky viewport
 
 	// Stable selection by ID
 	selectedID resource.RevisionID
@@ -789,7 +790,6 @@ func (rl *RevisionList) SetResource(rd *resource.Data) {
 	oldResource := rl.resource
 	rl.resource = rd
 	if rd != nil && len(rd.Revisions) > 0 {
-		// If same resource and we have a previously selected ID, try to preserve position
 		if rl.selectedID != 0 && oldResource != nil && oldResource.Resource.UID == rd.Resource.UID {
 			for i, rev := range rd.Revisions {
 				if rev.ID == rl.selectedID {
@@ -798,12 +798,13 @@ func (rl *RevisionList) SetResource(rd *resource.Data) {
 				}
 			}
 		}
-		// New resource or old ID not found: select newest
 		rl.cursor = len(rd.Revisions) - 1
 		rl.selectedID = rd.Revisions[rl.cursor].ID
+		rl.scrollTop = 0
 	} else {
 		rl.cursor = 0
 		rl.selectedID = 0
+		rl.scrollTop = 0
 	}
 }
 
@@ -825,6 +826,7 @@ func (rl *RevisionList) JumpToNewest() {
 	if rl.resource != nil && len(rl.resource.Revisions) > 0 {
 		rl.cursor = len(rl.resource.Revisions) - 1
 		rl.selectedID = rl.resource.Revisions[rl.cursor].ID
+		rl.scrollTop = 0
 	}
 }
 
@@ -853,54 +855,26 @@ func (rl *RevisionList) CursorInfo() (int, int) {
 	return rl.cursor, len(rl.resource.Revisions)
 }
 
-// CanScrollUp returns true if there are revisions above the visible window.
 func (rl *RevisionList) CanScrollUp() bool {
 	if rl.resource == nil {
 		return false
 	}
-	revs := rl.resource.Revisions
-	total := len(revs)
-	itemHeight := rl.height - 1 // 1 line for title
-	if itemHeight <= 0 || total <= itemHeight {
-		return false
-	}
+	total := len(rl.resource.Revisions)
+	itemHeight := rl.height - 1
 	visualCursor := total - 1 - rl.cursor
-	startVisual := 0
-	if visualCursor >= itemHeight {
-		startVisual = visualCursor - itemHeight + 1
-	}
-	if startVisual+itemHeight > total {
-		startVisual = total - itemHeight
-	}
-	if startVisual < 0 {
-		startVisual = 0
-	}
-	return startVisual > 0
+	vp := calcViewport(total, visualCursor, itemHeight, rl.scrollTop)
+	return vp.above > 0
 }
 
-// CanScrollDown returns true if there are revisions below the visible window.
 func (rl *RevisionList) CanScrollDown() bool {
 	if rl.resource == nil {
 		return false
 	}
-	revs := rl.resource.Revisions
-	total := len(revs)
-	itemHeight := rl.height - 1 // 1 line for title
-	if itemHeight <= 0 || total <= itemHeight {
-		return false
-	}
+	total := len(rl.resource.Revisions)
+	itemHeight := rl.height - 1
 	visualCursor := total - 1 - rl.cursor
-	startVisual := 0
-	if visualCursor >= itemHeight {
-		startVisual = visualCursor - itemHeight + 1
-	}
-	if startVisual+itemHeight > total {
-		startVisual = total - itemHeight
-	}
-	if startVisual < 0 {
-		startVisual = 0
-	}
-	return startVisual+itemHeight < total
+	vp := calcViewport(total, visualCursor, itemHeight, rl.scrollTop)
+	return vp.below > 0
 }
 
 func (rl *RevisionList) Update(msg tea.Msg) tea.Cmd {
@@ -927,13 +901,13 @@ func (rl *RevisionList) Update(msg tea.Msg) tea.Cmd {
 				rl.cursor--
 			}
 			rl.selectedID = revs[rl.cursor].ID
-			return rl.selectCurrent()
+			return rl.selectCurrentAndPause()
 		case "k", "up":
 			if rl.cursor < total-1 {
 				rl.cursor++
 			}
 			rl.selectedID = revs[rl.cursor].ID
-			return rl.selectCurrent()
+			return rl.selectCurrentAndPause()
 		case "ctrl+d", "pgdown":
 			pageSize := max(rl.height/2, 1)
 			rl.cursor -= pageSize
@@ -941,7 +915,7 @@ func (rl *RevisionList) Update(msg tea.Msg) tea.Cmd {
 				rl.cursor = 0
 			}
 			rl.selectedID = revs[rl.cursor].ID
-			return rl.selectCurrent()
+			return rl.selectCurrentAndPause()
 		case "ctrl+u", "pgup":
 			pageSize := max(rl.height/2, 1)
 			rl.cursor += pageSize
@@ -949,7 +923,7 @@ func (rl *RevisionList) Update(msg tea.Msg) tea.Cmd {
 				rl.cursor = total - 1
 			}
 			rl.selectedID = revs[rl.cursor].ID
-			return rl.selectCurrent()
+			return rl.selectCurrentAndPause()
 		case "enter":
 			return rl.selectCurrent()
 		case "s":
@@ -957,15 +931,13 @@ func (rl *RevisionList) Update(msg tea.Msg) tea.Cmd {
 		case "c":
 			return Cmd(CompareMarkMsg{Resource: rl.resource, Index: rl.cursor})
 		case "g", "home":
-			// Go to top of visual list = newest = highest index
 			rl.cursor = total - 1
 			rl.selectedID = revs[rl.cursor].ID
-			return rl.selectCurrent()
+			return rl.selectCurrentAndPause()
 		case "G", "end":
-			// Go to bottom of visual list = oldest = index 0
 			rl.cursor = 0
 			rl.selectedID = revs[rl.cursor].ID
-			return rl.selectCurrent()
+			return rl.selectCurrentAndPause()
 		}
 	}
 	return nil
@@ -978,6 +950,14 @@ func (rl *RevisionList) selectCurrent() tea.Cmd {
 	return Cmd(RevisionSelectedMsg{Resource: rl.resource, Index: rl.cursor})
 }
 
+func (rl *RevisionList) selectCurrentAndPause() tea.Cmd {
+	selectCmd := rl.selectCurrent()
+	if rl.autoScroll {
+		return tea.Batch(selectCmd, Cmd(SetAutoScrollMsg{On: false}))
+	}
+	return selectCmd
+}
+
 // CurrentHint returns a context-sensitive hint for the status bar.
 func (rl *RevisionList) CurrentHint() string {
 	if rl.resource == nil || rl.cursor < 0 || rl.cursor >= len(rl.resource.Revisions) {
@@ -987,8 +967,11 @@ func (rl *RevisionList) CurrentHint() string {
 	hints := []string{
 		rl.theme.KeyHint("c", "compare"),
 		rl.theme.KeyHint("s", "star"),
-		rl.theme.KeyHint("ctrl+d/u", "page"),
-		"|",
+	}
+	if rl.autoScroll {
+		hints = append(hints, rl.theme.KeyHint("a", "pause"))
+	} else {
+		hints = append(hints, rl.theme.KeyHint("a", "resume"))
 	}
 
 	if rl.compareLeft != nil && rl.compareLeft.Resource.UID == rl.resource.Resource.UID && rl.compareLeft.Revision.ID == rev.ID {
@@ -996,9 +979,6 @@ func (rl *RevisionList) CurrentHint() string {
 	}
 	if rl.compareRight != nil && rl.compareRight.Resource.UID == rl.resource.Resource.UID && rl.compareRight.Revision.ID == rev.ID {
 		hints = append(hints, rl.theme.KeyHint("[C2]", "compare right"))
-	}
-	if rl.autoScroll {
-		hints = append(hints, rl.theme.KeyHint("[AUTO]", "on"))
 	}
 
 	return strings.Join(hints, "  ")
@@ -1054,8 +1034,9 @@ func (rl *RevisionList) View() string {
 		titleLine += loopWarn
 	}
 	if rl.autoScroll {
-		asBadge := lipgloss.NewStyle().Foreground(rl.theme.Teal).Bold(true).Render(" [AUTO]")
-		titleLine += asBadge
+		titleLine += " " + lipgloss.NewStyle().Foreground(rl.theme.Red).Bold(true).Render("● live")
+	} else {
+		titleLine += " " + lipgloss.NewStyle().Foreground(rl.theme.Overlay1).Render("○ paused")
 	}
 	lines = append(lines, PadRight(titleLine, rl.width))
 
@@ -1065,28 +1046,23 @@ func (rl *RevisionList) View() string {
 		return strings.Join(lines, "\n")
 	}
 
-	// Display order: visual row 0 = revs[total-1] (newest) ... row total-1 = revs[0] (oldest).
-	// The cursor's visual row = total - 1 - rl.cursor.
+	// Display order: visual row 0 = newest, visual row total-1 = oldest.
 	visualCursor := total - 1 - rl.cursor
+	vp := calcViewport(total, visualCursor, itemHeight, rl.scrollTop)
+	rl.scrollTop = vp.start
 
-	// Compute scroll window based on visual cursor
-	startVisual := 0
-	if visualCursor >= itemHeight {
-		startVisual = visualCursor - itemHeight + 1
+	renderStart := vp.start
+	renderEnd := vp.end
+
+	if vp.above > 0 {
+		renderStart++
+		lines = append(lines, renderOverflowLine(renderStart, "↑", rl.width, rl.theme))
 	}
-	// Clamp so we don't go past the end
-	if startVisual+itemHeight > total {
-		startVisual = total - itemHeight
-	}
-	if startVisual < 0 {
-		startVisual = 0
+	if vp.below > 0 {
+		renderEnd--
 	}
 
-	endVisual := min(startVisual+itemHeight, total)
-
-	// Render the visible window
-	for v := startVisual; v < endVisual; v++ {
-		// Convert visual row to slice index
+	for v := renderStart; v < renderEnd; v++ {
 		sliceIdx := total - 1 - v
 		rev := revs[sliceIdx]
 		isSelected := sliceIdx == rl.cursor && rl.focused
@@ -1151,7 +1127,12 @@ func (rl *RevisionList) View() string {
 		lines = append(lines, padded)
 	}
 
-	// Pad
+	// Below overflow indicator (newer items below viewport in visual terms = older revisions)
+	if vp.below > 0 {
+		belowCount := vp.below + (vp.end - renderEnd)
+		lines = append(lines, renderOverflowLine(belowCount, "↓", rl.width, rl.theme))
+	}
+
 	for len(lines) < rl.height {
 		lines = append(lines, strings.Repeat(" ", rl.width))
 	}
@@ -1454,6 +1435,7 @@ type TimelineList struct {
 	groups        []any // resource.TimelineEntry or resource.BurstGroup
 	cursor        int
 	flatItems     []timelineFlatItem
+	scrollTop     int
 	reversed      bool // oldest-first when true
 
 	// Selection identity for stability across rebuilds
@@ -1678,6 +1660,11 @@ func (tl *TimelineList) JumpToNewest() {
 	} else {
 		tl.cursor = 0
 	}
+	tl.scrollTop = 0
+	if item := tl.flatItems[tl.cursor]; item.entry != nil {
+		tl.selectedUID = item.entry.Resource.UID
+		tl.selectedRev = item.entry.Revision.ID
+	}
 }
 
 // ScrollToRevision finds a timeline entry by revision ID and moves the cursor to it.
@@ -1709,43 +1696,15 @@ func (tl *TimelineList) Reversed() bool {
 }
 
 func (tl *TimelineList) CanScrollUp() bool {
-	if len(tl.flatItems) == 0 || tl.height <= 0 {
-		return false
-	}
-	// Account for optional header lines and bottom filter bar
-	headerLines := 0
-	if tl.windowMode != resource.WindowAll || tl.autoScroll {
-		headerLines = 1
-	}
-	visibleHeight := tl.height - 1 - headerLines // 1 for filter bar
-	if visibleHeight <= 0 {
-		return false
-	}
-	startIdx := 0
-	if tl.cursor >= visibleHeight {
-		startIdx = tl.cursor - visibleHeight + 1
-	}
-	return startIdx > 0
+	visibleHeight := tl.height - 2
+	vp := calcViewport(len(tl.flatItems), tl.cursor, visibleHeight, tl.scrollTop)
+	return vp.above > 0
 }
 
-// CanScrollDown returns true if there are items below the visible window.
 func (tl *TimelineList) CanScrollDown() bool {
-	if len(tl.flatItems) == 0 || tl.height <= 0 {
-		return false
-	}
-	headerLines := 0
-	if tl.windowMode != resource.WindowAll || tl.autoScroll {
-		headerLines = 1
-	}
-	visibleHeight := tl.height - 1 - headerLines // 1 for filter bar
-	if visibleHeight <= 0 {
-		return false
-	}
-	startIdx := 0
-	if tl.cursor >= visibleHeight {
-		startIdx = tl.cursor - visibleHeight + 1
-	}
-	return startIdx+visibleHeight < len(tl.flatItems)
+	visibleHeight := tl.height - 2
+	vp := calcViewport(len(tl.flatItems), tl.cursor, visibleHeight, tl.scrollTop)
+	return vp.below > 0
 }
 
 func (tl *TimelineList) buildFlatItems() {
@@ -1785,6 +1744,11 @@ func (tl *TimelineList) CurrentHint() string {
 		tl.theme.KeyHint("R", "reverse"),
 		tl.theme.KeyHint("w", "window"),
 	}
+	if tl.autoScroll {
+		hints = append(hints, tl.theme.KeyHint("a", "pause"))
+	} else {
+		hints = append(hints, tl.theme.KeyHint("a", "resume"))
+	}
 
 	item := tl.flatItems[tl.cursor]
 	if item.isBurstStart {
@@ -1792,9 +1756,6 @@ func (tl *TimelineList) CurrentHint() string {
 	}
 	if item.entry != nil && item.entry.Resource.Starred {
 		hints = append(hints, tl.theme.KeyHint("★", "starred"))
-	}
-	if tl.autoScroll {
-		hints = append(hints, tl.theme.KeyHint("[AUTO]", "on"))
 	}
 	if tl.windowMode != resource.WindowAll {
 		hints = append(hints, tl.theme.KeyHint("window", tl.windowMode.String()))
@@ -1818,12 +1779,12 @@ func (tl *TimelineList) Update(msg tea.Msg) tea.Cmd {
 			if tl.cursor < len(tl.flatItems)-1 {
 				tl.cursor++
 			}
-			return tl.selectCurrent()
+			return tl.selectCurrentAndPause()
 		case "k", "up":
 			if tl.cursor > 0 {
 				tl.cursor--
 			}
-			return tl.selectCurrent()
+			return tl.selectCurrentAndPause()
 		case "enter":
 			return tl.selectCurrent()
 		case "s":
@@ -1835,26 +1796,26 @@ func (tl *TimelineList) Update(msg tea.Msg) tea.Cmd {
 			}
 		case "g", "home":
 			tl.cursor = 0
-			return tl.selectCurrent()
+			return tl.selectCurrentAndPause()
 		case "G", "end":
 			if len(tl.flatItems) > 0 {
 				tl.cursor = len(tl.flatItems) - 1
 			}
-			return tl.selectCurrent()
+			return tl.selectCurrentAndPause()
 		case "ctrl+d", "pgdown":
 			pageSize := max(tl.height/2, 1)
 			tl.cursor += pageSize
 			if tl.cursor >= len(tl.flatItems) {
 				tl.cursor = len(tl.flatItems) - 1
 			}
-			return tl.selectCurrent()
+			return tl.selectCurrentAndPause()
 		case "ctrl+u", "pgup":
 			pageSize := max(tl.height/2, 1)
 			tl.cursor -= pageSize
 			if tl.cursor < 0 {
 				tl.cursor = 0
 			}
-			return tl.selectCurrent()
+			return tl.selectCurrentAndPause()
 		case "S":
 			return Cmd(ToggleTimelineStarredMsg{})
 		case "R":
@@ -1878,15 +1839,23 @@ func (tl *TimelineList) selectCurrent() tea.Cmd {
 	return nil
 }
 
+// selectCurrentAndPause selects the current item and disables auto-scroll
+// since the user explicitly navigated.
+func (tl *TimelineList) selectCurrentAndPause() tea.Cmd {
+	selectCmd := tl.selectCurrent()
+	if tl.autoScroll {
+		return tea.Batch(selectCmd, Cmd(SetAutoScrollMsg{On: false}))
+	}
+	return selectCmd
+}
+
 func (tl *TimelineList) View() string {
-	// Reserve bottom line for filter bar
-	totalHeight := tl.height
-	itemsHeight := max(totalHeight-1, 1)
+	itemsHeight := max(tl.height-1, 1) // reserve 1 for filter bar
 
 	var lines []string
 
-	// Window mode banner when active
-	if tl.windowMode != resource.WindowAll || tl.autoScroll {
+	// Header banner: always show live/paused state, plus optional window mode
+	{
 		var badges []string
 		if tl.windowMode != resource.WindowAll {
 			anchorStr := "no anchor"
@@ -1899,22 +1868,33 @@ func (tl *TimelineList) View() string {
 				fmt.Sprintf("(%d events)", len(tl.flatItems))))
 		}
 		if tl.autoScroll {
-			badges = append(badges, lipgloss.NewStyle().Foreground(tl.theme.Teal).Bold(true).Render("[AUTO]"))
+			badges = append(badges, lipgloss.NewStyle().Foreground(tl.theme.Red).Bold(true).Render("● live"))
+		} else {
+			badges = append(badges, lipgloss.NewStyle().Foreground(tl.theme.Overlay1).Render("○ paused"))
+			badges = append(badges, lipgloss.NewStyle().Foreground(tl.theme.Overlay0).Render("(a to resume)"))
 		}
 		headerLine := " " + strings.Join(badges, "  ")
 		lines = append(lines, PadRight(headerLine, tl.width))
 	}
 
-	// Scroll window
 	visibleHeight := itemsHeight - len(lines)
-	startIdx := 0
-	if tl.cursor >= visibleHeight {
-		startIdx = tl.cursor - visibleHeight + 1
+	vp := calcViewport(len(tl.flatItems), tl.cursor, visibleHeight, tl.scrollTop)
+	tl.scrollTop = vp.start
+
+	// Overflow indicators replace the first/last viewport item
+	dataStart := vp.start
+	dataEnd := vp.end
+	if vp.above > 0 {
+		dataStart++
+		lines = append(lines, renderOverflowLine(dataStart, "↑", tl.width, tl.theme))
+	}
+	if vp.below > 0 {
+		dataEnd--
 	}
 
 	nameMaxW := max(tl.width-26, 8)
 
-	for i := startIdx; i < len(tl.flatItems) && len(lines) < itemsHeight; i++ {
+	for i := dataStart; i < dataEnd; i++ {
 		item := tl.flatItems[i]
 		if item.entry == nil {
 			continue
@@ -2013,6 +1993,12 @@ func (tl *TimelineList) View() string {
 		}
 
 		lines = append(lines, padded)
+	}
+
+	// Below overflow indicator
+	if vp.below > 0 {
+		belowCount := vp.below + (vp.end - dataEnd)
+		lines = append(lines, renderOverflowLine(belowCount, "↓", tl.width, tl.theme))
 	}
 
 	for len(lines) < itemsHeight {
@@ -2209,4 +2195,62 @@ func ScrollPosition(cursor, total int) string {
 		return "0/0"
 	}
 	return fmt.Sprintf("%d/%d", cursor+1, total)
+}
+
+const listScrolloff = 4
+
+type listViewport struct {
+	start int
+	end   int
+	above int
+	below int
+}
+
+// calcViewport computes which slice of items [start, end) should be visible.
+// It takes the previous scrollTop and only adjusts it when the cursor would
+// enter the scrolloff padding zone, giving a "sticky" viewport that the cursor
+// moves freely within.
+func calcViewport(total, cursor, height, scrollTop int) listViewport {
+	if total == 0 || height <= 0 {
+		return listViewport{}
+	}
+	if total <= height {
+		return listViewport{start: 0, end: total}
+	}
+
+	off := min(listScrolloff, height/2-1)
+	if off < 0 {
+		off = 0
+	}
+
+	start := scrollTop
+
+	// Clamp: cursor must be within [start+off, start+height-off-1]
+	if cursor < start+off {
+		start = cursor - off
+	}
+	if cursor > start+height-off-1 {
+		start = cursor - height + off + 1
+	}
+	if start < 0 {
+		start = 0
+	}
+	if start+height > total {
+		start = total - height
+	}
+	end := start + height
+
+	return listViewport{
+		start: start,
+		end:   end,
+		above: start,
+		below: total - end,
+	}
+}
+
+// renderOverflowLine renders a "N more" indicator or a "live" indicator.
+func renderOverflowLine(count int, direction string, width int, theme Theme) string {
+	label := lipgloss.NewStyle().Foreground(theme.Yellow).
+		Render(fmt.Sprintf("%s %d more", direction, count))
+	return PadRight(" "+label, width)
 }

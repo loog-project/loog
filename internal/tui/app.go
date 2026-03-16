@@ -168,6 +168,8 @@ func NewApp(store Store, opts ...AppOption) *App {
 	app.statusBar.SetSimulating(app.simulating)
 	app.statusBar.SetSimMode(app.simulator != nil)
 
+	app.setAutoScroll(true)
+
 	debugLog.Info("app", "loog TUI started with %d resources, %d revisions",
 		store.TotalResourceCount(), store.TotalRevisionCount())
 
@@ -329,14 +331,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 
 		case key.Matches(msg, GlobalKeyMap.AutoScroll):
-			a.autoScroll = !a.autoScroll
-			a.explorer.SetAutoScroll(a.autoScroll)
-			a.timeline.SetAutoScroll(a.autoScroll)
-			a.statusBar.SetAutoScroll(a.autoScroll)
+			a.setAutoScroll(!a.autoScroll)
 			if a.autoScroll {
-				a.setStatus("Auto-scroll: ON", false)
-			} else {
-				a.setStatus("Auto-scroll: OFF", false)
+				a.jumpToNewest()
 			}
 			return a, nil
 
@@ -565,10 +562,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case ToggleAutoScrollMsg:
-		a.autoScroll = !a.autoScroll
-		a.explorer.SetAutoScroll(a.autoScroll)
-		a.timeline.SetAutoScroll(a.autoScroll)
-		a.statusBar.SetAutoScroll(a.autoScroll)
+		a.setAutoScroll(!a.autoScroll)
+		if a.autoScroll {
+			a.jumpToNewest()
+		}
+
+	case SetAutoScrollMsg:
+		a.setAutoScroll(msg.On)
 
 	case ToggleWindowModeMsg:
 		a.windowMode = resource.NextWindowMode(a.windowMode)
@@ -883,6 +883,27 @@ func (a *App) currentRevisionTags() map[resource.RevisionID][]resource.ChangeTag
 	return nil
 }
 
+func (a *App) setAutoScroll(on bool) {
+	a.autoScroll = on
+	a.explorer.SetAutoScroll(on)
+	a.timeline.SetAutoScroll(on)
+}
+
+func (a *App) jumpToNewest() {
+	a.explorer.revList.JumpToNewest()
+	a.timeline.timeline.JumpToNewest()
+	if entry := a.timeline.timeline.SelectedEntry(); entry != nil {
+		a.timeline.SelectEntry(*entry)
+	}
+	selectedUID := a.explorer.tree.SelectedUID()
+	if selectedUID != "" {
+		rd := a.store.GetResource(selectedUID)
+		if rd != nil && len(rd.Revisions) > 0 {
+			a.explorer.detail.SetRevision(rd, len(rd.Revisions)-1)
+		}
+	}
+}
+
 // updateHint collects the current hint from the active view's focused component.
 func (a *App) updateHint() {
 	var hint string
@@ -978,17 +999,16 @@ func (a *App) refreshViewsAfterNewRevision(resourceUID string) {
 
 	// Auto-scroll: jump to newest if enabled
 	if a.autoScroll {
-		rd := a.store.GetResource(resourceUID)
-		if rd != nil {
-			// Explorer: update revList + detail if the selected resource got a new rev
-			selectedUID := a.explorer.tree.SelectedUID()
-			if selectedUID == resourceUID {
+		// Explorer: only jump if the selected resource got the new revision
+		selectedUID := a.explorer.tree.SelectedUID()
+		if selectedUID == resourceUID {
+			rd := a.store.GetResource(resourceUID)
+			if rd != nil && len(rd.Revisions) > 0 {
 				a.explorer.revList.JumpToNewest()
 				a.explorer.detail.SetRevision(rd, len(rd.Revisions)-1)
 			}
 		}
-
-		// Timeline: jump to newest entry and update its detail view
+		// Timeline: always jump to newest
 		a.timeline.timeline.JumpToNewest()
 		if entry := a.timeline.timeline.SelectedEntry(); entry != nil {
 			a.timeline.SelectEntry(*entry)

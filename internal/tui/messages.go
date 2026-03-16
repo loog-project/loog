@@ -78,6 +78,7 @@ type SimulationTickMsg struct {
 }
 
 type ToggleAutoScrollMsg struct{}
+type SetAutoScrollMsg struct{ On bool }
 type ToggleWindowModeMsg struct{}
 type TogglePauseMsg struct{}
 type ToggleFreezeMsg struct{}

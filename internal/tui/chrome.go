@@ -129,7 +129,6 @@ type StatusBar struct {
 	statusMsg      string
 	statusIsError  bool
 	hint           string
-	autoScroll     bool
 	windowMode     resource.WindowMode
 	simulating     bool
 	isSimMode      bool
@@ -165,10 +164,6 @@ func (sb *StatusBar) SetStatus(text string, isErr bool) {
 }
 func (sb *StatusBar) SetHint(hint string) {
 	sb.hint = hint
-}
-
-func (sb *StatusBar) SetAutoScroll(on bool) {
-	sb.autoScroll = on
 }
 
 func (sb *StatusBar) SetWindowMode(wm resource.WindowMode) {
@@ -208,9 +203,6 @@ func (sb *StatusBar) View() string {
 	}
 
 	// Feature badges
-	if sb.autoScroll {
-		leftParts = append(leftParts, lipgloss.NewStyle().Foreground(sb.theme.Teal).Bold(true).Render("[AUTO]"))
-	}
 	if sb.windowMode != resource.WindowAll {
 		leftParts = append(leftParts, lipgloss.NewStyle().Foreground(sb.theme.Sky).Render("[W:"+sb.windowMode.String()+"]"))
 	}
