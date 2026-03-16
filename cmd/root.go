@@ -23,7 +23,6 @@ import (
 	"k8s.io/client-go/util/homedir"
 
 	"github.com/loog-project/loog/internal/adapter"
-	"github.com/loog-project/loog/internal/dynamicmux"
 	"github.com/loog-project/loog/internal/service"
 	"github.com/loog-project/loog/internal/simulation"
 	"github.com/loog-project/loog/internal/store"
@@ -31,6 +30,7 @@ import (
 	"github.com/loog-project/loog/internal/tui"
 	"github.com/loog-project/loog/internal/util"
 	"github.com/loog-project/loog/pkg/diffmap"
+	"github.com/loog-project/loog/pkg/mux"
 )
 
 var (
@@ -155,7 +155,7 @@ func run(ctx context.Context, args []string) error {
 	}
 
 	// ── Production mode: connect to Kubernetes ──
-	cleanup, prog, trackerService, rps, mux, err := setupProduction(ctx, args)
+	cleanup, prog, trackerService, rps, m, err := setupProduction(ctx, args)
 	if err != nil {
 		return err
 	}
@@ -167,9 +167,9 @@ func run(ctx context.Context, args []string) error {
 	var wg sync.WaitGroup
 
 	if headlessMode {
-		runHeadless(ctx, cancel, &wg, mux, trackerService, rps, prog)
+		runHeadless(ctx, cancel, &wg, m, trackerService, rps, prog)
 	} else {
-		runInteractive(ctx, cancel, &wg, mux, trackerService, rps, prog)
+		runInteractive(ctx, cancel, &wg, m, trackerService, rps, prog)
 	}
 
 	wg.Wait()
@@ -225,7 +225,7 @@ func setupProduction(ctx context.Context, args []string) (
 	prog *vm.Program,
 	trackerService *service.TrackerService,
 	rps store.ResourcePatchStore,
-	mux *dynamicmux.Mux,
+	m *mux.Mux,
 	err error,
 ) {
 	var cleanups []func()
@@ -277,23 +277,23 @@ func setupProduction(ctx context.Context, args []string) (
 		setupLog.Fatal().Err(dynErr).Msg("Error creating dynamic watch client")
 	}
 
-	mux, err = dynamicmux.New(ctx, dyn)
+	m, err = mux.New(ctx, dyn)
 	if err != nil {
 		setupLog.Fatal().Err(err).Msg("Error creating dynamic mux")
 	}
-	cleanups = append(cleanups, func() { mux.Stop() })
+	cleanups = append(cleanups, func() { m.Stop() })
 
 	for _, r := range args {
 		gvr, gvrParseErr := util.ParseGroupVersionResource(r)
 		if gvrParseErr != nil {
 			setupLog.Fatal().Err(gvrParseErr).Msgf("Cannot parse argument '%s' to GVR", r)
 		}
-		if muxAddErr := mux.Add(gvr); muxAddErr != nil {
+		if muxAddErr := m.Add(gvr); muxAddErr != nil {
 			setupLog.Fatal().Err(muxAddErr).Msgf("Cannot add GVR '%s' to dynamic mux", gvr)
 		}
 	}
 
-	return cleanup, prog, trackerService, rps, mux, nil
+	return cleanup, prog, trackerService, rps, m, nil
 }
 
 // runHeadless runs the collector without a TUI, waiting for SIGINT.
@@ -301,7 +301,7 @@ func runHeadless(
 	ctx context.Context,
 	cancel context.CancelFunc,
 	wg *sync.WaitGroup,
-	mux *dynamicmux.Mux,
+	m *mux.Mux,
 	trackerService *service.TrackerService,
 	rps store.ResourcePatchStore,
 	prog *vm.Program,
@@ -309,7 +309,7 @@ func runHeadless(
 	setupLog.Info().Msg("Running in headless mode, using no-op revision handler")
 
 	wg.Go(func() {
-		runCollector(ctx, mux, trackerService, rps, prog, &noOpRevisionHandler{})
+		runCollector(ctx, m, trackerService, rps, prog, &noOpRevisionHandler{})
 	})
 
 	c := make(chan os.Signal, 1)
@@ -325,7 +325,7 @@ func runInteractive(
 	ctx context.Context,
 	cancel context.CancelFunc,
 	wg *sync.WaitGroup,
-	mux *dynamicmux.Mux,
+	m *mux.Mux,
 	trackerService *service.TrackerService,
 	rps store.ResourcePatchStore,
 	prog *vm.Program,
@@ -342,7 +342,7 @@ func runInteractive(
 					log.Error().Err(err).Str("gvr", rk.GVR()).Msg("Cannot parse GVR for watch add")
 					return
 				}
-				if err := mux.Add(gvr); err != nil {
+				if err := m.Add(gvr); err != nil {
 					log.Error().Err(err).Str("kind", rk.Kind).Msg("Cannot add watch to mux")
 				} else {
 					log.Info().Str("kind", rk.Kind).Str("gvr", rk.GVR()).Msg("Added dynamic watch")
@@ -382,7 +382,7 @@ func runInteractive(
 		}()
 
 		go func() {
-			runCollector(ctx, mux, trackerService, rps, prog, handler)
+			runCollector(ctx, m, trackerService, rps, prog, handler)
 			wg.Done()
 		}()
 	}()
@@ -430,7 +430,7 @@ func (n noOpRevisionHandler) HandleRevision(
 // runCollector runs the collector that listens to events from the dynamic mux
 func runCollector(
 	ctx context.Context,
-	mux *dynamicmux.Mux,
+	m *mux.Mux,
 	trackerService *service.TrackerService,
 	rps store.ResourcePatchStore,
 	filterExprProgram *vm.Program,
@@ -441,7 +441,11 @@ func runCollector(
 		case <-ctx.Done():
 			return
 
-		case ev := <-mux.Events():
+		case ev, ok := <-m.Events():
+			if !ok {
+				return
+			}
+
 			l := log.With().
 				Str("event-type", string(ev.Type)).
 				Logger()
