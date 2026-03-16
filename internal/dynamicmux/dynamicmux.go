@@ -118,23 +118,31 @@ func New(parent context.Context, dyn dynamic.Interface, opts ...func(*Options)) 
 // Add registers (idempotently) a watch for the given GVR.
 func (m *Mux) Add(gvr schema.GroupVersionResource) error {
 	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
 	if !m.running {
+		m.mutex.Unlock()
 		return ErrClosed
 	}
 	if _, ok := m.activeInformers[gvr]; ok {
-		// already running
+		m.mutex.Unlock()
 		return nil
 	}
 
 	ctx, cancel := context.WithCancel(m.ctx)
+
+	m.activeInformers[gvr] = &runner{stop: cancel}
+	m.mutex.Unlock()
+
 	factory := dynamicinformer.NewFilteredDynamicSharedInformerFactory(
 		m.dyn,
 		0,
 		metav1.NamespaceAll,
 		func(lo *metav1.ListOptions) {
-			*lo = m.options.List
+			if s := m.options.List.LabelSelector; s != "" {
+				lo.LabelSelector = s
+			}
+			if s := m.options.List.FieldSelector; s != "" {
+				lo.FieldSelector = s
+			}
 		},
 	)
 
@@ -148,16 +156,22 @@ func (m *Mux) Add(gvr schema.GroupVersionResource) error {
 	})
 	if err != nil {
 		cancel()
+		m.mutex.Lock()
+		delete(m.activeInformers, gvr)
+		m.mutex.Unlock()
 		return fmt.Errorf("dynamicmux: failed to register event handler for %s: %w", gvr, err)
 	}
+
 	go factory.Start(ctx.Done())
 
 	if ok := cache.WaitForCacheSync(ctx.Done(), inf.HasSynced); !ok {
 		cancel()
+		m.mutex.Lock()
+		delete(m.activeInformers, gvr)
+		m.mutex.Unlock()
 		return fmt.Errorf("dynamicmux: failed to sync cache for %s", gvr)
 	}
 
-	m.activeInformers[gvr] = &runner{stop: cancel}
 	m.options.Logger.V(2).Info("started watch", "gvr", gvr)
 	return nil
 }
