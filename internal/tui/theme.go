@@ -159,6 +159,18 @@ func (t Theme) StarStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(t.Yellow)
 }
 
+// KindColor returns a muted accent color for the given resource kind.
+// Uses a small palette of subdued colors so different kinds are distinguishable
+// without being visually noisy.
+func (t Theme) KindColor(kind string) lipgloss.Color {
+	palette := []lipgloss.Color{t.Blue, t.Mauve, t.Teal, t.Peach, t.Green, t.Pink}
+	h := uint(0)
+	for _, c := range kind {
+		h = h*31 + uint(c)
+	}
+	return palette[h%uint(len(palette))]
+}
+
 // KeyHint renders a keybinding hint like "ctrl+k commands".
 func (t Theme) KeyHint(key, label string) string {
 	k := lipgloss.NewStyle().Foreground(t.Overlay2).Render(key)

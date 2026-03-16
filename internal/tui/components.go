@@ -1907,12 +1907,21 @@ func (tl *TimelineList) View() string {
 			}
 		}
 
-		kindNameFg := tl.theme.Text
-		if isDimmed {
-			kindNameFg = dimColor
+		kindPrefix := e.Resource.Kind + "/"
+		nameStr := e.Resource.Name
+		combined := kindPrefix + nameStr
+		if len(combined) > nameMaxW {
+			nameStr = Truncate(nameStr, nameMaxW-len(kindPrefix))
 		}
-		kindName := lipgloss.NewStyle().Foreground(kindNameFg).Render(
-			Truncate(e.Resource.KindName(), nameMaxW))
+		var kindName string
+		if isDimmed {
+			kindName = lipgloss.NewStyle().Foreground(dimColor).Render(kindPrefix + nameStr)
+		} else {
+			kc := tl.theme.KindColor(e.Resource.Kind)
+			kindPart := lipgloss.NewStyle().Foreground(kc).Render(kindPrefix)
+			namePart := lipgloss.NewStyle().Foreground(tl.theme.Text).Render(nameStr)
+			kindName = kindPart + namePart
+		}
 
 		etStr := ""
 		if isDimmed {
