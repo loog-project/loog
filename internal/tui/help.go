@@ -106,89 +106,84 @@ func (h *HelpOverlay) View() string {
 			{"q / ctrl+c", "Quit"},
 			{"ctrl+k", "Command palette"},
 			{"?", "Toggle help"},
-			{"/", "Inline filter (type to search, Enter to apply, Esc to clear)"},
-			{"//", "Quick fuzzy search for resources"},
-			{"F1-F3", "Switch views (Explorer / Timeline / Compare)"},
-			{"alt+1-3", "Switch views (terminal-safe fallback for F-keys)"},
+			{"/", "Inline filter (Enter apply, Esc clear)"},
+			{"//", "Quick Jump (fuzzy resource finder)"},
+			{"F1-F3", "Switch view (Explorer / Timeline / Compare)"},
+			{"alt+1-3", "Switch view (terminal fallback for F-keys)"},
 			{"1 / 2 / 3", "Focus panel"},
 			{"Tab", "Next panel"},
 			{"Shift+Tab", "Previous panel"},
 			{"f", "Toggle fullscreen"},
 			{"a", "Toggle auto-scroll"},
-			{"w", "Cycle time window (±15s/±30s/±1m/±5m around selected revision)"},
-			{"P", "Pause/resume recording (stops generating new data)"},
-			{"F5 / alt+5", "Freeze/unfreeze view (data keeps arriving, UI pauses)"},
-			{"W", "Watch Manager (add/remove watched resource types)"},
+			{"w", "Cycle time window around selected revision"},
+			{"P", "Pause/resume recording"},
+			{"F5 / alt+5", "Freeze/unfreeze view"},
+			{"W", "Watch Manager (add/remove resource types)"},
 			{"F6 / alt+6", "Debug log viewer"},
 			{":", "Developer console"},
 		}},
 		{Title: "Inline Filter (/)", Bindings: []helpBinding{
-			{"/", "Activate filter on focused panel (Resources or Timeline)"},
-			{"type...", "Preview: non-matches dimmed, matches vivid"},
-			{"Enter", "Apply filter: hide non-matches, collapse to matches"},
-			{"Esc", "Clear filter and exit filter mode"},
+			{"/", "Activate filter on focused panel"},
+			{"type...", "Preview: non-matches dimmed"},
+			{"Enter", "Apply: hide non-matches"},
+			{"Esc", "Clear filter and exit"},
 		}},
 		{Title: "Lists (Resources / Revisions / Timeline)", Bindings: []helpBinding{
 			{"j / k", "Move down / up"},
-			{"g / G (home / end)", "Go to top / bottom"},
+			{"g / G", "Go to top / bottom"},
 			{"ctrl+d / pgdn", "Page down"},
 			{"ctrl+u / pgup", "Page up"},
-			{"Enter (space)", "Select / expand"},
+			{"Enter / space", "Select / expand"},
 			{"s", "Toggle star"},
 			{"c", "Mark for compare"},
 		}},
 		{Title: "Explorer View", Bindings: []helpBinding{
-			{"S", "Toggle starred-only filter on Resources panel"},
+			{"S", "Toggle starred-only filter"},
 		}},
 		{Title: "Timeline View", Bindings: []helpBinding{
-			{"S", "Toggle starred-only filter (show only starred resources)"},
-			{"w", "Cycle time window around selected revision"},
+			{"S", "Toggle starred-only filter"},
+			{"w", "Cycle time window around selected"},
 		}},
 		{Title: "Compare View", Bindings: []helpBinding{
-			{"Tab", "Switch focus between left and right panes"},
-			{"X", "Clear compare selection (remove both marks)"},
+			{"Tab", "Switch left / right pane"},
+			{"X", "Clear compare selection"},
 			{"j / k", "Scroll diff up / down"},
 			{"ctrl+d / pgdn", "Page down in diff"},
 			{"ctrl+u / pgup", "Page up in diff"},
 		}},
 		{Title: "Detail View", Bindings: []helpBinding{
-			{"d", "Diff mode (YAML with change highlighting)"},
+			{"d", "Diff mode (YAML with highlighting)"},
 			{"o", "Object mode (full YAML)"},
 			{"p", "Patch mode (changes only)"},
 			{"J", "JSON mode"},
-			{"r", "Raw mode (database record for debugging)"},
+			{"r", "Raw mode (database record)"},
 			{"[ / ]", "Previous / next revision"},
 			{"e", "Export YAML to file"},
 			{"y", "Copy YAML to clipboard"},
 			{"t", "Jump to timeline"},
 		}},
 		{Title: "Symbols", Bindings: []helpBinding{
-			{"●", "Recently active resource (changed within seconds)"},
-			{"○", "Idle resource"},
+			{"●  ○", "Active / idle resource"},
 			{"↻", "Reconcile loop detected"},
 			{"▲ / △", "High / moderate change frequency"},
 			{"★", "Starred resource"},
 			{"+  ~  -", "Added / Modified / Deleted event"},
 			{"[C1] / [C2]", "Compare mark left / right"},
-			{"╭ │ ╰", "Burst group bracket (rapid changes)"},
+			{"╭ │ ╰", "Burst group bracket"},
 			{"▸", "Window anchor position"},
-			{"▲ / ▼", "Scroll indicators (more content above/below)"},
-			{"[AUTO]", "Auto-scroll enabled"},
-			{"[SIM]", "Simulation mode (not shown in production)"},
-			{"◆ frozen", "View frozen (blue header indicator)"},
-			{"■ paused", "Recording paused (yellow header indicator)"},
+			{"▲ / ▼", "Scroll indicators"},
 		}},
 		{Title: "Debug Tools", Bindings: []helpBinding{
-			{"F6 / alt+6", "Open debug log viewer (see internal events)"},
-			{":", "Open developer console (inspect store, resources, revisions)"},
-			{"r", "Raw mode in detail view (database representation)"},
+			{"F6 / alt+6", "Debug log viewer"},
+			{":", "Developer console"},
+			{"r", "Raw mode in detail view"},
 		}},
 		{Title: "Console Commands (: key)", Bindings: []helpBinding{
 			{"help", "Show available commands"},
 			{"status", "App state summary"},
 			{"resources", "List all resources with UIDs"},
 			{"revisions <uid>", "List revisions for a resource"},
-			{"inspect <uid>", "Show raw revision data (database format)"},
+			{"inspect <uid>", "Show raw revision data"},
 			{"store", "Dump store statistics"},
 			{"kinds", "List resource kinds and counts"},
 			{"sim start/stop", "Start or stop live simulation"},
@@ -196,6 +191,9 @@ func (h *HelpOverlay) View() string {
 			{"clear", "Clear console output"},
 		}},
 	}
+
+	keyWidth := 16
+	maxDescWidth := innerWidth - keyWidth - 4 // 4 for "  " indent + "  " gap
 
 	var lines []string
 	for _, section := range sections {
@@ -208,14 +206,18 @@ func (h *HelpOverlay) View() string {
 		for _, b := range section.Bindings {
 			keyStyle := lipgloss.NewStyle().
 				Foreground(h.theme.Yellow).
-				Width(16).
+				Width(keyWidth).
 				Render(b.Key)
+			desc := b.Desc
+			if lipgloss.Width(desc) > maxDescWidth {
+				desc = desc[:maxDescWidth-1] + "…"
+			}
 			descStyle := lipgloss.NewStyle().
 				Foreground(h.theme.Text).
-				Render(b.Desc)
+				Render(desc)
 			lines = append(lines, "  "+keyStyle+"  "+descStyle)
 		}
-		lines = append(lines, "") // blank separator
+		lines = append(lines, "")
 	}
 
 	// Scroll
