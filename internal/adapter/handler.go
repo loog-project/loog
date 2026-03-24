@@ -8,7 +8,6 @@ import (
 
 	"github.com/loog-project/loog/internal/resource"
 	"github.com/loog-project/loog/internal/store"
-	"github.com/loog-project/loog/pkg/diffmap"
 )
 
 // LiveRevisionMsg tells the TUI that a new revision has been ingested into the LiveStore.
@@ -86,15 +85,9 @@ func buildRevision(
 	} else if patch != nil {
 		rev.PreviousID = patch.PreviousID
 		rev.Time = patch.Time
-		rev.Patch = cloneDiffMap(patch.Patch)
+		rev.Patch = resource.CloneMap(patch.Patch)
 		rev.EventType = resource.EventModified
 	}
 
 	return rev
-}
-
-// cloneDiffMap creates a deep clone of a DiffMap (map[string]any) using
-// resource.CloneMap, which recursively clones nested maps and slices.
-func cloneDiffMap(m diffmap.DiffMap) diffmap.DiffMap {
-	return resource.CloneMap(m)
 }

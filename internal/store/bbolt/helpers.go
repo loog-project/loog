@@ -121,10 +121,10 @@ func (s *Store) parsePatchOrSnapshot(v []byte) (*store.Snapshot, *store.Patch, e
 		}
 	}
 	switch v[0] {
-	case TypePatch:
+	case typePatch:
 		var patch store.Patch
 		return nil, &patch, s.codec.Unmarshal(payload, &patch)
-	case TypeSnapshot:
+	case typeSnapshot:
 		var snapshot store.Snapshot
 		return &snapshot, nil, s.codec.Unmarshal(payload, &snapshot)
 	default:

@@ -134,8 +134,19 @@ func MatchesSubstring(query string, r Resource) bool {
 	if query == "" {
 		return true
 	}
-	return strings.Contains(strings.ToLower(r.Name), query) ||
-		strings.Contains(strings.ToLower(r.Kind), query) ||
-		strings.Contains(strings.ToLower(r.Namespace), query) ||
-		strings.Contains(strings.ToLower(r.KindName()), query)
+	// Build a single lowercased string to search; cheaper than four
+	// separate ToLower+Contains calls. The "/" separator is the same one
+	// used by KindName(), so kind/name queries still work.
+	haystack := strings.ToLower(r.Kind + "/" + r.Name + " " + r.Namespace)
+	return strings.Contains(haystack, query)
+}
+
+// SortByKindName sorts a slice of [*Data] by kind then name (ascending).
+func SortByKindName(rds []*Data) {
+	sort.Slice(rds, func(i, j int) bool {
+		if rds[i].Resource.Kind != rds[j].Resource.Kind {
+			return rds[i].Resource.Kind < rds[j].Resource.Kind
+		}
+		return rds[i].Resource.Name < rds[j].Resource.Name
+	})
 }

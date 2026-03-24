@@ -254,18 +254,8 @@ func (rt *ResourceTree) ApplyFilter() {
 	rt.buildItems()
 }
 
-// IsFilterActive returns true if the component is in any filter mode (editing or applied).
-func (rt *ResourceTree) IsFilterActive() bool {
-	return rt.filterEditing || rt.filterApplied
-}
-
 func (rt *ResourceTree) SortByTime() bool {
 	return rt.sortByTime
-}
-
-// FilterState returns the current filter state for title rendering.
-func (rt *ResourceTree) FilterState() (input string, editing bool, applied bool) {
-	return rt.filterTextInput.Value(), rt.filterEditing, rt.filterApplied
 }
 
 // FilterCounts returns (matchCount, totalCount) for title display.
@@ -1529,16 +1519,6 @@ func (tl *TimelineList) ApplyFilter() {
 	tl.filterEditing = false
 	tl.filterApplied = true
 	tl.rebuild()
-}
-
-// IsFilterActive returns true if the component is in any filter mode (editing or applied).
-func (tl *TimelineList) IsFilterActive() bool {
-	return tl.filterEditing || tl.filterApplied
-}
-
-// FilterState returns the current filter state for title rendering.
-func (tl *TimelineList) FilterState() (input string, editing bool, applied bool) {
-	return tl.filterTextInput.Value(), tl.filterEditing, tl.filterApplied
 }
 
 // FilterCounts returns (matchCount, totalCount) for title display.

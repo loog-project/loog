@@ -2,24 +2,14 @@ package util
 
 import (
 	"slices"
-	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
 )
 
-type EventEntry struct {
-	EventType  watch.EventType
-	ReceivedAt time.Time
-
-	Name               types.NamespacedName
-	ResourceGeneration int64
-	ResourceVersion    string
-
-	Object *unstructured.Unstructured
-}
-
+// EventEntryEnv is the expression environment exposed to the user-supplied
+// filter expression (--filter flag). Methods are callable from within
+// expr-lang expressions such as `Namespaces("default", "kube-system")`.
 type EventEntryEnv struct {
 	Event  watch.Event
 	Object *unstructured.Unstructured
@@ -34,7 +24,7 @@ func (e EventEntryEnv) None() bool {
 }
 
 func (e EventEntryEnv) Namespaces(vals ...string) bool {
-	if len(vals) == 0 {
+	if e.Object == nil || len(vals) == 0 {
 		return true
 	}
 	return slices.Contains(vals, e.Object.GetNamespace())
@@ -45,7 +35,7 @@ func (e EventEntryEnv) Namespace(vals ...string) bool {
 }
 
 func (e EventEntryEnv) Names(vals ...string) bool {
-	if len(vals) == 0 {
+	if e.Object == nil || len(vals) == 0 {
 		return true
 	}
 	return slices.Contains(vals, e.Object.GetName())
@@ -56,11 +46,14 @@ func (e EventEntryEnv) Name(vals ...string) bool {
 }
 
 func (e EventEntryEnv) Namespaced(namespace, name string) bool {
+	if e.Object == nil {
+		return false
+	}
 	return e.Object.GetNamespace() == namespace && e.Object.GetName() == name
 }
 
 func (e EventEntryEnv) LabelExists(labelKeys ...string) bool {
-	if len(labelKeys) == 0 {
+	if e.Object == nil || len(labelKeys) == 0 {
 		return true
 	}
 	labels := e.Object.GetLabels()
@@ -76,12 +69,13 @@ func (e EventEntryEnv) LabelExists(labelKeys ...string) bool {
 }
 
 func (e EventEntryEnv) Label(key, value string) bool {
-	if e.Object.GetLabels() == nil {
+	if e.Object == nil {
 		return false
 	}
-	val, exists := e.Object.GetLabels()[key]
-	if !exists {
+	labels := e.Object.GetLabels()
+	if labels == nil {
 		return false
 	}
-	return val == value
+	val, exists := labels[key]
+	return exists && val == value
 }

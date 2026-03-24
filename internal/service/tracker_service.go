@@ -180,12 +180,21 @@ func newPatch(previousID store.RevisionID, diff diffmap.DiffMap) store.Patch {
 }
 
 func newSnapshot(newObject *unstructured.Unstructured, previousID store.RevisionID) store.Snapshot {
-	snapshot := store.Snapshot{PreviousID: previousID, Object: newObject.Object, Time: time.Now()}
-	return snapshot
+	// Deep-clone the object so the snapshot is independent of the caller's map.
+	// Without this, subsequent mutations of newObject.Object corrupt the stored snapshot.
+	return store.Snapshot{
+		PreviousID: previousID,
+		Object:     resource.CloneMap(newObject.Object),
+		Time:       time.Now(),
+	}
 }
 
 // Restore brings back the object state at *rev*.
-func (t *TrackerService) Restore(ctx context.Context, objID string, revision store.RevisionID) (*store.Snapshot, error) {
+func (t *TrackerService) Restore(
+	ctx context.Context,
+	objID string,
+	revision store.RevisionID,
+) (*store.Snapshot, error) {
 	var patchChain []*store.Patch
 	currentRevision := revision
 

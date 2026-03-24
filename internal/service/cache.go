@@ -105,11 +105,17 @@ func (c *stateCache) get(uid string) *trackerState {
 }
 
 // set overwrites (or creates) the entry.
+// If the cache is at capacity, existing entries can still be updated but
+// new entries are dropped.
 func (c *stateCache) set(uid string, ts *trackerState) {
 	c.mu.Lock()
-	if len(c.data) < maxTrackedEntries {
-		c.data[uid] = ts
+	_, exists := c.data[uid]
+	if !exists && len(c.data) >= maxTrackedEntries {
+		// At capacity and this is a new key; drop it.
+		c.mu.Unlock()
+		return
 	}
+	c.data[uid] = ts
 	c.mu.Unlock()
 	atomic.StoreInt64(&ts.lastRead, time.Now().UnixNano())
 }

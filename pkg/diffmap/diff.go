@@ -1,6 +1,15 @@
+// Package diffmap computes the change-set that would turn map [a] into map [b].
+//
+// A change-set is itself a [map[string]any] that contains only the keys that
+// differ. Added keys get their new value, removed keys get a nil value, and
+// modified nested-maps are expressed recursively.
 package diffmap
 
 import "reflect"
+
+// DiffMap is a recursive string-keyed map used throughout the project as the
+// canonical representation for Kubernetes resource objects and their diffs.
+type DiffMap = map[string]any
 
 // Diff returns the minimal change-set required to transform [a] into [b].
 // If [a] and [b] are equal it returns nil (not an empty map) so callers can

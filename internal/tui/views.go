@@ -61,10 +61,6 @@ func (ev *ExplorerViewComponent) SetFocusPanel(p PanelID) {
 	ev.detail.SetFocus(p == PanelRight)
 }
 
-func (ev *ExplorerViewComponent) FocusPanel() PanelID {
-	return ev.focusPanel
-}
-
 func (ev *ExplorerViewComponent) NextPanel() {
 	switch ev.focusPanel {
 	case PanelLeft:
@@ -281,10 +277,6 @@ func (tv *TimelineViewComponent) SetFocusPanel(p PanelID) {
 	tv.detail.SetFocus(p == PanelRight)
 }
 
-func (tv *TimelineViewComponent) FocusPanel() PanelID {
-	return tv.focusPanel
-}
-
 func (tv *TimelineViewComponent) NextPanel() {
 	if tv.focusPanel == PanelLeft {
 		tv.SetFocusPanel(PanelRight)
@@ -429,11 +421,6 @@ func (cv *CompareViewComponent) SetSize(w, h int) {
 	cv.height = h
 	// Compare panel gets inner dimensions
 	cv.panel.SetSize(w-2, h-2)
-}
-
-func (cv *CompareViewComponent) SetSelection(sel resource.CompareSelection) {
-	cv.selection = sel
-	cv.panel.SetItems(sel.Left, sel.Right)
 }
 
 func (cv *CompareViewComponent) AddItem(item resource.CompareItem) resource.CompareSelection {

@@ -4,7 +4,7 @@
 package adapter
 
 import (
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 
@@ -132,7 +132,7 @@ func (s *LiveStore) FilterResources(expr string) []*resource.Data {
 			result = append(result, rd)
 		}
 	}
-	sortByKindName(result)
+	resource.SortByKindName(result)
 	return result
 }
 
@@ -188,7 +188,7 @@ func (s *LiveStore) WatchedKinds() []string {
 	for k := range s.watchedKinds {
 		kinds = append(kinds, k)
 	}
-	sort.Strings(kinds)
+	slices.Sort(kinds)
 	return kinds
 }
 
@@ -341,21 +341,12 @@ func (s *LiveStore) SetUnwatchedKinds(kinds []resource.Kind) {
 	s.unwatchedKinds = kinds
 }
 
-func sortByKindName(rds []*resource.Data) {
-	sort.Slice(rds, func(i, j int) bool {
-		if rds[i].Resource.Kind != rds[j].Resource.Kind {
-			return rds[i].Resource.Kind < rds[j].Resource.Kind
-		}
-		return rds[i].Resource.Name < rds[j].Resource.Name
-	})
-}
-
 func (s *LiveStore) allResourcesLocked() []*resource.Data {
 	result := make([]*resource.Data, 0, len(s.resources))
 	for _, rd := range s.resources {
 		result = append(result, rd)
 	}
-	sortByKindName(result)
+	resource.SortByKindName(result)
 	return result
 }
 

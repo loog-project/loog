@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -220,7 +219,16 @@ func runSimulateMode() error {
 	setupLog.Info().Msg("Running in simulate mode with generated data")
 
 	klog.SetOutput(io.Discard)
-	os.Stderr, _ = os.Open(os.DevNull)
+	devNull, err := os.Open(os.DevNull)
+	if err != nil {
+		return fmt.Errorf("cannot open %s: %w", os.DevNull, err)
+	}
+	defer func(devNull *os.File) {
+		_ = devNull.Close()
+	}(devNull)
+	savedStderr := os.Stderr
+	os.Stderr = devNull
+	defer func() { os.Stderr = savedStderr }()
 
 	simStore := simulation.New()
 	app := tui.NewApp(simStore, tui.WithSimulator(simStore))
@@ -378,7 +386,10 @@ func runInteractive(
 	logCapture := &tuiLogWriter{program: program}
 	klog.SetOutput(logCapture)
 	savedStderr := os.Stderr
-	os.Stderr, _ = os.Open(os.DevNull)
+	devNull, _ := os.Open(os.DevNull)
+	if devNull != nil {
+		os.Stderr = devNull
+	}
 
 	// Discover cluster resource kinds in the background for WatchManager
 	go func() {
@@ -395,21 +406,19 @@ func runInteractive(
 		Program: program,
 	}
 
+	// Register the goroutines with the WaitGroup before launching them,
+	// ensuring wg.Wait() in the caller cannot return prematurely.
 	wg.Add(2)
 	go func() {
+		defer wg.Done()
 		program.Send(nil) // wait until program is ready
-
-		go func() {
-			if historyErr := loadHistoryFromDB(trackerService, rps, prog, handler); historyErr != nil {
-				log.Error().Err(historyErr).Msg("Error loading history from database")
-			}
-			wg.Done()
-		}()
-
-		go func() {
-			runCollector(ctx, m, trackerService, rps, prog, handler)
-			wg.Done()
-		}()
+		if historyErr := loadHistoryFromDB(trackerService, rps, prog, handler); historyErr != nil {
+			log.Error().Err(historyErr).Msg("Error loading history from database")
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		runCollector(ctx, m, trackerService, rps, prog, handler)
 	}()
 
 	if _, teaErr := program.Run(); teaErr != nil {
@@ -417,6 +426,9 @@ func runInteractive(
 		setupLog.Error().Err(teaErr).Msg("Error running TUI program")
 	}
 	os.Stderr = savedStderr
+	if devNull != nil {
+		_ = devNull.Close()
+	}
 
 	setupLog.Info().Msg("TUI program exited, stopping collector")
 	cancel()
@@ -440,8 +452,19 @@ type tuiLogWriter struct {
 	buf     []byte
 }
 
+// maxLogBuf is the maximum size of the internal line buffer.
+// Lines longer than this are silently discarded to prevent unbounded growth.
+const maxLogBuf = 64 * 1024
+
 func (w *tuiLogWriter) Write(p []byte) (int, error) {
 	w.buf = append(w.buf, p...)
+
+	// Prevent unbounded growth if a caller writes enormous data without
+	// newlines (e.g., a binary blob).
+	if len(w.buf) > maxLogBuf {
+		w.buf = w.buf[len(w.buf)-maxLogBuf:]
+	}
+
 	for {
 		idx := bytes.IndexByte(w.buf, '\n')
 		if idx < 0 {
@@ -542,7 +565,8 @@ func runCollector(
 			obj.SetManagedFields(nil)
 			revisionID, err := trackerService.Commit(ctx, string(obj.GetUID()), obj)
 			if err != nil {
-				if errors.As(err, &service.DuplicateResourceVersionError{}) {
+				var dupErr service.DuplicateResourceVersionError
+				if errors.As(err, &dupErr) {
 					l.Debug().Msgf("Resource version %s is already present in revision %d, skipping commit",
 						obj.GetResourceVersion(), revisionID)
 					continue
@@ -579,12 +603,11 @@ func loadHistoryFromDB(
 	) bool {
 		var current *store.Snapshot
 		if snapshot != nil {
-			// full snapshot: start anew
-			diffMap := make(diffmap.DiffMap)
-			maps.Copy(diffMap, snapshot.Object)
+			// full snapshot: deep-clone so we own the map and later patches
+			// don't alias nested sub-maps.
 			current = &store.Snapshot{
 				ID:     revisionID,
-				Object: diffMap,
+				Object: resource.CloneMap(snapshot.Object),
 				Time:   snapshot.Time,
 			}
 		} else {
@@ -597,8 +620,9 @@ func loadHistoryFromDB(
 					Msg("Patch arrived before any snapshot; skipping")
 				return true
 			}
-			base := make(diffmap.DiffMap)
-			maps.Copy(base, prev.Object)
+			// Deep-clone the previous state so Apply doesn't mutate it
+			// through shared nested map references.
+			base := resource.CloneMap(prev.Object)
 			diffmap.Apply(base, patch.Patch)
 			current = &store.Snapshot{
 				ID:     revisionID,

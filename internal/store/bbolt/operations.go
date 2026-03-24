@@ -77,7 +77,7 @@ func (s *Store) SetSnapshot(_ context.Context, uid string, snapshot *store.Snaps
 			return err
 		}
 		snapshot.ID = revisionID
-		return s.storeRevision(tx, uid, TypeSnapshot, revisionID, snapshot)
+		return s.storeRevision(tx, uid, typeSnapshot, revisionID, snapshot)
 	})
 }
 
@@ -88,7 +88,7 @@ func (s *Store) SetPatch(_ context.Context, uid string, patch *store.Patch) erro
 			return err
 		}
 		patch.ID = revisionID
-		return s.storeRevision(tx, uid, TypePatch, revisionID, patch)
+		return s.storeRevision(tx, uid, typePatch, revisionID, patch)
 	})
 }
 

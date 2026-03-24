@@ -344,12 +344,7 @@ func (s *Store) allResourcesLocked() []*resource.Data {
 	for _, rd := range s.resources {
 		result = append(result, rd)
 	}
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].Resource.Kind != result[j].Resource.Kind {
-			return result[i].Resource.Kind < result[j].Resource.Kind
-		}
-		return result[i].Resource.Name < result[j].Resource.Name
-	})
+	resource.SortByKindName(result)
 	return result
 }
 

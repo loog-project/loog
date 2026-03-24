@@ -3,9 +3,10 @@ package resource
 import (
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strings"
 	"time"
+
+	"github.com/loog-project/loog/pkg/diffmap"
 )
 
 // ChangeTag classifies what kind of change a revision represents.
@@ -349,9 +350,18 @@ func WindowHalfDuration(w WindowMode) time.Duration {
 	}
 }
 
-// DeepEqual compares two maps for equality.
+// DeepEqual compares two maps for equality using the fast path from
+// diffmap (type-switch based) which avoids the cost of reflect.DeepEqual
+// for the common types found in Kubernetes objects.
 func DeepEqual(a, b map[string]any) bool {
-	return reflect.DeepEqual(a, b)
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	// If there are any differences, the maps are not equal.
+	return diffmap.Diff(a, b) == nil
 }
 
 // hasImageChange checks if any container image changed between two spec maps.

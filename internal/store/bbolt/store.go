@@ -1,3 +1,6 @@
+// Package bbolt implements [store.ResourcePatchStore] backed by a BoltDB
+// database file. It supports configurable durability, periodic sync, and
+// optional s2 compression.
 package bbolt
 
 import (
@@ -12,8 +15,8 @@ import (
 )
 
 const (
-	TypeSnapshot byte = 1 << iota
-	TypePatch
+	typeSnapshot byte = 1 << iota
+	typePatch
 )
 
 var (
