@@ -1,27 +1,56 @@
 package store
 
-import "github.com/vmihailenco/msgpack/v5"
+import (
+	"bytes"
+	"sync"
+
+	"github.com/vmihailenco/msgpack/v5"
+)
 
 // Codec is an interface for encoding and decoding data.
-// It is used to abstract away the underlying serialization format.
-// This allows for flexibility in choosing the serialization format without changing the implementation of the store.
-// The default codec is MessagePack, but other codecs can be implemented as needed. :)
 type Codec interface {
-	// Marshal encodes the given value into a byte slice.
 	Marshal(v any) ([]byte, error)
-	// Unmarshal decodes the given byte slice into the provided value.
 	Unmarshal(data []byte, v any) error
 }
 
-// DefaultCodec is MessagePack.
-var DefaultCodec Codec = msgpackCodec{}
+// DefaultCodec is a pooled MessagePack codec that reuses encoder/decoder
+// objects and their underlying buffers across calls.
+var DefaultCodec Codec = &pooledMsgpackCodec{}
 
-type msgpackCodec struct{}
-
-func (msgpackCodec) Marshal(v any) ([]byte, error) {
-	return msgpack.Marshal(v)
+var bufPool = sync.Pool{
+	New: func() any {
+		return bytes.NewBuffer(make([]byte, 0, 1024))
+	},
 }
 
-func (msgpackCodec) Unmarshal(b []byte, v any) error {
-	return msgpack.Unmarshal(b, v)
+type pooledMsgpackCodec struct{}
+
+func (pooledMsgpackCodec) Marshal(v any) ([]byte, error) {
+	buf := bufPool.Get().(*bytes.Buffer)
+	buf.Reset()
+
+	enc := msgpack.GetEncoder()
+	enc.Reset(buf)
+
+	err := enc.Encode(v)
+	msgpack.PutEncoder(enc)
+
+	if err != nil {
+		bufPool.Put(buf)
+		return nil, err
+	}
+
+	// Copy out so the pooled buffer can be reused immediately.
+	out := make([]byte, buf.Len())
+	copy(out, buf.Bytes())
+	bufPool.Put(buf)
+	return out, nil
+}
+
+func (pooledMsgpackCodec) Unmarshal(data []byte, v any) error {
+	dec := msgpack.GetDecoder()
+	dec.Reset(bytes.NewReader(data))
+	err := dec.Decode(v)
+	msgpack.PutDecoder(dec)
+	return err
 }
