@@ -487,8 +487,8 @@ func (lv *ListView) renderRight() tea.Cmd {
 
 	case modeShowObjectPretty:
 		// show the object in a pretty-printed format
-		diff := diffpreview.DiffRecursive(previousObject, curSnap.Object)
-		asStr = diffpreview.RenderYAML(diff, diffpreview.DarkTheme, diffpreview.RenderOptions{
+		diff := diffpreview.Diff(previousObject, curSnap.Object)
+		asStr = diffpreview.RenderYAML(diff, diffpreview.Theme{}, diffpreview.RenderOptions{
 			IndentSize:                2,
 			EnableBackgroundHighlight: lv.highlight,
 		})
@@ -506,7 +506,7 @@ func (lv *ListView) renderRight() tea.Cmd {
 		diff := diffmap.Diff(previousObject, curSnap.Object)
 		if diff != nil {
 			previewDiff := diffpreview.Diff(previousObject, curSnap.Object)
-			asStr = diffpreview.RenderYAML(previewDiff, diffpreview.DarkTheme, diffpreview.RenderOptions{
+			asStr = diffpreview.RenderYAML(previewDiff, diffpreview.Theme{}, diffpreview.RenderOptions{
 				IndentSize:                2,
 				EnableBackgroundHighlight: lv.highlight,
 			})
