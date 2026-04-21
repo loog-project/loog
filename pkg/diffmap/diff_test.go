@@ -60,7 +60,7 @@ func BenchmarkDiff_1k(b *testing.B) {
 func genMaps(n int) (map[string]any, map[string]any) {
 	a := make(map[string]any, n)
 	b := make(map[string]any, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		key := "k" + strconv.Itoa(i)
 		a[key] = i
 		if i%10 == 0 {
@@ -71,4 +71,92 @@ func genMaps(n int) (map[string]any, map[string]any) {
 		}
 	}
 	return a, b
+}
+
+func TestDiff_NilInputs(t *testing.T) {
+	someMap := map[string]any{"a": 1}
+
+	// nil, nil -> nil
+	if d := diffmap.Diff(nil, nil); d != nil {
+		t.Fatalf("Diff(nil, nil) = %v, want nil", d)
+	}
+
+	// nil, someMap -> adds everything from someMap
+	d := diffmap.Diff(nil, someMap)
+	want := map[string]any{"a": 1}
+	if !reflect.DeepEqual(d, want) {
+		t.Fatalf("Diff(nil, someMap) = %v, want %v", d, want)
+	}
+
+	// someMap, nil -> removes everything from someMap
+	d = diffmap.Diff(someMap, nil)
+	want = map[string]any{"a": nil}
+	if !reflect.DeepEqual(d, want) {
+		t.Fatalf("Diff(someMap, nil) = %v, want %v", d, want)
+	}
+}
+
+func TestDiff_SliceValues(t *testing.T) {
+	a := map[string]any{"items": []any{"a", "b"}}
+	b := map[string]any{"items": []any{"a", "c"}}
+
+	d := diffmap.Diff(a, b)
+	want := map[string]any{"items": []any{"a", "c"}}
+	if !reflect.DeepEqual(d, want) {
+		t.Fatalf("got %v, want %v", d, want)
+	}
+}
+
+func TestDiff_TypeChange(t *testing.T) {
+	// scalar -> map
+	a := map[string]any{"k": "scalar"}
+	b := map[string]any{"k": map[string]any{"nested": true}}
+
+	d := diffmap.Diff(a, b)
+	want := map[string]any{"k": map[string]any{"nested": true}}
+	if !reflect.DeepEqual(d, want) {
+		t.Fatalf("scalar->map: got %v, want %v", d, want)
+	}
+
+	// map -> scalar
+	d = diffmap.Diff(b, a)
+	want = map[string]any{"k": "scalar"}
+	if !reflect.DeepEqual(d, want) {
+		t.Fatalf("map->scalar: got %v, want %v", d, want)
+	}
+}
+
+func TestDiff_DeepNested(t *testing.T) {
+	a := map[string]any{
+		"l1": map[string]any{
+			"l2": map[string]any{
+				"l3": map[string]any{
+					"l4": "old",
+				},
+			},
+		},
+	}
+	b := map[string]any{
+		"l1": map[string]any{
+			"l2": map[string]any{
+				"l3": map[string]any{
+					"l4": "new",
+				},
+			},
+		},
+	}
+
+	d := diffmap.Diff(a, b)
+	want := map[string]any{
+		"l1": map[string]any{
+			"l2": map[string]any{
+				"l3": map[string]any{
+					"l4": "new",
+				},
+			},
+		},
+	}
+	if !reflect.DeepEqual(d, want) {
+		t.Fatalf("got %v, want %v", d, want)
+	}
 }
