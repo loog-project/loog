@@ -15,7 +15,7 @@ import (
 // so 36+1+8 = 45 bytes is the common size.
 var keyPool = sync.Pool{
 	New: func() any {
-		return new(make([]byte, 0, 64))
+		return new(make([]byte, 0, 45))
 	},
 }
 
