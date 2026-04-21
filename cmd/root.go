@@ -22,7 +22,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
 
-	"github.com/loog-project/loog/internal/dynamicmux"
+	"github.com/loog-project/loog/pkg/mux"
 	"github.com/loog-project/loog/internal/service"
 	"github.com/loog-project/loog/internal/store"
 	bboltStore "github.com/loog-project/loog/internal/store/bbolt"
@@ -227,11 +227,11 @@ func run(ctx context.Context, args []string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	mux, err := dynamicmux.New(ctx, dyn)
+	m, err := mux.New(ctx, dyn)
 	if err != nil {
 		setupLog.Fatal().Err(err).Msg("Error creating dynamic mux")
 	}
-	defer mux.Stop()
+	defer m.Stop()
 
 	// add default resources from the arguments
 	for _, r := range args {
@@ -239,7 +239,7 @@ func run(ctx context.Context, args []string) error {
 		if gvrParseErr != nil {
 			setupLog.Fatal().Err(gvrParseErr).Msgf("Cannot parse argument '%s' to GVR", r)
 		}
-		if muxAddErr := mux.Add(gvr); muxAddErr != nil {
+		if muxAddErr := m.Add(gvr); muxAddErr != nil {
 			setupLog.Fatal().Err(muxAddErr).Msgf("Cannot add GVR '%s' to dynamic mux", gvr)
 		}
 	}
@@ -252,7 +252,7 @@ func run(ctx context.Context, args []string) error {
 
 		wg.Add(1)
 		go func() {
-			runCollector(ctx, mux, trackerService, rps, prog, &noOpRevisionHandler{})
+			runCollector(ctx, m, trackerService, rps, prog, &noOpRevisionHandler{})
 			wg.Done()
 		}()
 
@@ -290,7 +290,7 @@ func run(ctx context.Context, args []string) error {
 
 			// and start collecting revisions
 			go func() {
-				runCollector(ctx, mux, trackerService, rps, prog, handler)
+				runCollector(ctx, m, trackerService, rps, prog, handler)
 				wg.Done()
 			}()
 		}()
@@ -371,7 +371,7 @@ func (u *uiRevisionHandler) HandleRevision(
 // runCollector runs the collector that listens to events from the dynamic mux
 func runCollector(
 	ctx context.Context,
-	mux *dynamicmux.Mux,
+	m *mux.Mux,
 	trackerService *service.TrackerService,
 	rps store.ResourcePatchStore,
 	filterExprProgram *vm.Program,
@@ -382,7 +382,7 @@ func runCollector(
 		case <-ctx.Done():
 			return
 
-		case ev := <-mux.Events():
+		case ev := <-m.Events():
 			l := log.With().
 				Str("event-type", string(ev.Type)).
 				Logger()
