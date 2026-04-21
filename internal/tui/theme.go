@@ -144,6 +144,7 @@ func (t Theme) SyntaxNumberStyle() lipgloss.Style {
 func (t Theme) SyntaxBoolStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(t.Yellow)
 }
+
 func (t Theme) SyntaxNullStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(t.Overlay0).Italic(true)
 }
@@ -152,9 +153,11 @@ func (t Theme) SyntaxNullStyle() lipgloss.Style {
 func (t Theme) HotBadgeStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(t.Red).Bold(true)
 }
+
 func (t Theme) WarmBadgeStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(t.Peach)
 }
+
 func (t Theme) StarStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(t.Yellow)
 }

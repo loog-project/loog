@@ -274,7 +274,7 @@ func TestRender_BackgroundHighlight_Applied(t *testing.T) {
 		map[string]any{"x": "new"},
 	)
 
-	out := RenderYAML(node, DarkTheme, bgOpts)
+	out := RenderYAML(node, testTheme, bgOpts)
 	assertContains(t, out, "new")
 }
 
@@ -284,8 +284,8 @@ func TestRender_BackgroundHighlight_Unchanged_NoExtra(t *testing.T) {
 		map[string]any{"x": "same"},
 	)
 
-	withBg := RenderYAML(node, DarkTheme, bgOpts)
-	noBg := RenderYAML(node, DarkTheme, RenderOptions{
+	withBg := RenderYAML(node, testTheme, bgOpts)
+	noBg := RenderYAML(node, testTheme, RenderOptions{
 		IndentSize:                2,
 		EnableBackgroundHighlight: false,
 	})
@@ -377,8 +377,8 @@ func TestRender_SyntaxHighlight_String(t *testing.T) {
 			"name": {Value: "test", Change: Unchanged},
 		},
 	}
-	out := RenderYAML(node, DarkTheme, plainOpts)
-	// In a TTY environment DarkTheme produces ANSI codes; in CI/tests it
+	out := RenderYAML(node, testTheme, plainOpts)
+	// In a TTY environment testTheme produces ANSI codes; in CI/tests it
 	// may not. Either way the raw text must be present.
 	assertContains(t, out, "test")
 	assertContains(t, out, "name")
@@ -412,14 +412,14 @@ func TestSyntaxHighlight_AllTypes(t *testing.T) {
 // --- Theme.backgroundStyle --------------------------------------------
 
 func TestBackgroundStyle_Unchanged(t *testing.T) {
-	if DarkTheme.backgroundStyle(Unchanged) != nil {
+	if testTheme.backgroundStyle(Unchanged) != nil {
 		t.Error("Unchanged should return nil style")
 	}
 }
 
 func TestBackgroundStyle_Changed(t *testing.T) {
 	for _, ct := range []ChangeType{Added, Removed, Modified} {
-		if DarkTheme.backgroundStyle(ct) == nil {
+		if testTheme.backgroundStyle(ct) == nil {
 			t.Errorf("expected non-nil style for %v", ct)
 		}
 	}
@@ -634,7 +634,7 @@ func TestRender_StyledDash_Unchanged(t *testing.T) {
 			},
 		},
 	}
-	out := RenderYAML(node, DarkTheme, bgOpts)
+	out := RenderYAML(node, testTheme, bgOpts)
 	assertContains(t, out, "x")
 }
 

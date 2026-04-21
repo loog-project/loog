@@ -184,7 +184,7 @@ func (cp *CommandPalette) View() string {
 	// Dialog content width (inside border + padding)
 	dialogW := min(cp.width*60/100, 80)
 	if dialogW < 36 {
-		dialogW = 36
+		dialogW = min(36, cp.width-2) // never exceed viewport
 	}
 	// Inner content width after border(2) + padding(4)
 	contentW := max(dialogW-6, 20)
@@ -389,7 +389,7 @@ func (qs *QuickJump) View() string {
 
 	dialogW := min(qs.width*60/100, 80)
 	if dialogW < 36 {
-		dialogW = 36
+		dialogW = min(36, qs.width-2)
 	}
 	contentW := max(dialogW-6, 20)
 
@@ -694,7 +694,7 @@ func (wm *WatchManager) View() string {
 
 	dialogW := min(wm.width*60/100, 80)
 	if dialogW < 40 {
-		dialogW = 40
+		dialogW = min(40, wm.width-2)
 	}
 	contentW := max(dialogW-6, 24)
 

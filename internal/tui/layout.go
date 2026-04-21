@@ -192,27 +192,26 @@ func dimLine(line string, width int, dimStyle lipgloss.Style) string {
 }
 
 // SplitHorizontal renders two pre-rendered content blocks side by side
-// with a thin vertical separator.
-func SplitHorizontal(left, right string, height int) string {
-	// Build vertical separator
+// with a thin vertical separator using the theme's surface color and background.
+func SplitHorizontal(left, right string, height int, theme Theme) string {
 	var sepLines []string
 	for range height {
 		sepLines = append(sepLines, "│")
 	}
-	sepStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#313244"))
+	sepStyle := lipgloss.NewStyle().Foreground(theme.Surface1)
 	sep := sepStyle.Render(strings.Join(sepLines, "\n"))
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, sep, right)
 }
 
 // SplitThreeColumns renders three pre-rendered content blocks side by side
-// with thin vertical separators.
-func SplitThreeColumns(left, middle, right string, height int) string {
+// with thin vertical separators using the theme's surface color and background.
+func SplitThreeColumns(left, middle, right string, height int, theme Theme) string {
 	var sepLines []string
 	for range height {
 		sepLines = append(sepLines, "│")
 	}
-	sepStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#313244"))
+	sepStyle := lipgloss.NewStyle().Foreground(theme.Surface1)
 	sep := sepStyle.Render(strings.Join(sepLines, "\n"))
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, sep, middle, sep, right)
@@ -300,12 +299,16 @@ func PanelBorderEx(
 	leftBorder := bStyle.Render("│")
 	rightBorder := bStyle.Render("│")
 	for _, cl := range contentLines {
-		// Pad or truncate the content line to inner width
-		lineW := lipgloss.Width(cl)
+		// Truncate content to inner width so long lines don't wrap and
+		// break the panel height.
+		truncated := lipgloss.NewStyle().
+			MaxWidth(innerW).
+			Render(cl)
+		lineW := lipgloss.Width(truncated)
 		if lineW < innerW {
-			cl = cl + strings.Repeat(" ", innerW-lineW)
+			truncated += strings.Repeat(" ", innerW-lineW)
 		}
-		lines = append(lines, leftBorder+cl+rightBorder)
+		lines = append(lines, leftBorder+truncated+rightBorder)
 	}
 	lines = append(lines, bottomLine)
 

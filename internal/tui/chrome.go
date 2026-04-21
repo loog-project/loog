@@ -104,14 +104,20 @@ func (h *Header) View() string {
 	leftContent := logo + "  " + tabBar
 	leftWidth := lipgloss.Width(leftContent)
 	rightWidth := lipgloss.Width(rightSide)
-	spacerWidth := max(h.width-leftWidth-rightWidth-2, 1)
-	spacer := strings.Repeat(" ", spacerWidth)
+	spacerWidth := max(h.width-leftWidth-rightWidth-2, 0)
 
-	line := leftContent + spacer + rightSide
+	var line string
+	if spacerWidth > 0 {
+		line = leftContent + strings.Repeat(" ", spacerWidth) + rightSide
+	} else {
+		// Narrow terminal: drop the right side to avoid overflow
+		line = leftContent
+	}
 
 	return lipgloss.NewStyle().
 		Background(h.theme.Mantle).
 		Width(h.width).
+		MaxWidth(h.width).
 		Padding(0, 1).
 		Render(line)
 }
@@ -228,14 +234,21 @@ func (sb *StatusBar) View() string {
 	// Combine
 	leftWidth := lipgloss.Width(leftContent)
 	rightWidth := lipgloss.Width(rightContent)
-	spacerWidth := max(sb.width-leftWidth-rightWidth-4, 1)
+	spacerWidth := max(sb.width-leftWidth-rightWidth-4, 0)
 
-	line := " " + leftContent + strings.Repeat(" ", spacerWidth) + rightContent + " "
+	var line string
+	if spacerWidth > 0 {
+		line = " " + leftContent + strings.Repeat(" ", spacerWidth) + rightContent + " "
+	} else {
+		// Narrow: drop right side to avoid wrapping
+		line = " " + leftContent + " "
+	}
 
 	statusLine := lipgloss.NewStyle().
 		Background(sb.theme.Crust).
 		Foreground(sb.theme.Subtext0).
 		Width(sb.width).
+		MaxWidth(sb.width).
 		Render(line)
 
 	hintContent := " "

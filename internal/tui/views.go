@@ -37,17 +37,29 @@ func (ev *ExplorerViewComponent) SetSize(w, h int) {
 	ev.width = w
 	ev.height = h
 
-	// Outer panel widths (including borders)
-	ev.treeOuterW = max(w*25/100, 22)
-	ev.revOuterW = max(w*20/100, 20)
-	ev.detailOuterW = max(
-		// 2 separators
-		w-ev.treeOuterW-ev.revOuterW-2, 12)
+	// Compute outer panel widths (including borders) with proportional
+	// allocation. Clamp so the total never exceeds the available width.
+	separators := 2 // two │ chars between the three columns
+	available := max(w-separators, 3)
+	ev.treeOuterW = max(available*25/100, 4)
+	ev.revOuterW = max(available*20/100, 4)
+	ev.detailOuterW = max(available-ev.treeOuterW-ev.revOuterW, 4)
+
+	// Safety: shrink panels if they still exceed available width
+	for ev.treeOuterW+ev.revOuterW+ev.detailOuterW > available {
+		if ev.detailOuterW > 4 {
+			ev.detailOuterW--
+		} else if ev.revOuterW > 4 {
+			ev.revOuterW--
+		} else {
+			ev.treeOuterW--
+		}
+	}
 
 	// Components get INNER dimensions (outer minus border chrome: 2 width, 2 height)
-	ev.tree.SetSize(ev.treeOuterW-2, h-2)
-	ev.revList.SetSize(ev.revOuterW-2, h-2)
-	ev.detail.SetSize(ev.detailOuterW-2, h-2)
+	ev.tree.SetSize(max(ev.treeOuterW-2, 1), max(h-2, 1))
+	ev.revList.SetSize(max(ev.revOuterW-2, 1), max(h-2, 1))
+	ev.detail.SetSize(max(ev.detailOuterW-2, 1), max(h-2, 1))
 }
 
 func (ev *ExplorerViewComponent) SetGroups(groups []*resource.KindGroup) {
@@ -192,7 +204,7 @@ func (ev *ExplorerViewComponent) View() string {
 	revContent := PanelBorderEx(ev.revList.View(), revTitle, ev.revOuterW, ev.height, ev.focusPanel == PanelMiddle, ev.theme, ev.revList.CanScrollUp(), ev.revList.CanScrollDown())
 	detailContent := PanelBorderEx(ev.detail.View(), modeLabel, ev.detailOuterW, ev.height, ev.focusPanel == PanelRight, ev.theme, ev.detail.CanScrollUp(), ev.detail.CanScrollDown())
 
-	return SplitThreeColumns(treeContent, revContent, detailContent, ev.height)
+	return SplitThreeColumns(treeContent, revContent, detailContent, ev.height, ev.theme)
 }
 
 // ViewFullscreen renders only the focused panel at full width.
@@ -237,14 +249,23 @@ func (tv *TimelineViewComponent) SetSize(w, h int) {
 	tv.width = w
 	tv.height = h
 
-	tv.listOuterW = max(w*40/100, 32)
-	tv.detailOuterW = max(
-		// 1 separator
-		w-tv.listOuterW-1, 12)
+	separator := 1
+	available := max(w-separator, 2)
+	tv.listOuterW = max(available*40/100, 4)
+	tv.detailOuterW = max(available-tv.listOuterW, 4)
+
+	// Clamp if still too wide
+	for tv.listOuterW+tv.detailOuterW > available {
+		if tv.detailOuterW > 4 {
+			tv.detailOuterW--
+		} else {
+			tv.listOuterW--
+		}
+	}
 
 	// Inner dimensions for components
-	tv.timeline.SetSize(tv.listOuterW-2, h-2)
-	tv.detail.SetSize(tv.detailOuterW-2, h-2)
+	tv.timeline.SetSize(max(tv.listOuterW-2, 1), max(h-2, 1))
+	tv.detail.SetSize(max(tv.detailOuterW-2, 1), max(h-2, 1))
 }
 
 func (tv *TimelineViewComponent) SetEntries(entries []resource.TimelineEntry) {
@@ -386,7 +407,7 @@ func (tv *TimelineViewComponent) View() string {
 	listContent := PanelBorderEx(tv.timeline.View(), listTitle, tv.listOuterW, tv.height, tv.focusPanel == PanelLeft, tv.theme, tv.timeline.CanScrollUp(), tv.timeline.CanScrollDown())
 	detailContent := PanelBorderEx(tv.detail.View(), modeLabel, tv.detailOuterW, tv.height, tv.focusPanel == PanelRight, tv.theme, tv.detail.CanScrollUp(), tv.detail.CanScrollDown())
 
-	return SplitHorizontal(listContent, detailContent, tv.height)
+	return SplitHorizontal(listContent, detailContent, tv.height, tv.theme)
 }
 
 // ViewFullscreen renders only the focused panel at full width.
