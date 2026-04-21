@@ -42,6 +42,7 @@ var (
 	outputFile       string
 	noDurableSync    bool
 	disableCache     bool
+	disableCompress  bool
 	snapshotInterval uint64
 	filterExpr       string
 	headlessMode     bool
@@ -95,6 +96,8 @@ func init() {
 		"Skip fsync on every commit to improve throughput (unsafe on crashes)")
 	rootCmd.Flags().BoolVar(&disableCache, "disable-cache", false,
 		"Disable in‑memory cache layer for the revision store")
+	rootCmd.Flags().BoolVar(&disableCompress, "no-compress", false,
+		"Disable s2 compression for stored payloads (larger DB but slightly less CPU)")
 	rootCmd.Flags().Uint64VarP(&snapshotInterval, "snapshot-interval", "s", 8,
 		"Create a full snapshot after this many patches (default 8)")
 
@@ -201,7 +204,10 @@ func run(ctx context.Context, args []string) error {
 	setupLog.Info().
 		Str("store-file", outputFile).
 		Msg("Preparing object revision store...")
-	rps, err := bboltStore.New(outputFile, nil, !noDurableSync)
+	rps, err := bboltStore.NewWithOptions(outputFile, bboltStore.Options{
+		Durable:  !noDurableSync,
+		Compress: !disableCompress,
+	})
 	if err != nil {
 		setupLog.Fatal().Err(err).Msg("Error preparing store")
 	}

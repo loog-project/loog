@@ -1,3 +1,5 @@
+// Package store defines the persistence interfaces and model types for
+// storing Kubernetes resource revisions as snapshots and patches.
 package store
 
 import (
