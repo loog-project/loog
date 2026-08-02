@@ -176,8 +176,11 @@ func (s *LiveStore) KindGroups() []*resource.KindGroup {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// Return cached kind groups
-	return s.kindGroups
+	// Return a shallow copy of the slice so a concurrent RebuildKindGroups
+	// (which reassigns s.kindGroups) cannot race with the caller iterating it.
+	out := make([]*resource.KindGroup, len(s.kindGroups))
+	copy(out, s.kindGroups)
+	return out
 }
 
 func (s *LiveStore) WatchedKinds() []string {
@@ -222,9 +225,11 @@ func (s *LiveStore) UnwatchedKinds() []resource.Kind {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// In production mode, unwatched kinds could be populated from API discovery.
-	// For now, return whatever was set externally.
-	return s.unwatchedKinds
+	// Return a copy: callers (e.g. the watch manager) retain this slice across
+	// render frames, and AddWatchKind must not mutate the array underneath them.
+	out := make([]resource.Kind, len(s.unwatchedKinds))
+	copy(out, s.unwatchedKinds)
+	return out
 }
 
 func (s *LiveStore) AddWatchKind(rk resource.Kind) []*resource.Data {
@@ -233,8 +238,9 @@ func (s *LiveStore) AddWatchKind(rk resource.Kind) []*resource.Data {
 
 	s.watchedKinds[rk.Kind] = true
 
-	// Remove from unwatched list
-	filtered := s.unwatchedKinds[:0]
+	// Remove from unwatched list. Allocate a fresh slice instead of reusing the
+	// backing array with [:0]; the old array may still be held by the UI.
+	filtered := make([]resource.Kind, 0, len(s.unwatchedKinds))
 	for _, uk := range s.unwatchedKinds {
 		if uk.Kind != rk.Kind {
 			filtered = append(filtered, uk)
@@ -326,19 +332,35 @@ func (s *LiveStore) RebuildKindGroups() {
 }
 
 func (s *LiveStore) ForEachResource(fn func(uid string, rd *resource.Data)) {
+	// Snapshot under the lock, then invoke the callback outside it. This keeps
+	// the write lock off the collector's ingestion path while the callback does
+	// potentially slow work (e.g. rendering), and avoids RWMutex re-entry
+	// deadlocks if fn calls back into the store.
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
+	type entry struct {
+		uid string
+		rd  *resource.Data
+	}
+	snapshot := make([]entry, 0, len(s.resources))
 	for uid, rd := range s.resources {
-		fn(uid, rd)
+		snapshot = append(snapshot, entry{uid, rd})
+	}
+	s.mu.RUnlock()
+
+	for _, e := range snapshot {
+		fn(e.uid, e.rd)
 	}
 }
 
 // SetUnwatchedKinds sets the list of unwatched resource kinds available on the cluster.
 func (s *LiveStore) SetUnwatchedKinds(kinds []resource.Kind) {
+	// Copy so the store owns its backing array independent of the caller.
+	owned := make([]resource.Kind, len(kinds))
+	copy(owned, kinds)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.unwatchedKinds = kinds
+	s.unwatchedKinds = owned
 }
 
 func (s *LiveStore) allResourcesLocked() []*resource.Data {

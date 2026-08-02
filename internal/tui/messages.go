@@ -75,6 +75,10 @@ type AnalysisCompleteMsg struct {
 
 type SimulationTickMsg struct {
 	ResourceUID string
+	// Epoch identifies the tick chain that scheduled this message. The App drops
+	// ticks whose epoch no longer matches the current one, so pausing/resuming
+	// cannot leave stale, overlapping tick chains running.
+	Epoch uint64
 }
 
 type ToggleAutoScrollMsg struct{}

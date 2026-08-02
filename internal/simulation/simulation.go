@@ -709,8 +709,9 @@ func New() *Store {
 			ID:        resource.RevisionID(0x0030 + i),
 			EventType: resource.EventModified,
 			Time:      loopBase.Add(time.Duration(i*15) * time.Second),
-			Object:    obj,
-			Patch:     map[string]any{"metadata": map[string]any{"annotations": map[string]any{"operator.example.com/reconcile-hash": "changed"}}},
+			// Clone per revision so sibling revisions don't alias the same map.
+			Object: resource.CloneMap(obj),
+			Patch:  map[string]any{"metadata": map[string]any{"annotations": map[string]any{"operator.example.com/reconcile-hash": "changed"}}},
 		}
 		if i == 0 {
 			rev.EventType = resource.EventAdded

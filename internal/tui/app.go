@@ -59,6 +59,10 @@ type App struct {
 	// Simulation
 	simulator  Simulator // nil when running against a production store
 	simulating bool
+	// simEpoch identifies the current tick chain. It is incremented whenever
+	// simulation is paused or resumed so that in-flight ticks from a superseded
+	// chain are discarded instead of spawning overlapping generators.
+	simEpoch uint64
 
 	// Recording: live data arriving from production watcher.
 	// When true, the TUI is in "recording" mode (not simulation).
@@ -184,7 +188,7 @@ func (a *App) Init() tea.Cmd {
 	}
 	// Start simulation if enabled
 	if a.simulating && a.simulator != nil {
-		cmds = append(cmds, a.simulator.ScheduleNextTick())
+		cmds = append(cmds, a.simulator.ScheduleNextTick(a.simEpoch))
 	}
 	return tea.Batch(cmds...)
 }
@@ -574,13 +578,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case TogglePauseMsg:
 		a.simulating = !a.simulating
+		// Bump the epoch so any tick still sleeping under the previous epoch is
+		// discarded when it fires, preventing overlapping tick chains.
+		a.simEpoch++
 		a.header.SetRecording(a.simulating)
 		a.statusBar.SetSimulating(a.simulating)
 		if a.simulating {
 			a.setStatus("Recording resumed", false)
 			// Schedule a new simulation tick to restart generation (simulation mode only)
 			if a.simulator != nil {
-				cmds = append(cmds, a.simulator.ScheduleNextTick())
+				cmds = append(cmds, a.simulator.ScheduleNextTick(a.simEpoch))
 			}
 		} else {
 			a.setStatus("Recording paused", false)
@@ -601,10 +608,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.syncAnalysisTags()
 
 	case SimulationTickMsg:
+		// Drop ticks from a superseded chain (e.g. scheduled before a
+		// pause/resume). Only the current epoch may generate and reschedule.
+		if msg.Epoch != a.simEpoch {
+			break
+		}
 		a.handleSimulationTick(msg.ResourceUID)
 		// Schedule next tick
 		if a.simulating && a.simulator != nil {
-			cmds = append(cmds, a.simulator.ScheduleNextTick())
+			cmds = append(cmds, a.simulator.ScheduleNextTick(a.simEpoch))
 		}
 
 	case adapter.LiveRevisionMsg:

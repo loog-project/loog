@@ -22,7 +22,8 @@ type Store struct {
 	timeline             []resource.TimelineEntry
 	kindGroups           []*resource.KindGroup
 	clusterResourceTypes []resource.Kind
-	totalRevisions       int // cached count of all revisions across resources
+	totalRevisions       int    // cached count of all revisions across resources
+	nextID               uint64 // monotonic source of unique revision IDs
 }
 
 // Compile-time check that Store implements both interfaces.
@@ -38,9 +39,18 @@ func NewStore(
 	kindGroups []*resource.KindGroup,
 	clusterResourceTypes []resource.Kind,
 ) *Store {
+	if resources == nil {
+		resources = make(map[string]*resource.Data)
+	}
 	totalRevs := 0
+	var maxID uint64
 	for _, rd := range resources {
 		totalRevs += len(rd.Revisions)
+		for _, rev := range rd.Revisions {
+			if uint64(rev.ID) > maxID {
+				maxID = uint64(rev.ID)
+			}
+		}
 	}
 	return &Store{
 		resources:            resources,
@@ -48,7 +58,19 @@ func NewStore(
 		kindGroups:           kindGroups,
 		clusterResourceTypes: clusterResourceTypes,
 		totalRevisions:       totalRevs,
+		nextID:               maxID + 1,
 	}
+}
+
+// nextRevisionIDLocked returns a unique, monotonically increasing revision ID.
+// The caller must hold s.mu.
+func (s *Store) nextRevisionIDLocked() resource.RevisionID {
+	if s.nextID == 0 {
+		s.nextID = 1
+	}
+	id := s.nextID
+	s.nextID++
+	return resource.RevisionID(id)
 }
 
 func (s *Store) AllResources() []*resource.Data {
@@ -114,7 +136,9 @@ func (s *Store) FilterTimeline(expr string, starredOnly bool) []resource.Timelin
 	defer s.mu.RUnlock()
 
 	if expr == "" && !starredOnly {
-		return s.timeline
+		result := make([]resource.TimelineEntry, len(s.timeline))
+		copy(result, s.timeline)
+		return result
 	}
 	lower := strings.ToLower(expr)
 	var result []resource.TimelineEntry
@@ -134,14 +158,18 @@ func (s *Store) Timeline() []resource.TimelineEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return s.timeline
+	result := make([]resource.TimelineEntry, len(s.timeline))
+	copy(result, s.timeline)
+	return result
 }
 
 func (s *Store) KindGroups() []*resource.KindGroup {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return s.kindGroups
+	out := make([]*resource.KindGroup, len(s.kindGroups))
+	copy(out, s.kindGroups)
+	return out
 }
 
 func (s *Store) WatchedKinds() []string {
@@ -218,7 +246,7 @@ func (s *Store) AddWatchKind(rk resource.Kind) []*resource.Data {
 	dummyResources := generateDummyResourcesForKind(rk, now)
 	for _, r := range dummyResources {
 		initRev := resource.Revision{
-			ID:        resource.RevisionID(uint64(now.UnixNano()&0xFFFF) + uint64(len(s.resources))),
+			ID:        s.nextRevisionIDLocked(),
 			EventType: resource.EventAdded,
 			Time:      now.Add(-time.Duration(len(created)) * 500 * time.Millisecond),
 			Object: map[string]any{
@@ -329,11 +357,22 @@ func (s *Store) RebuildKindGroups() {
 }
 
 func (s *Store) ForEachResource(fn func(uid string, rd *resource.Data)) {
+	// Snapshot under the lock, then invoke the callback outside it to avoid
+	// holding the lock across arbitrary caller work and to prevent RWMutex
+	// re-entry deadlocks if fn calls back into the store.
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
+	type entry struct {
+		uid string
+		rd  *resource.Data
+	}
+	snapshot := make([]entry, 0, len(s.resources))
 	for uid, rd := range s.resources {
-		fn(uid, rd)
+		snapshot = append(snapshot, entry{uid, rd})
+	}
+	s.mu.RUnlock()
+
+	for _, e := range snapshot {
+		fn(e.uid, e.rd)
 	}
 }
 
@@ -349,8 +388,9 @@ func (s *Store) allResourcesLocked() []*resource.Data {
 }
 
 // ScheduleNextTick returns a tea.Cmd that generates a SimulationTickMsg
-// for a random resource after a 3-5 second delay.
-func (s *Store) ScheduleNextTick() tea.Cmd {
+// for a random resource after a 3-5 second delay. The epoch is echoed back
+// in the message so the App can discard ticks from a superseded chain.
+func (s *Store) ScheduleNextTick(epoch uint64) tea.Cmd {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -365,11 +405,12 @@ func (s *Store) ScheduleNextTick() tea.Cmd {
 		delay := time.Duration(3+rand.Intn(3)) * time.Second
 		time.Sleep(delay)
 		uid := uids[rand.Intn(len(uids))]
-		return tui.SimulationTickMsg{ResourceUID: uid}
+		return tui.SimulationTickMsg{ResourceUID: uid, Epoch: epoch}
 	}
 }
 
-// GenerateRevision creates a new MODIFIED revision for the given resource.
+// GenerateRevision creates a new revision for the given resource. It is tagged
+// ADDED for a resource's first revision and MODIFIED thereafter.
 func (s *Store) GenerateRevision(rd *resource.Data) resource.Revision {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -400,19 +441,20 @@ func (s *Store) GenerateRevision(rd *resource.Data) resource.Revision {
 	}
 	annotations["loog.dev/last-seen"] = now.Format(time.RFC3339)
 
-	var newID resource.RevisionID
 	var prevID resource.RevisionID
+	eventType := resource.EventModified
 	if latest != nil {
 		prevID = latest.ID
-		newID = resource.RevisionID(uint64(latest.ID) + 1)
 	} else {
-		newID = resource.RevisionID(0xF000 + uint64(rand.Intn(0xFFF)))
+		// No prior revision: this is the first time we see the resource.
+		eventType = resource.EventAdded
 	}
+	newID := s.nextRevisionIDLocked()
 
 	return resource.Revision{
 		ID:         newID,
 		PreviousID: prevID,
-		EventType:  resource.EventModified,
+		EventType:  eventType,
 		Time:       now,
 		Object:     newObj,
 		Patch: map[string]any{
