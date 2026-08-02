@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -29,6 +30,7 @@ import (
 	"github.com/loog-project/loog/internal/adapter"
 	"github.com/loog-project/loog/internal/resource"
 	"github.com/loog-project/loog/internal/service"
+	"github.com/loog-project/loog/internal/simulation"
 	"github.com/loog-project/loog/internal/store"
 	bboltStore "github.com/loog-project/loog/internal/store/bbolt"
 	"github.com/loog-project/loog/internal/tui"
@@ -52,6 +54,7 @@ var (
 	snapshotInterval uint64
 	filterExpr       string
 	headlessMode     bool
+	simulateMode     bool
 )
 
 var rootCmd = &cobra.Command{
@@ -106,6 +109,8 @@ func init() {
 		"Disable s2 compression for stored payloads (larger DB but slightly less CPU)")
 	rootCmd.Flags().Uint64VarP(&snapshotInterval, "snapshot-interval", "s", 8,
 		"Create a full snapshot after this many patches (default 8)")
+	rootCmd.Flags().BoolVar(&simulateMode, "simulate", false,
+		"Run with simulated data instead of connecting to Kubernetes")
 
 	// allow some flags to be set via environment variables / config file
 	mustBind("kubeconfig",
@@ -152,6 +157,11 @@ func initConfig() {
 // run is the main entry point for the command execution.
 func run(ctx context.Context, args []string) error {
 	setupDebugLogger()
+
+	// Simulate mode: skip Kubernetes entirely, use simulated data
+	if simulateMode {
+		return runSimulateMode()
+	}
 
 	// Production mode: connect to Kubernetes
 	cleanup, prog, trackerService, rps, m, err := setupProduction(ctx, args)
@@ -202,6 +212,31 @@ func setupDebugLogger() {
 	} else {
 		log.Logger = zerolog.Nop()
 	}
+}
+
+// runSimulateMode starts the TUI with simulated data.
+func runSimulateMode() error {
+	setupLog.Info().Msg("Running in simulate mode with generated data")
+
+	klog.SetOutput(io.Discard)
+	devNull, err := os.Open(os.DevNull)
+	if err != nil {
+		return fmt.Errorf("cannot open %s: %w", os.DevNull, err)
+	}
+	defer func(devNull *os.File) {
+		_ = devNull.Close()
+	}(devNull)
+	savedStderr := os.Stderr
+	os.Stderr = devNull
+	defer func() { os.Stderr = savedStderr }()
+
+	simStore := simulation.New()
+	app := tui.NewApp(simStore, tui.WithSimulator(simStore))
+	p := tea.NewProgram(app, tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		setupLog.Error().Err(err).Msg("Error running TUI program")
+	}
+	return nil
 }
 
 // setupProduction initializes the output file, filter, store, kube client, and mux.
@@ -625,6 +660,11 @@ func loadHistoryFromDB(
 }
 
 func validateArgsAndFlags(_ *cobra.Command, args []string) error {
+	// Simulate mode doesn't need resource args or output file
+	if simulateMode {
+		return nil
+	}
+
 	if len(args) == 0 && outputFile == "" {
 		return fmt.Errorf(
 			"at least one resource argument or the --output flag must be provided (you may provide both)")
