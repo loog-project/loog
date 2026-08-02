@@ -143,6 +143,7 @@ func (s *LiveStore) FilterTimeline(expr string, starredOnly bool) []resource.Tim
 	if expr == "" && !starredOnly {
 		result := make([]resource.TimelineEntry, len(s.timeline))
 		copy(result, s.timeline)
+		resource.SortTimelineNewestFirst(result)
 		return result
 	}
 
@@ -160,6 +161,7 @@ func (s *LiveStore) FilterTimeline(expr string, starredOnly bool) []resource.Tim
 		}
 		result = append(result, e)
 	}
+	resource.SortTimelineNewestFirst(result)
 	return result
 }
 
@@ -169,6 +171,7 @@ func (s *LiveStore) Timeline() []resource.TimelineEntry {
 
 	result := make([]resource.TimelineEntry, len(s.timeline))
 	copy(result, s.timeline)
+	resource.SortTimelineNewestFirst(result)
 	return result
 }
 
@@ -339,8 +342,7 @@ func (s *LiveStore) SortTimeline() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	slices.SortStableFunc(s.timeline, func(a, b resource.TimelineEntry) int {
-		// Newest first.
-		return b.Revision.Time.Compare(a.Revision.Time)
+		return resource.CompareRevisionsNewestFirst(a.Revision, b.Revision)
 	})
 }
 

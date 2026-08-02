@@ -91,6 +91,36 @@ func GroupTimelineByBurst(entries []TimelineEntry, window time.Duration) []any {
 	return result
 }
 
+// NearSimultaneousWindow is the wall-clock gap below which two adjacent
+// revisions are treated as near-simultaneous: their relative order is inferred
+// (from resourceVersion, or arrival) rather than clearly separated in time.
+const NearSimultaneousWindow = time.Second
+
+// CompareRevisionsNewestFirst orders two revisions newest-first. It prefers
+// resourceVersion (a global, causal order on etcd-backed clusters) when both
+// revisions carry one, and falls back to wall-clock time otherwise. Returns a
+// value suitable for sort funcs (<0 if a should sort before b).
+func CompareRevisionsNewestFirst(a, b Revision) int {
+	if a.ResourceVersion != 0 && b.ResourceVersion != 0 && a.ResourceVersion != b.ResourceVersion {
+		// Higher resourceVersion = later change = newer -> sorts first.
+		if a.ResourceVersion > b.ResourceVersion {
+			return -1
+		}
+		return 1
+	}
+	// Fall back to time (later = newer -> sorts first).
+	return b.Time.Compare(a.Time)
+}
+
+// SortTimelineNewestFirst sorts timeline entries in place, newest-first, using
+// causal order where resourceVersion is available (see
+// CompareRevisionsNewestFirst).
+func SortTimelineNewestFirst(entries []TimelineEntry) {
+	sort.SliceStable(entries, func(i, j int) bool {
+		return CompareRevisionsNewestFirst(entries[i].Revision, entries[j].Revision) < 0
+	})
+}
+
 // CloneMap performs a recursive clone of a map[string]any.
 // It recursively clones nested maps and slices, but shares scalar values
 // (which are immutable in Go). Non-JSON collection shapes other than

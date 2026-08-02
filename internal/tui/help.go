@@ -145,6 +145,7 @@ func (h *HelpOverlay) View() string {
 			{"S", "Toggle starred-only filter"},
 			{"R", "Reverse sort direction"},
 			{"w", "Cycle time window around selected"},
+			{"≈", "Order inferred (events <1s apart; sorted by resourceVersion)"},
 		}},
 		{Title: "Compare View", Bindings: []helpBinding{
 			{"Tab", "Switch left / right pane"},

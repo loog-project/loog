@@ -71,6 +71,13 @@ type Revision struct {
 	Time       time.Time
 	Object     map[string]any // full state at this revision
 	Patch      map[string]any // diff from previous (nil for ADD/snapshots)
+	// ResourceVersion is the Kubernetes metadata.resourceVersion parsed as a
+	// uint64, or 0 if absent/unparseable. On etcd-backed clusters it is a
+	// global, monotonically increasing revision, so it orders changes across
+	// different resources by true causal order - unlike Time, which is only
+	// loog's observation time and can invert for near-simultaneous events on
+	// separate watch streams.
+	ResourceVersion uint64
 }
 
 // TimelineEntry represents a single entry in the unified timeline.
