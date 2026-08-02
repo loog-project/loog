@@ -475,7 +475,7 @@ func loadHistoryFromDB(
 			}
 		}
 		objectRevisionState[objectUID] = current
-		trackerService.WarmCache(objectUID, current)
+		trackerService.WarmCache(objectUID, current.Object, current.ID)
 		unstructuredObj := &unstructured.Unstructured{Object: current.Object}
 
 		// make sure we want to track this object
