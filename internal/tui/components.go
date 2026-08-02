@@ -1512,6 +1512,10 @@ type timelineFlatItem struct {
 	isBurstEnd   bool
 	isBurstMid   bool
 	burstSize    int
+	// approxOrder is true when this entry is within NearSimultaneousWindow of
+	// the adjacent entry, so its position relative to that neighbor is inferred
+	// (by resourceVersion or arrival) rather than clearly separated in time.
+	approxOrder bool
 }
 
 func NewTimelineList(theme Theme) *TimelineList {
@@ -1768,6 +1772,25 @@ func (tl *TimelineList) buildFlatItems() {
 			}
 		}
 	}
+
+	// Flag entries whose order relative to an adjacent entry is inferred
+	// because they fall within the near-simultaneous window. Ordering across
+	// resources for events this close is decided by resourceVersion (or
+	// arrival), not by clearly separated wall-clock times.
+	for i := 1; i < len(tl.flatItems); i++ {
+		a, b := tl.flatItems[i-1].entry, tl.flatItems[i].entry
+		if a == nil || b == nil {
+			continue
+		}
+		gap := a.Revision.Time.Sub(b.Revision.Time)
+		if gap < 0 {
+			gap = -gap
+		}
+		if gap < resource.NearSimultaneousWindow {
+			tl.flatItems[i-1].approxOrder = true
+			tl.flatItems[i].approxOrder = true
+		}
+	}
 }
 
 // CurrentHint returns a context-sensitive hint for the status bar.
@@ -2019,7 +2042,14 @@ func (tl *TimelineList) View() string {
 			}
 		}
 
-		line := burstPrefix + anchorMark + timeStr + " " + compareBadge + star + kindName + " " + etStr
+		// Marker for near-simultaneous entries whose order is inferred (by
+		// resourceVersion or arrival) rather than clearly separated in time.
+		approxMark := ""
+		if item.approxOrder && !isDimmed {
+			approxMark = " " + lipgloss.NewStyle().Foreground(tl.theme.Overlay0).Render("≈")
+		}
+
+		line := burstPrefix + anchorMark + timeStr + " " + compareBadge + star + kindName + " " + etStr + approxMark
 
 		padded := PadRight(line, tl.width)
 		if isSelected {

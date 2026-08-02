@@ -2,12 +2,14 @@ package adapter
 
 import (
 	"fmt"
+	"strconv"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"github.com/loog-project/loog/internal/resource"
 	"github.com/loog-project/loog/internal/store"
+	"github.com/loog-project/loog/internal/util"
 )
 
 // LiveRevisionMsg tells the TUI that a new revision has been ingested into the LiveStore.
@@ -70,6 +72,13 @@ func buildRevision(
 	rev := resource.Revision{
 		ID:     revID,
 		Object: resource.CloneMap(obj.Object),
+	}
+
+	// Capture resourceVersion for causal ordering in the timeline.
+	if rvStr, ok := util.ExtractResourceVersion(obj.Object); ok {
+		if rv, err := strconv.ParseUint(rvStr, 10, 64); err == nil {
+			rev.ResourceVersion = rv
+		}
 	}
 
 	if snapshot != nil {
