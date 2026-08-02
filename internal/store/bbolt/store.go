@@ -122,6 +122,12 @@ func NewWithOptions(path string, opts Options) (*Store, error) {
 		compress:            opts.Compress,
 	}
 
+	// Compression is not recorded per record, so a store must read with the
+	// same setting the file was written with. Callers that open an existing
+	// file may not know that setting (notably --replay, which can't), so align
+	// s.compress with what's actually on disk by probing the first record.
+	s.detectCompression()
+
 	// Start periodic sync goroutine if configured.
 	if opts.Durable && opts.SyncInterval > 0 {
 		s.stopSync = make(chan struct{})
