@@ -91,9 +91,7 @@ func (t *TrackerService) Commit(
 	objID string,
 	newObject *unstructured.Unstructured,
 ) (store.RevisionID, error) {
-	lw := t.objLock(objID)
-	lw.mu.Lock()
-	atomic.StoreInt64(&lw.lastUse, time.Now().UnixNano())
+	lw := t.lockObject(objID)
 	defer lw.mu.Unlock()
 
 	// try to hot-state cache
@@ -223,6 +221,14 @@ func (t *TrackerService) Restore(
 
 		if p != nil {
 			patchChain = append(patchChain, p)
+			// Guard against a corrupted chain: PreviousID must strictly
+			// decrease toward the base snapshot. A self-reference or cycle
+			// would otherwise loop forever and grow patchChain without bound.
+			if p.PreviousID >= currentRevision {
+				return nil, fmt.Errorf(
+					"corrupted patch chain for %s: revision %d points back to %d",
+					objID, currentRevision, p.PreviousID)
+			}
 			currentRevision = p.PreviousID
 
 			continue // find the next patch / snapshot
@@ -264,20 +270,50 @@ func (t *TrackerService) objLock(uid string) *lockWrap {
 		return mu
 	}
 	t.commitLockMutex.Lock()
+	defer t.commitLockMutex.Unlock()
+	if t.commitLocks == nil {
+		// Service is closed. Hand back a standalone lock so callers don't panic
+		// writing to a nil map; the janitor is stopped so there's no contention.
+		return &lockWrap{lastUse: time.Now().UnixNano()}
+	}
 	if mu = t.commitLocks[uid]; mu == nil {
-		mu = &lockWrap{}
+		// Stamp lastUse at creation so a brand-new lock isn't immediately
+		// eligible for janitor eviction (lastUse == 0 would always look stale).
+		mu = &lockWrap{lastUse: time.Now().UnixNano()}
 		t.commitLocks[uid] = mu
 	}
-	t.commitLockMutex.Unlock()
 	return mu
+}
+
+// lockObject acquires the per-object commit lock and guards against the janitor
+// evicting the lock (and another goroutine installing a fresh one) in the window
+// between lookup and Lock. Without this, two commits for the same object could
+// run concurrently on the same cached trackerState. The caller must Unlock the
+// returned lock.
+func (t *TrackerService) lockObject(uid string) *lockWrap {
+	for {
+		lw := t.objLock(uid)
+		lw.mu.Lock()
+
+		t.commitLockMutex.RLock()
+		current, tracked := t.commitLocks[uid]
+		closed := t.commitLocks == nil
+		t.commitLockMutex.RUnlock()
+
+		if closed || (tracked && current == lw) {
+			atomic.StoreInt64(&lw.lastUse, time.Now().UnixNano())
+			return lw
+		}
+		// The lock we grabbed was evicted; retry with the current one.
+		lw.mu.Unlock()
+	}
 }
 
 func (t *TrackerService) WarmCache(uid string, obj diffmap.DiffMap, rev store.RevisionID) {
 	if t.cache == nil {
 		return
 	}
-	lock := t.objLock(uid)
-	lock.mu.Lock()
+	lock := t.lockObject(uid)
 	defer lock.mu.Unlock()
 	t.cache.set(uid, &trackerState{obj: obj, rev: rev})
 }

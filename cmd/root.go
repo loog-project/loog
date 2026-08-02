@@ -261,14 +261,21 @@ func setupProduction(ctx context.Context, args []string) (
 		if fileErr != nil {
 			return cleanup, nil, nil, nil, nil, fmt.Errorf("cannot create temp file: %w", fileErr)
 		}
-		cleanups = append(cleanups, func() {
-			_ = file.Close()
-			if removeErr := os.Remove(file.Name()); removeErr != nil {
-				setupLog.Err(removeErr).Msg("Cannot remove temp file")
-			}
-		})
 		outputFile = file.Name()
-		setupLog.Info().Msgf("No output file specified, using temporary file: %s", outputFile)
+		_ = file.Close() // bbolt reopens by path
+
+		if headlessMode {
+			// In headless mode the collected file IS the deliverable, so keep
+			// it and tell the user where it landed instead of deleting it.
+			setupLog.Info().Msgf("No output file specified; collecting to: %s", outputFile)
+		} else {
+			cleanups = append(cleanups, func() {
+				if removeErr := os.Remove(outputFile); removeErr != nil {
+					setupLog.Err(removeErr).Msg("Cannot remove temp file")
+				}
+			})
+			setupLog.Info().Msgf("No output file specified, using temporary file: %s", outputFile)
+		}
 	}
 
 	setupLog.Info().
@@ -341,6 +348,7 @@ func runHeadless(
 
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(c)
 	<-c
 
 	setupLog.Info().Msg("Received interrupt signal, stopping collector...")
@@ -369,11 +377,17 @@ func runInteractive(
 					log.Error().Err(err).Str("gvr", rk.GVR()).Msg("Cannot parse GVR for watch add")
 					return
 				}
-				if err := m.Add(gvr); err != nil {
-					log.Error().Err(err).Str("kind", rk.Kind).Msg("Cannot add watch to mux")
-				} else {
-					log.Info().Str("kind", rk.Kind).Str("gvr", rk.GVR()).Msg("Added dynamic watch")
-				}
+				// m.Add blocks until the informer's cache syncs. This callback
+				// runs on the bubbletea event loop, so blocking here would
+				// freeze the whole UI (indefinitely if the GVR never syncs).
+				// Run it in the background; events arrive via the collector.
+				go func() {
+					if err := m.Add(gvr); err != nil {
+						log.Error().Err(err).Str("kind", rk.Kind).Msg("Cannot add watch to mux")
+					} else {
+						log.Info().Str("kind", rk.Kind).Str("gvr", rk.GVR()).Msg("Added dynamic watch")
+					}
+				}()
 			},
 			func(kind string) {
 				log.Info().Str("kind", kind).Msg("Watch kind removed from TUI (mux removal requires GVR)")
@@ -385,10 +399,17 @@ func runInteractive(
 	// Redirect klog (k8s client-go) into the TUI's debug log viewer
 	logCapture := &tuiLogWriter{program: program}
 	klog.SetOutput(logCapture)
+	// Stop routing klog into the (dead) program once the TUI exits.
+	defer klog.SetOutput(io.Discard)
+
 	savedStderr := os.Stderr
-	devNull, _ := os.Open(os.DevNull)
-	if devNull != nil {
+	if devNull, derr := os.Open(os.DevNull); derr == nil {
 		os.Stderr = devNull
+		// Deferred so stderr is restored and the fd closed even if program.Run panics.
+		defer func() {
+			os.Stderr = savedStderr
+			_ = devNull.Close()
+		}()
 	}
 
 	// Discover cluster resource kinds in the background for WatchManager
@@ -422,12 +443,7 @@ func runInteractive(
 	}()
 
 	if _, teaErr := program.Run(); teaErr != nil {
-		os.Stderr = savedStderr
 		setupLog.Error().Err(teaErr).Msg("Error running TUI program")
-	}
-	os.Stderr = savedStderr
-	if devNull != nil {
-		_ = devNull.Close()
 	}
 
 	setupLog.Info().Msg("TUI program exited, stopping collector")

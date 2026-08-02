@@ -80,8 +80,15 @@ type Mux struct {
 	wg     sync.WaitGroup // tracks in-flight dispatch calls
 
 	mu      sync.RWMutex
-	watches map[schema.GroupVersionResource]context.CancelFunc
+	watches map[schema.GroupVersionResource]*watchEntry
 	stopped bool
+}
+
+// watchEntry holds the per-GVR cancel func and a channel that is closed once
+// the initial Add for that GVR has finished (whether it synced or failed).
+type watchEntry struct {
+	cancel context.CancelFunc
+	synced chan struct{}
 }
 
 // New creates a Mux that will create informers using the provided
@@ -108,29 +115,46 @@ func New(ctx context.Context, client dynamic.Interface, opts ...Option) (*Mux, e
 		client:  client,
 		cfg:     cfg,
 		events:  make(chan watch.Event, cfg.buffer),
-		watches: make(map[schema.GroupVersionResource]context.CancelFunc),
+		watches: make(map[schema.GroupVersionResource]*watchEntry),
 	}, nil
 }
 
 // Add registers a watch for the given GVR. It blocks until the
 // informer's cache has synced (the initial list is complete). Calling
-// Add for an already-watched GVR is a no-op.
+// Add for an already-watched GVR (including a concurrent Add for the
+// same GVR) blocks until that watch has synced, then returns.
 func (m *Mux) Add(gvr schema.GroupVersionResource) error {
 	m.mu.Lock()
 	if m.stopped {
 		m.mu.Unlock()
 		return ErrStopped
 	}
-	if _, ok := m.watches[gvr]; ok {
+	if existing, ok := m.watches[gvr]; ok {
+		synced := existing.synced
 		m.mu.Unlock()
-		return nil
+		// Honour the "blocks until synced" contract for this caller too,
+		// instead of returning before the first Add finished its initial list.
+		select {
+		case <-synced:
+		case <-m.ctx.Done():
+			return ErrStopped
+		}
+		if m.Has(gvr) {
+			return nil
+		}
+		return fmt.Errorf("concurrent add for %s did not complete", gvr)
 	}
 
 	ctx, cancel := context.WithCancel(m.ctx)
 
-	// Reserve the slot so a concurrent Add for the same GVR is a no-op.
-	m.watches[gvr] = cancel
+	// Reserve the slot so a concurrent Add for the same GVR waits on synced.
+	entry := &watchEntry{cancel: cancel, synced: make(chan struct{})}
+	m.watches[gvr] = entry
 	m.mu.Unlock()
+
+	// Always unblock any waiters, whether this Add succeeds or fails. Waiters
+	// re-check Has() after waking to distinguish success from failure.
+	defer close(entry.synced)
 
 	// Everything below runs without the lock. The informer's event
 	// handlers acquire a read-lock internally, so holding a write-lock
@@ -150,7 +174,10 @@ func (m *Mux) Add(gvr schema.GroupVersionResource) error {
 		return fmt.Errorf("register event handler for %s: %w", gvr, err)
 	}
 
-	go factory.Start(ctx.Done())
+	// Start is non-blocking (it launches the informer goroutines and
+	// returns), so call it directly; wrapping it in `go` would let
+	// WaitForCacheSync run before Start.
+	factory.Start(ctx.Done())
 
 	if !cache.WaitForCacheSync(ctx.Done(), inf.HasSynced) {
 		cancel()
@@ -167,11 +194,11 @@ func (m *Mux) Remove(gvr schema.GroupVersionResource) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	cancel, ok := m.watches[gvr]
+	entry, ok := m.watches[gvr]
 	if !ok {
 		return false
 	}
-	cancel()
+	entry.cancel()
 	delete(m.watches, gvr)
 	return true
 }
