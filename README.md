@@ -41,7 +41,12 @@ loog -f 'Namespaces("prod","kube-system")' v1/pods
 ```
 
 **Resources** are specified as Group/Version/Resource (`GVR`) strings, e.g. `v1/pods`, `apps/v1/deployments`,
-`batch/v1/jobs`. You must provide **at least one resource** to watch or load an older recording using `--output [FILE]` file (or both).
+`batch/v1/jobs`. You must provide **at least one resource** to watch, an `--output [FILE]` to record into, or
+`--replay [FILE]` to browse an existing recording.
+
+> [!TIP]
+> Just want to try the UI without a cluster? `loog --simulate` runs the TUI on generated data.
+> Inside the TUI, press `?` for help and `ctrl+k` for the command palette.
 
 > [!NOTE]
 > _LOOG_ uses your kubeconfig and RBAC. You'll only see/list/watch what your credentials allow.
@@ -62,15 +67,31 @@ loog apps/v1/deployments v1/pods
 loog -H -o history.loog apps/v1/deployments v1/pods
 ```
 
-* Runs without UI and appends revisions to `history.loog` until interrupted.
+* Runs without UI and records revisions to `history.loog` until interrupted.
 * Safer for long-running collection jobs and CI.
 
 ```bash
-# Explore an existing file later (no new watches started)
-loog -o history.loog
+# Browse an existing recording read-only (no cluster connection)
+loog --replay history.loog
 ```
 
-* Opens the TUI over the saved revisions in `history.loog`.
+* Opens the TUI over the saved revisions in `history.loog` **without** connecting to Kubernetes or modifying the file.
+
+### Recording to a file
+
+Use `-o/--output FILE` to record revisions to a specific file.
+
+> [!IMPORTANT]
+> If `FILE` already exists, `loog` **refuses to start** so it never appends to a recording you meant to replay.
+> Pass `--append` to resume recording into it, or `--replay` to browse it read-only.
+
+```bash
+# Start a new recording (fails if the file already exists)
+loog -o history.loog v1/pods
+
+# Resume recording into an existing file
+loog --append -o history.loog v1/pods
+```
 
 ### Filtering
 
@@ -117,13 +138,15 @@ loog -f 'Object.GetLabels()["app"] == "web" && Object.GetNamespace() == "adm"' a
 > [!IMPORTANT]
 > Filters are evaluated **before writing** live events.
 > **Non-matching resources are *not added* to the database.**
-> When opening an existing `.loog` file, the filter acts as a **view** in the UI (it doesn't delete data).
+> When replaying an existing `.loog` file (`--replay`), the filter acts as a **view** and never modifies the file.
 
 ### Performance & Durability
 
 - `--snapshot-interval, -s <N>`: write a full snapshot every N patches (default `8`).
 - `--no-durable-sync`: skip fsync on each commit (higher throughput, **unsafe on crashes**).
 - `--disable-cache`: disable the in-memory cache layer.
+- `--no-compress`: store payloads uncompressed (larger file, slightly less CPU). Files are compressed by default;
+  `--replay` detects and reads either automatically.
 
 ### Kubeconfig & Debug
 
