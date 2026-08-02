@@ -92,37 +92,46 @@ func GroupTimelineByBurst(entries []TimelineEntry, window time.Duration) []any {
 }
 
 // CloneMap performs a recursive clone of a map[string]any.
-// It recursively clones nested maps and slices, but shares scalar values.
+// It recursively clones nested maps and slices, but shares scalar values
+// (which are immutable in Go). Non-JSON collection shapes other than
+// map[string]any, []any, and []map[string]any are shared by reference; this
+// is safe for the unstructured Kubernetes objects loog handles, which decode
+// only into those shapes.
 func CloneMap(m map[string]any) map[string]any {
 	if m == nil {
 		return nil
 	}
 	result := make(map[string]any, len(m))
 	for k, v := range m {
-		switch val := v.(type) {
-		case map[string]any:
-			result[k] = CloneMap(val)
-		case []any:
-			result[k] = cloneSlice(val)
-		default:
-			result[k] = v
-		}
+		result[k] = cloneValue(v)
 	}
 	return result
+}
+
+// cloneValue deep-clones the collection shapes loog can encounter; everything
+// else (scalars) is returned as-is.
+func cloneValue(v any) any {
+	switch val := v.(type) {
+	case map[string]any:
+		return CloneMap(val)
+	case []any:
+		return cloneSlice(val)
+	case []map[string]any:
+		cloned := make([]map[string]any, len(val))
+		for i, item := range val {
+			cloned[i] = CloneMap(item)
+		}
+		return cloned
+	default:
+		return v
+	}
 }
 
 // cloneSlice recursively clones a []any, handling nested maps and slices.
 func cloneSlice(s []any) []any {
 	cloned := make([]any, len(s))
 	for i, item := range s {
-		switch v := item.(type) {
-		case map[string]any:
-			cloned[i] = CloneMap(v)
-		case []any:
-			cloned[i] = cloneSlice(v)
-		default:
-			cloned[i] = item
-		}
+		cloned[i] = cloneValue(item)
 	}
 	return cloned
 }

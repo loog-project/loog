@@ -310,6 +310,20 @@ func (rt *ResourceTree) handleFilterMsg(msg tea.Msg) tea.Cmd {
 }
 
 func (rt *ResourceTree) buildItems() {
+	// Remember what the cursor points at so we can restore it after the
+	// rebuild. rt.selected only tracks resources, so a live refresh would
+	// otherwise yank the cursor off a kind header back onto the selected
+	// resource. Capture the header/resource identity before we discard items.
+	var cursorUID, cursorKind string
+	hadCursorItem := rt.cursor >= 0 && rt.cursor < len(rt.items)
+	if hadCursorItem {
+		ci := rt.items[rt.cursor]
+		cursorKind = ci.Kind
+		if ci.Type == treeItemResource && ci.Resource != nil {
+			cursorUID = ci.Resource.Resource.UID
+		}
+	}
+
 	rt.items = nil
 	// When filter is applied and NOT being edited, hide non-matching items.
 	// During editing (even with a previously applied filter), show everything for preview.
@@ -353,8 +367,25 @@ func (rt *ResourceTree) buildItems() {
 		}
 	}
 
-	// After rebuilding, try to re-locate the selected UID so the cursor
-	// stays on the correct item even if item order changed.
+	// Restore the cursor to the same item it was on before the rebuild
+	// (resource or kind header), so live refreshes don't move it.
+	if hadCursorItem {
+		for i, item := range rt.items {
+			if cursorUID != "" {
+				if item.Type == treeItemResource && item.Resource != nil &&
+					item.Resource.Resource.UID == cursorUID {
+					rt.cursor = i
+					return
+				}
+			} else if item.Type == treeItemKind && item.Kind == cursorKind {
+				rt.cursor = i
+				return
+			}
+		}
+	}
+
+	// The prior cursor item is gone (or this is the first build): fall back to
+	// the selected resource so selection stays visible.
 	if rt.selected != "" {
 		for i, item := range rt.items {
 			if item.Type == treeItemResource && item.Resource != nil && item.Resource.Resource.UID == rt.selected {
@@ -364,9 +395,12 @@ func (rt *ResourceTree) buildItems() {
 		}
 	}
 
-	// Fallback: clamp cursor if selected UID wasn't found (e.g. collapsed group)
+	// Clamp into range.
 	if rt.cursor >= len(rt.items) && len(rt.items) > 0 {
 		rt.cursor = len(rt.items) - 1
+	}
+	if rt.cursor < 0 {
+		rt.cursor = 0
 	}
 }
 
@@ -1604,6 +1638,10 @@ func (tl *TimelineList) rebuild() {
 	}
 
 	if tl.reversed {
+		// Reverse a copy: when no window/filter is active, `filtered` still
+		// aliases tl.entries, and reversing in place would corrupt the source
+		// slice (and break the second toggle back to newest-first).
+		filtered = slices.Clone(filtered)
 		slices.Reverse(filtered)
 	}
 
@@ -1807,7 +1845,7 @@ func (tl *TimelineList) Update(msg tea.Msg) tea.Cmd {
 }
 
 func (tl *TimelineList) selectCurrent() tea.Cmd {
-	if tl.cursor >= len(tl.flatItems) {
+	if tl.cursor < 0 || tl.cursor >= len(tl.flatItems) {
 		return nil
 	}
 	item := tl.flatItems[tl.cursor]
@@ -1920,8 +1958,10 @@ func (tl *TimelineList) View() string {
 		kindPrefix := e.Resource.Kind + "/"
 		nameStr := e.Resource.Name
 		combined := kindPrefix + nameStr
-		if len(combined) > nameMaxW {
-			nameStr = Truncate(nameStr, nameMaxW-len(kindPrefix))
+		// Use display width (rune-aware) rather than byte length so multibyte
+		// names aren't over-truncated or dropped entirely.
+		if lipgloss.Width(combined) > nameMaxW {
+			nameStr = Truncate(nameStr, nameMaxW-lipgloss.Width(kindPrefix))
 		}
 		var kindName string
 		if isDimmed {

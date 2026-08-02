@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -117,10 +118,11 @@ func loadClusterResourceKinds(kubeConfigPath string) ([]resource.Kind, error) {
 	lists, err := cs.Discovery().ServerPreferredResources()
 	if err != nil {
 		// Discovery can return partial results on errors (e.g. metrics-server unavailable).
-		// Use whatever we got if lists is non-nil.
+		// Use whatever we got if lists is non-nil, but surface the partial failure.
 		if lists == nil {
 			return nil, fmt.Errorf("getting server preferred resources: %w", err)
 		}
+		log.Warn().Err(err).Msg("Partial resource discovery; some resource types may be missing")
 	}
 
 	var kinds []resource.Kind

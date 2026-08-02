@@ -134,14 +134,11 @@ func diffListByKey(a, b []any, matchKey string) []*AnnotatedNode {
 		return ""
 	}
 
-	// Index b elements by their match-key value while preserving order.
+	// Index b's keyed elements by their match-key value.
 	bByKey := make(map[string]any, len(b))
-	var bOrder []string
 	for _, item := range b {
-		k := keyOf(item)
-		if k != "" {
+		if k := keyOf(item); k != "" {
 			bByKey[k] = item
-			bOrder = append(bOrder, k)
 		}
 	}
 
@@ -163,10 +160,13 @@ func diffListByKey(a, b []any, matchKey string) []*AnnotatedNode {
 		result = append(result, diffValues(item, bItem))
 	}
 
-	// Append elements from b that had no match in a.
-	for _, k := range bOrder {
-		if !matched[k] {
-			result = append(result, buildFullNode(bByKey[k], Added))
+	// Append b elements that had no match in a, in b's original order. This
+	// includes keyless items (e.g. scalars mixed into a keyed list), which
+	// would otherwise be dropped from the diff entirely.
+	for _, item := range b {
+		k := keyOf(item)
+		if k == "" || !matched[k] {
+			result = append(result, buildFullNode(item, Added))
 		}
 	}
 	return result
@@ -201,7 +201,10 @@ func buildFullNode(val any, change ChangeType) *AnnotatedNode {
 		}
 		return node
 	case []any:
-		node := &AnnotatedNode{Change: change}
+		// Use a non-nil slice so an empty list is still rendered as a list
+		// ("[]") rather than falling through to the scalar leaf and printing
+		// "null".
+		node := &AnnotatedNode{Change: change, List: make([]*AnnotatedNode, 0, len(v))}
 		for _, item := range v {
 			node.List = append(node.List, buildFullNode(item, change))
 		}

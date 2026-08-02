@@ -142,7 +142,7 @@ type LoopInfo struct {
 // state appears more than once (indicating a reconcile loop).
 func (rd *Data) DetectLoop(windowSize int) bool {
 	revs := rd.Revisions
-	if len(revs) < 3 {
+	if len(revs) < 3 || windowSize <= 0 {
 		return false
 	}
 	start := max(len(revs)-windowSize, 0)
@@ -165,10 +165,22 @@ func (rd *Data) DetectLoop(windowSize int) bool {
 	return false
 }
 
+// loopLabel maps a zero-based state index to a spreadsheet-style label:
+// 0->A, 25->Z, 26->AA, 27->AB, ... so more than 26 distinct loop states
+// still get unique labels instead of all collapsing onto "Z".
+func loopLabel(i int) string {
+	s := ""
+	for i >= 0 {
+		s = string(rune('A'+i%26)) + s
+		i = i/26 - 1
+	}
+	return s
+}
+
 // AnalyzeLoop performs detailed loop analysis on recent revisions.
 func (rd *Data) AnalyzeLoop(windowSize int) LoopInfo {
 	revs := rd.Revisions
-	if len(revs) < 4 {
+	if len(revs) < 4 || windowSize <= 0 {
 		return LoopInfo{}
 	}
 	start := max(len(revs)-windowSize, 0)
@@ -206,18 +218,14 @@ func (rd *Data) AnalyzeLoop(windowSize int) LoopInfo {
 
 	// Build label map: only states appearing 2+ times are loop participants
 	loopRevs := make(map[RevisionID]string)
-	nextLabel := 'A'
 	labelMap := make(map[string]string)
 	distinctStates := 0
 	for _, fp := range fingerOrder {
 		occ := seen[fp]
 		if occ.count >= 2 {
-			label := string(nextLabel)
+			label := loopLabel(distinctStates)
 			labelMap[fp] = label
 			distinctStates++
-			if nextLabel < 'Z' {
-				nextLabel++
-			}
 			for _, rid := range occ.revs {
 				loopRevs[rid] = label
 			}
@@ -243,15 +251,18 @@ func (rd *Data) AnalyzeLoop(windowSize int) LoopInfo {
 	}
 	cycles := transitions / 2
 
-	// Calculate cycle period from the most frequently occurring state
+	// Calculate cycle period from the most frequently occurring state.
+	// Iterate fingerOrder (deterministic) rather than the seen map so ties
+	// resolve consistently across runs.
 	var period time.Duration
 	var firstSeen time.Time
 	var bestTimes []time.Time
 	bestCount := 0
-	for fp, occ := range seen {
+	for _, fp := range fingerOrder {
 		if _, isLoop := labelMap[fp]; !isLoop {
 			continue
 		}
+		occ := seen[fp]
 		if occ.count > bestCount {
 			bestCount = occ.count
 			bestTimes = occ.times

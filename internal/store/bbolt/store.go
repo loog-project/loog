@@ -54,7 +54,9 @@ type Store struct {
 
 	compress bool
 
-	stopSync chan struct{} // nil when no periodic sync
+	stopSync  chan struct{} // nil when no periodic sync
+	syncDone  chan struct{} // closed by syncLoop when it returns
+	closeOnce sync.Once
 }
 
 var _ store.ResourcePatchStore = (*Store)(nil)
@@ -113,6 +115,7 @@ func NewWithOptions(path string, opts Options) (*Store, error) {
 	// Start periodic sync goroutine if configured.
 	if opts.Durable && opts.SyncInterval > 0 {
 		s.stopSync = make(chan struct{})
+		s.syncDone = make(chan struct{})
 		go s.syncLoop(opts.SyncInterval)
 	}
 
@@ -121,6 +124,7 @@ func NewWithOptions(path string, opts Options) (*Store, error) {
 
 // syncLoop calls db.Sync() at the given interval until stopSync is closed.
 func (s *Store) syncLoop(interval time.Duration) {
+	defer close(s.syncDone)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -135,14 +139,21 @@ func (s *Store) syncLoop(interval time.Duration) {
 	}
 }
 
-// Close flushes any pending writes and closes the database.
+// Close flushes any pending writes and closes the database. It is idempotent.
 func (s *Store) Close() error {
-	if s.stopSync != nil {
-		close(s.stopSync)
-	}
-	// Always do a final sync to make sure everything is on disk.
-	if err := s.db.Sync(); err != nil {
-		log.Error().Err(err).Msg("Error syncing database before closing")
-	}
-	return s.db.Close()
+	var err error
+	s.closeOnce.Do(func() {
+		if s.stopSync != nil {
+			close(s.stopSync)
+			// Wait for syncLoop to return so it can't call db.Sync()
+			// concurrently with db.Close().
+			<-s.syncDone
+		}
+		// Always do a final sync to make sure everything is on disk.
+		if syncErr := s.db.Sync(); syncErr != nil {
+			log.Error().Err(syncErr).Msg("Error syncing database before closing")
+		}
+		err = s.db.Close()
+	})
+	return err
 }

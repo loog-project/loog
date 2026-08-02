@@ -108,6 +108,10 @@ func (c *stateCache) get(uid string) *trackerState {
 // If the cache is at capacity, existing entries can still be updated but
 // new entries are dropped.
 func (c *stateCache) set(uid string, ts *trackerState) {
+	// Stamp lastRead before publishing the entry. If it stayed 0 until after
+	// the map insert, a janitor tick landing in that window would compute a
+	// decades-long age and evict the just-inserted hot entry.
+	atomic.StoreInt64(&ts.lastRead, time.Now().UnixNano())
 	c.mu.Lock()
 	_, exists := c.data[uid]
 	if !exists && len(c.data) >= maxTrackedEntries {
@@ -117,5 +121,4 @@ func (c *stateCache) set(uid string, ts *trackerState) {
 	}
 	c.data[uid] = ts
 	c.mu.Unlock()
-	atomic.StoreInt64(&ts.lastRead, time.Now().UnixNano())
 }

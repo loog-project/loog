@@ -1019,18 +1019,25 @@ func (a *App) refreshViewsAfterNewRevision(resourceUID string) {
 		len(a.store.StarredResources()),
 	)
 
-	// Auto-scroll: jump to newest if enabled
-	if a.autoScroll {
-		// Explorer: only jump if the selected resource got the new revision
-		selectedUID := a.explorer.tree.SelectedUID()
-		if selectedUID == resourceUID {
-			rd := a.store.GetResource(resourceUID)
-			if rd != nil && len(rd.Revisions) > 0 {
+	// The store is copy-on-write: appending a revision swaps in a brand-new
+	// *resource.Data, so the panels still hold the pre-append pointer. If the
+	// selected resource received this revision, rebind the middle and detail
+	// panels to the fresh copy so they don't show stale data. This must happen
+	// whether or not auto-scroll is on.
+	selectedUID := a.explorer.tree.SelectedUID()
+	if selectedUID == resourceUID {
+		if rd := a.store.GetResource(resourceUID); rd != nil && len(rd.Revisions) > 0 {
+			a.explorer.revList.SetResource(rd)
+			if a.autoScroll {
 				a.explorer.revList.JumpToNewest()
-				a.explorer.detail.SetRevision(rd, len(rd.Revisions)-1)
 			}
+			idx, _ := a.explorer.revList.CursorInfo()
+			a.explorer.detail.SetRevision(rd, idx)
 		}
-		// Timeline: always jump to newest
+	}
+
+	// Timeline: always jump to newest when auto-scroll is enabled.
+	if a.autoScroll {
 		a.timeline.timeline.JumpToNewest()
 		if entry := a.timeline.timeline.SelectedEntry(); entry != nil {
 			a.timeline.SelectEntry(*entry)

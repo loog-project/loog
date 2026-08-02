@@ -63,6 +63,10 @@ func (r *renderer) renderList(items []*AnnotatedNode, level int, parentChange Ch
 		case item.Children != nil:
 			r.renderListMapItem(item.Children, prefix, dash, level, change)
 		case item.List != nil:
+			if len(item.List) == 0 {
+				r.sb.WriteString(prefix + dash + "[]\n")
+				break
+			}
 			r.sb.WriteString(prefix + dash + "\n")
 			r.renderList(item.List, level+1, change)
 		default:
@@ -98,9 +102,17 @@ func (r *renderer) renderListMapItem(children map[string]*AnnotatedNode, prefix,
 func (r *renderer) renderChildValue(child *AnnotatedNode, level int) {
 	switch {
 	case child.List != nil:
+		if len(child.List) == 0 {
+			r.sb.WriteString(" []\n")
+			return
+		}
 		r.sb.WriteString("\n")
 		r.renderList(child.List, level+1, child.Change)
 	case child.Children != nil:
+		if len(child.Children) == 0 {
+			r.sb.WriteString(" {}\n")
+			return
+		}
 		r.sb.WriteString("\n")
 		r.renderMap(child.Children, level+1)
 	default:
@@ -129,7 +141,9 @@ func (r *renderer) syntaxHighlight(val any) string {
 		return r.theme.BoolStyle.Render(fmt.Sprintf("%v", v))
 	case int:
 		return r.theme.NumberStyle.Render(fmt.Sprintf("%d", v))
-	case float64:
+	case int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		return r.theme.NumberStyle.Render(fmt.Sprintf("%d", v))
+	case float32, float64:
 		return r.theme.NumberStyle.Render(fmt.Sprintf("%v", v))
 	case nil:
 		return r.theme.NullStyle.Render("null")
