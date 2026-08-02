@@ -55,6 +55,8 @@ var (
 	filterExpr       string
 	headlessMode     bool
 	simulateMode     bool
+	appendOutput     bool
+	replayFile       string
 )
 
 var rootCmd = &cobra.Command{
@@ -111,6 +113,10 @@ func init() {
 		"Create a full snapshot after this many patches (default 8)")
 	rootCmd.Flags().BoolVar(&simulateMode, "simulate", false,
 		"Run with simulated data instead of connecting to Kubernetes")
+	rootCmd.Flags().BoolVar(&appendOutput, "append", false,
+		"Allow --output to resume an existing .loog file instead of refusing it")
+	rootCmd.Flags().StringVar(&replayFile, "replay", "",
+		"Open an existing .loog file read-only and browse it, without connecting to Kubernetes")
 
 	// allow some flags to be set via environment variables / config file
 	mustBind("kubeconfig",
@@ -157,6 +163,11 @@ func initConfig() {
 // run is the main entry point for the command execution.
 func run(ctx context.Context, args []string) error {
 	setupDebugLogger()
+
+	// Replay mode: open an existing capture read-only and browse it.
+	if replayFile != "" {
+		return runReplayMode()
+	}
 
 	// Simulate mode: skip Kubernetes entirely, use simulated data
 	if simulateMode {
@@ -235,6 +246,56 @@ func runSimulateMode() error {
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		setupLog.Error().Err(err).Msg("Error running TUI program")
+	}
+	return nil
+}
+
+// runReplayMode opens an existing capture read-only and browses it in the TUI.
+// It never connects to Kubernetes and never writes to the file.
+func runReplayMode() error {
+	setupLog.Info().Str("file", replayFile).Msg("Replaying capture (read-only)")
+
+	// Keep klog and stderr off the TUI, same as simulate mode.
+	klog.SetOutput(io.Discard)
+	defer klog.SetOutput(io.Discard)
+	if devNull, derr := os.Open(os.DevNull); derr == nil {
+		savedStderr := os.Stderr
+		os.Stderr = devNull
+		defer func() {
+			os.Stderr = savedStderr
+			_ = devNull.Close()
+		}()
+	}
+
+	rps, err := bboltStore.NewWithOptions(replayFile, bboltStore.Options{ReadOnly: true})
+	if err != nil {
+		return fmt.Errorf("opening replay file: %w", err)
+	}
+	defer func() { _ = rps.Close() }()
+
+	filterProgram, err := expr.Compile(filterExpr, expr.Env(util.EventEntryEnv{}), expr.AsBool())
+	if err != nil {
+		return fmt.Errorf("compiling filter expression: %w", err)
+	}
+
+	liveStore := adapter.NewLiveStore()
+	// A throwaway tracker service (no cache) just satisfies loadHistoryFromDB's
+	// WarmCache call; nothing is committed in replay.
+	trackerService := service.NewTrackerService(rps, snapshotInterval, false)
+	defer func() { _ = trackerService.Close() }()
+
+	// Program is nil: we populate the store up-front, before the TUI runs.
+	handler := &adapter.TUIRevisionHandler{Store: liveStore}
+	if loadErr := loadHistoryFromDB(trackerService, rps, filterProgram, handler); loadErr != nil {
+		return fmt.Errorf("loading capture: %w", loadErr)
+	}
+	liveStore.RebuildKindGroups()
+
+	// No recording, no simulator, no watch callbacks: a pure browse session.
+	app := tui.NewApp(liveStore)
+	p := tea.NewProgram(app, tea.WithAltScreen())
+	if _, runErr := p.Run(); runErr != nil {
+		setupLog.Error().Err(runErr).Msg("Error running TUI program")
 	}
 	return nil
 }
@@ -676,6 +737,19 @@ func loadHistoryFromDB(
 }
 
 func validateArgsAndFlags(_ *cobra.Command, args []string) error {
+	// Replay mode browses an existing file read-only; it can't be combined
+	// with any of the collection/output flags.
+	if replayFile != "" {
+		if len(args) > 0 || outputFile != "" || appendOutput || headlessMode || simulateMode {
+			return fmt.Errorf(
+				"--replay cannot be combined with resource args, --output, --append, --headless, or --simulate")
+		}
+		if info, err := os.Stat(replayFile); err != nil || info.IsDir() {
+			return fmt.Errorf("--replay file %q does not exist or is not a file", replayFile)
+		}
+		return nil
+	}
+
 	// Simulate mode doesn't need resource args or output file
 	if simulateMode {
 		return nil
@@ -684,6 +758,16 @@ func validateArgsAndFlags(_ *cobra.Command, args []string) error {
 	if len(args) == 0 && outputFile == "" {
 		return fmt.Errorf(
 			"at least one resource argument or the --output flag must be provided (you may provide both)")
+	}
+
+	// Guard against silently appending to (and pre-loading) an existing capture.
+	// Resuming is opt-in via --append; browsing read-only is --replay.
+	if outputFile != "" && !appendOutput {
+		if info, err := os.Stat(outputFile); err == nil && !info.IsDir() {
+			return fmt.Errorf(
+				"output file %q already exists; use --append to resume it or --replay to browse it read-only",
+				outputFile)
+		}
 	}
 
 	// validate each provided resource argument

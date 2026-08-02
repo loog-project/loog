@@ -43,6 +43,11 @@ type Options struct {
 	// Compress, when true, applies s2 compression to payloads before storing.
 	// Reduces DB file size at a small CPU cost.
 	Compress bool
+
+	// ReadOnly opens an existing database without allowing writes. Bucket
+	// creation and the periodic sync are skipped. Any write call will fail.
+	// Used for replay/browse of a captured .loog file.
+	ReadOnly bool
 }
 
 type Store struct {
@@ -87,22 +92,27 @@ func NewWithOptions(path string, opts Options) (*Store, error) {
 		Timeout:      0,
 		NoSync:       noSync,
 		NoGrowSync:   noSync,
+		ReadOnly:     opts.ReadOnly,
 		FreelistType: bbolt.FreelistMapType,
 	})
 	if err != nil {
 		return nil, err
 	}
-	err = db.Update(func(tx *bbolt.Tx) error {
-		for _, b := range [][]byte{bucketSnapshots, bucketLatest} {
-			if _, e := tx.CreateBucketIfNotExists(b); e != nil {
-				return e
+	// A read-only db cannot run Update transactions; the buckets already
+	// exist in the file we're opening to browse.
+	if !opts.ReadOnly {
+		err = db.Update(func(tx *bbolt.Tx) error {
+			for _, b := range [][]byte{bucketSnapshots, bucketLatest} {
+				if _, e := tx.CreateBucketIfNotExists(b); e != nil {
+					return e
+				}
 			}
+			return nil
+		})
+		if err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("failed to create default buckets: %w", err)
 		}
-		return nil
-	})
-	if err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("failed to create default buckets: %w", err)
 	}
 
 	s := &Store{
