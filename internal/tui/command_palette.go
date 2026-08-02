@@ -563,6 +563,34 @@ func (wm *WatchManager) Hide() {
 	wm.addQueryInput.Blur()
 }
 
+// Refresh repopulates the watched and available lists from the store without
+// resetting the active tab, filter text, or blurring inputs. Used after an
+// add/remove so the manager can stay open for further edits.
+func (wm *WatchManager) Refresh(store Store, unwatchedKinds []resource.Kind) {
+	kinds := store.WatchedKinds()
+	wm.watched = make([]watchedKindEntry, len(kinds))
+	wm.watchNames = make([]string, len(kinds))
+	for i, kind := range kinds {
+		wm.watched[i] = watchedKindEntry{
+			Kind:          kind,
+			ResourceCount: store.ResourceCountByKind(kind),
+			RevisionCount: store.RevisionCountByKind(kind),
+		}
+		wm.watchNames[i] = kind
+	}
+
+	wm.available = unwatchedKinds
+	wm.addNames = make([]string, len(unwatchedKinds))
+	for i, rk := range unwatchedKinds {
+		wm.addNames[i] = rk.Kind
+	}
+
+	// Re-run the fuzzy matches; fuzzyMatchAll clamps the cursor when the list
+	// shrank below the old cursor position.
+	wm.updateWatchMatches()
+	wm.updateAddMatches()
+}
+
 func (wm *WatchManager) updateWatchMatches() {
 	wm.watchMatches, wm.watchCursor = fuzzyMatchAll(wm.watchFilterInput.Value(), wm.watchNames, wm.watchCursor)
 }
@@ -612,29 +640,24 @@ func (wm *WatchManager) updateWatching(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "up", "ctrl+p", "k":
+		case "up", "ctrl+p":
 			if wm.watchCursor > 0 {
 				wm.watchCursor--
 			}
-		case "down", "ctrl+n", "j":
+		case "down", "ctrl+n":
 			if wm.watchCursor < len(wm.watchMatches)-1 {
 				wm.watchCursor++
 			}
-		case "d", "delete":
+		case "enter", "delete":
 			if wm.watchCursor < len(wm.watchMatches) {
 				match := wm.watchMatches[wm.watchCursor]
 				if match.Index < len(wm.watched) {
 					entry := wm.watched[match.Index]
-					wm.Hide()
-					return tea.Batch(
-						Cmd(HideOverlayMsg{}),
-						Cmd(RemoveWatchKindMsg{Kind: entry.Kind}),
-					)
+					// Keep the manager open so several kinds can be removed in
+					// one session. The App refreshes our lists afterwards.
+					return Cmd(RemoveWatchKindMsg{Kind: entry.Kind})
 				}
 			}
-		case "enter":
-			wm.Hide()
-			return Cmd(HideOverlayMsg{})
 		default:
 			var cmd tea.Cmd
 			wm.watchFilterInput, cmd = wm.watchFilterInput.Update(msg)
@@ -666,11 +689,9 @@ func (wm *WatchManager) updateAdd(msg tea.Msg) tea.Cmd {
 				match := wm.addMatches[wm.addCursor]
 				if match.Index < len(wm.available) {
 					rk := wm.available[match.Index]
-					wm.Hide()
-					return tea.Batch(
-						Cmd(HideOverlayMsg{}),
-						Cmd(AddWatchKindMsg{Kind: rk}),
-					)
+					// Keep the manager open so several kinds can be added in one
+					// session. The App refreshes our lists afterwards.
+					return Cmd(AddWatchKindMsg{Kind: rk})
 				}
 			}
 		default:
@@ -729,7 +750,7 @@ func (wm *WatchManager) View() string {
 	// Footer
 	var footerText string
 	if wm.tab == wmTabWatching {
-		footerText = fmt.Sprintf("  %d types watched  Tab:add types  d:unwatch  Esc:close",
+		footerText = fmt.Sprintf("  %d types watched  Tab:add types  Enter:unwatch  Esc:close",
 			len(wm.watchMatches))
 	} else {
 		footerText = fmt.Sprintf("  %d types available  Tab:back  Enter:add  Esc:close",
