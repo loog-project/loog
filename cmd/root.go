@@ -1,14 +1,17 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
+	"syscall"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/expr-lang/expr"
@@ -21,14 +24,17 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
+	"k8s.io/klog/v2"
 
-	"github.com/loog-project/loog/pkg/mux"
+	"github.com/loog-project/loog/internal/adapter"
+	"github.com/loog-project/loog/internal/resource"
 	"github.com/loog-project/loog/internal/service"
 	"github.com/loog-project/loog/internal/store"
 	bboltStore "github.com/loog-project/loog/internal/store/bbolt"
-	"github.com/loog-project/loog/internal/ui"
+	"github.com/loog-project/loog/internal/tui"
 	"github.com/loog-project/loog/internal/util"
 	"github.com/loog-project/loog/pkg/diffmap"
+	"github.com/loog-project/loog/pkg/mux"
 )
 
 var (
@@ -138,7 +144,6 @@ func initConfig() {
 
 	viper.AutomaticEnv()
 
-	// If a config file is found, read it in.
 	if err := viper.ReadInConfig(); err == nil {
 		setupLog.Info().Msgf("Using config file: %s", viper.ConfigFileUsed())
 	}
@@ -146,7 +151,33 @@ func initConfig() {
 
 // run is the main entry point for the command execution.
 func run(ctx context.Context, args []string) error {
+	setupDebugLogger()
 
+	// Production mode: connect to Kubernetes
+	cleanup, prog, trackerService, rps, m, err := setupProduction(ctx, args)
+	defer cleanup()
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var wg sync.WaitGroup
+
+	if headlessMode {
+		runHeadless(ctx, cancel, &wg, m, trackerService, rps, prog)
+	} else {
+		runInteractive(ctx, cancel, &wg, m, trackerService, rps, prog)
+	}
+
+	wg.Wait()
+	setupLog.Info().Msg("Collector stopped, bye!")
+	return nil
+}
+
+// setupDebugLogger configures the global zerolog logger.
+func setupDebugLogger() {
 	if enableDebugMode {
 		setupLog.Info().Msg("Debug mode is enabled, setting up debug logger...")
 
@@ -160,12 +191,8 @@ func run(ctx context.Context, args []string) error {
 		if logError != nil {
 			setupLog.Fatal().Err(logError).Msg("Error opening debug log file")
 		}
-		defer func(logFile *os.File) {
-			err := logFile.Close()
-			if err != nil {
-				setupLog.Error().Err(err).Msg("Error closing debug log file")
-			}
-		}(logFile)
+		// Note: logFile is intentionally not closed here; it lives for the process lifetime.
+		// Go's runtime will close it on exit.
 
 		log.Logger = zerolog.New(logFile).With().
 			Timestamp().
@@ -173,140 +200,203 @@ func run(ctx context.Context, args []string) error {
 			Logger().
 			Level(zerolog.DebugLevel)
 	} else {
-		// by default, we shouldn't log anything as this would break our TUI.
 		log.Logger = zerolog.Nop()
+	}
+}
+
+// setupProduction initializes the output file, filter, store, kube client, and mux.
+// It returns a cleanup function, the compiled filter, tracker service, store, and mux.
+func setupProduction(ctx context.Context, args []string) (
+	cleanup func(),
+	prog *vm.Program,
+	trackerService *service.TrackerService,
+	rps store.ResourcePatchStore,
+	m *mux.Mux,
+	err error,
+) {
+	var cleanups []func()
+	cleanup = func() {
+		for i := len(cleanups) - 1; i >= 0; i-- {
+			cleanups[i]()
+		}
 	}
 
 	if outputFile == "" {
-		file, err := os.CreateTemp("", "loog-output-*.loog")
-		if err != nil {
-			setupLog.Fatal().Err(err).Msg("Cannot create temp file")
+		file, fileErr := os.CreateTemp("", "loog-output-*.loog")
+		if fileErr != nil {
+			return cleanup, nil, nil, nil, nil, fmt.Errorf("cannot create temp file: %w", fileErr)
 		}
-		defer func() {
+		cleanups = append(cleanups, func() {
 			_ = file.Close()
 			if removeErr := os.Remove(file.Name()); removeErr != nil {
 				setupLog.Err(removeErr).Msg("Cannot remove temp file")
 			}
-		}()
+		})
 		outputFile = file.Name()
-
 		setupLog.Info().Msgf("No output file specified, using temporary file: %s", outputFile)
 	}
 
 	setupLog.Info().
 		Str("expression", filterExpr).
 		Msg("Compiling filter expression...")
-	prog, err := expr.Compile(filterExpr, expr.Env(util.EventEntryEnv{}), expr.AsBool())
+	prog, err = expr.Compile(filterExpr, expr.Env(util.EventEntryEnv{}), expr.AsBool())
 	if err != nil {
-		setupLog.Fatal().Err(err).Msg("Error compiling filter expression")
+		return cleanup, nil, nil, nil, nil, fmt.Errorf("error compiling filter expression: %w", err)
 	}
 
 	setupLog.Info().
 		Str("store-file", outputFile).
 		Msg("Preparing object revision store...")
-	rps, err := bboltStore.NewWithOptions(outputFile, bboltStore.Options{
-		Durable:  !noDurableSync,
-		Compress: !disableCompress,
+	rps, err = bboltStore.NewWithOptions(outputFile, bboltStore.Options{
+		Durable:      !noDurableSync,
+		SyncInterval: 50 * time.Millisecond,
+		Compress:     !disableCompress,
 	})
 	if err != nil {
-		setupLog.Fatal().Err(err).Msg("Error preparing store")
+		return cleanup, nil, nil, nil, nil, fmt.Errorf("error preparing store: %w", err)
 	}
-	trackerService := service.NewTrackerService(rps, snapshotInterval, !disableCache)
+	cleanups = append(cleanups, func() { _ = rps.Close() })
+	trackerService = service.NewTrackerService(rps, snapshotInterval, !disableCache)
+	cleanups = append(cleanups, func() { _ = trackerService.Close() })
 
 	setupLog.Info().Msg("Preparing dynamic Kubernetes watch client...")
-	cfg, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
-	if err != nil {
-		setupLog.Fatal().Err(err).Msg("Error loading kubeconfig")
+	cfg, cfgErr := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
+	if cfgErr != nil {
+		return cleanup, nil, nil, nil, nil, fmt.Errorf("error loading kubeconfig: %w", cfgErr)
 	}
-	dyn, err := dynamic.NewForConfig(cfg)
-	if err != nil {
-		setupLog.Fatal().Err(err).Msg("Error creating dynamic watch client")
+	dyn, dynErr := dynamic.NewForConfig(cfg)
+	if dynErr != nil {
+		return cleanup, nil, nil, nil, nil, fmt.Errorf("error creating dynamic watch client: %w", dynErr)
 	}
 
-	// closing this context will stop the dynamic mux and the collector
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	m, err := mux.New(ctx, dyn)
+	m, err = mux.New(ctx, dyn)
 	if err != nil {
-		setupLog.Fatal().Err(err).Msg("Error creating dynamic mux")
+		return cleanup, nil, nil, nil, nil, fmt.Errorf("error creating dynamic mux: %w", err)
 	}
-	defer m.Stop()
+	cleanups = append(cleanups, func() { m.Stop() })
 
-	// add default resources from the arguments
 	for _, r := range args {
 		gvr, gvrParseErr := util.ParseGroupVersionResource(r)
 		if gvrParseErr != nil {
-			setupLog.Fatal().Err(gvrParseErr).Msgf("Cannot parse argument '%s' to GVR", r)
+			return cleanup, nil, nil, nil, nil, fmt.Errorf("cannot parse argument '%s' to GVR: %w", r, gvrParseErr)
 		}
 		if muxAddErr := m.Add(gvr); muxAddErr != nil {
-			setupLog.Fatal().Err(muxAddErr).Msgf("Cannot add GVR '%s' to dynamic mux", gvr)
+			return cleanup, nil, nil, nil, nil, fmt.Errorf("cannot add GVR '%s' to dynamic mux: %w", gvr, muxAddErr)
 		}
 	}
 
-	var wg sync.WaitGroup
+	return cleanup, prog, trackerService, rps, m, nil
+}
 
-	if headlessMode {
-		// headless mode: we will not use the UI, but just collect revisions and store them in the store.
-		setupLog.Info().Msg("Running in headless mode, using no-op revision handler")
+// runHeadless runs the collector without a TUI, waiting for SIGINT.
+func runHeadless(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	wg *sync.WaitGroup,
+	m *mux.Mux,
+	trackerService *service.TrackerService,
+	rps store.ResourcePatchStore,
+	prog *vm.Program,
+) {
+	setupLog.Info().Msg("Running in headless mode, using no-op revision handler")
 
-		wg.Add(1)
-		go func() {
-			runCollector(ctx, m, trackerService, rps, prog, &noOpRevisionHandler{})
-			wg.Done()
-		}()
+	wg.Go(func() {
+		runCollector(ctx, m, trackerService, rps, prog, &noOpRevisionHandler{})
+	})
 
-		// we use [signal.Notify] instead of [signal.NotifyContext] here so we can re-use the ctx for the TUI.
-		c := make(chan os.Signal, 1)
-		signal.Notify(c, os.Interrupt)
-		<-c
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	<-c
 
-		setupLog.Info().Msg("Received interrupt signal, stopping collector...")
-		cancel()
-	} else {
-		// interactive mode: we will use the UI to display revisions and allow user interaction
-		setupLog.Info().Msg("Running in interactive mode, using UI revision handler")
+	setupLog.Info().Msg("Received interrupt signal, stopping collector...")
+	cancel()
+}
 
-		root := ui.NewRoot(ui.DarkTheme, ui.NewListView(trackerService, rps))
-		program := tea.NewProgram(root)
+// runInteractive starts the TUI with a LiveStore and runs the collector in background.
+func runInteractive(
+	ctx context.Context,
+	cancel context.CancelFunc,
+	wg *sync.WaitGroup,
+	m *mux.Mux,
+	trackerService *service.TrackerService,
+	rps store.ResourcePatchStore,
+	prog *vm.Program,
+) {
+	setupLog.Info().Msg("Running in interactive mode with new TUI")
 
-		handler := &uiRevisionHandler{
-			program: program,
-		}
-
-		// run collector
-		wg.Add(2) // 2 because we will run two goroutines: one for loading history and one for collecting revisions
-		go func() {
-			// wait until the program is ready to receive commands, so we don't skip any commits
-			program.Send(nil)
-
-			// after the program is ready, we can start load historic data
-			go func() {
-				if historyErr := loadHistoryFromDB(trackerService, rps, prog, handler); historyErr != nil {
-					log.Error().Err(historyErr).Msg("Error loading history from database")
+	liveStore := adapter.NewLiveStore()
+	app := tui.NewApp(liveStore,
+		tui.WithRecording(),
+		tui.WithWatchCallbacks(
+			func(rk resource.Kind) {
+				gvr, err := util.ParseGroupVersionResource(rk.GVR())
+				if err != nil {
+					log.Error().Err(err).Str("gvr", rk.GVR()).Msg("Cannot parse GVR for watch add")
+					return
 				}
-				wg.Done()
-			}()
+				if err := m.Add(gvr); err != nil {
+					log.Error().Err(err).Str("kind", rk.Kind).Msg("Cannot add watch to mux")
+				} else {
+					log.Info().Str("kind", rk.Kind).Str("gvr", rk.GVR()).Msg("Added dynamic watch")
+				}
+			},
+			func(kind string) {
+				log.Info().Str("kind", kind).Msg("Watch kind removed from TUI (mux removal requires GVR)")
+			},
+		),
+	)
+	program := tea.NewProgram(app, tea.WithAltScreen())
 
-			// and start collecting revisions
-			go func() {
-				runCollector(ctx, m, trackerService, rps, prog, handler)
-				wg.Done()
-			}()
-		}()
-
-		if _, teaErr := program.Run(); teaErr != nil {
-			setupLog.Error().Err(teaErr).Msg("Error running TUI program")
-		}
-
-		setupLog.Info().Msg("TUI program exited, stopping collector")
-		cancel()
+	// Redirect klog (k8s client-go) into the TUI's debug log viewer
+	logCapture := &tuiLogWriter{program: program}
+	klog.SetOutput(logCapture)
+	savedStderr := os.Stderr
+	devNull, _ := os.Open(os.DevNull)
+	if devNull != nil {
+		os.Stderr = devNull
 	}
 
-	wg.Wait()
-	setupLog.Info().Msg("Collector stopped, bye!")
+	// Discover cluster resource kinds in the background for WatchManager
+	go func() {
+		kinds, err := loadClusterResourceKinds(kubeConfigPath)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to discover cluster resource kinds for WatchManager")
+			return
+		}
+		liveStore.SetUnwatchedKinds(kinds)
+	}()
 
-	return nil
+	handler := &adapter.TUIRevisionHandler{
+		Store:   liveStore,
+		Program: program,
+	}
+
+	// Register the goroutines with the WaitGroup before launching them,
+	// ensuring wg.Wait() in the caller cannot return prematurely.
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		program.Send(nil) // wait until program is ready
+		if historyErr := loadHistoryFromDB(trackerService, rps, prog, handler); historyErr != nil {
+			log.Error().Err(historyErr).Msg("Error loading history from database")
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		runCollector(ctx, m, trackerService, rps, prog, handler)
+	}()
+
+	if _, teaErr := program.Run(); teaErr != nil {
+		os.Stderr = savedStderr
+		setupLog.Error().Err(teaErr).Msg("Error running TUI program")
+	}
+	os.Stderr = savedStderr
+	if devNull != nil {
+		_ = devNull.Close()
+	}
+
+	setupLog.Info().Msg("TUI program exited, stopping collector")
+	cancel()
 }
 
 // revisionHandler is the handler used by the collector to handle revisions.
@@ -317,6 +407,46 @@ type revisionHandler interface {
 		snapshot *store.Snapshot,
 		patch *store.Patch,
 	) error
+}
+
+// tuiLogWriter is an io.Writer that captures lines written by external
+// libraries (klog, stray stderr) and forwards them to the TUI as
+// ExternalLogMsg via program.Send. Error-level keywords trigger a toast.
+type tuiLogWriter struct {
+	program *tea.Program
+	buf     []byte
+}
+
+// maxLogBuf is the maximum size of the internal line buffer.
+// Lines longer than this are silently discarded to prevent unbounded growth.
+const maxLogBuf = 64 * 1024
+
+func (w *tuiLogWriter) Write(p []byte) (int, error) {
+	w.buf = append(w.buf, p...)
+
+	// Prevent unbounded growth if a caller writes enormous data without
+	// newlines (e.g., a binary blob).
+	if len(w.buf) > maxLogBuf {
+		w.buf = w.buf[len(w.buf)-maxLogBuf:]
+	}
+
+	for {
+		idx := bytes.IndexByte(w.buf, '\n')
+		if idx < 0 {
+			break
+		}
+		line := strings.TrimSpace(string(w.buf[:idx]))
+		w.buf = w.buf[idx+1:]
+		if line == "" {
+			continue
+		}
+		isErr := strings.Contains(line, "ERROR") ||
+			strings.Contains(line, "FATAL") ||
+			strings.Contains(line, "error") ||
+			strings.Contains(line, "fatal")
+		w.program.Send(tui.ExternalLogMsg{Text: line, IsError: isErr})
+	}
+	return len(p), nil
 }
 
 var _ revisionHandler = (*noOpRevisionHandler)(nil)
@@ -338,33 +468,6 @@ func (n noOpRevisionHandler) HandleRevision(
 		Str("kind", obj.GetKind()).
 		Msg("Storing revision...")
 
-	// nothing to do in headless mode, as we are just storing revisions in the collector
-	return nil
-}
-
-var _ revisionHandler = (*uiRevisionHandler)(nil)
-
-// uiRevisionHandler is an implementation of the revisionHandler that sends
-// a command to the TUI program to display the revision in the UI.
-type uiRevisionHandler struct {
-	program *tea.Program
-}
-
-func (u *uiRevisionHandler) HandleRevision(
-	obj *unstructured.Unstructured,
-	revisionID store.RevisionID,
-	snapshot *store.Snapshot,
-	patch *store.Patch,
-) error {
-	u.program.Send(ui.NewCommitCommand(
-		string(obj.GetUID()),
-		obj.GetKind(),
-		obj.GetName(),
-		obj.GetNamespace(),
-		revisionID,
-		snapshot,
-		patch,
-	))
 	return nil
 }
 
@@ -382,7 +485,11 @@ func runCollector(
 		case <-ctx.Done():
 			return
 
-		case ev := <-m.Events():
+		case ev, ok := <-m.Events():
+			if !ok {
+				return
+			}
+
 			l := log.With().
 				Str("event-type", string(ev.Type)).
 				Logger()
@@ -402,7 +509,12 @@ func runCollector(
 				l.Error().Err(err).Msg("Error executing filter expression")
 				continue
 			}
-			if !pass.(bool) {
+			passBool, ok := pass.(bool)
+			if !ok {
+				l.Error().Msgf("Filter expression returned %T instead of bool", pass)
+				continue
+			}
+			if !passBool {
 				continue
 			}
 
@@ -418,7 +530,8 @@ func runCollector(
 			obj.SetManagedFields(nil)
 			revisionID, err := trackerService.Commit(ctx, string(obj.GetUID()), obj)
 			if err != nil {
-				if errors.As(err, &service.DuplicateResourceVersionError{}) {
+				var dupErr service.DuplicateResourceVersionError
+				if errors.As(err, &dupErr) {
 					l.Debug().Msgf("Resource version %s is already present in revision %d, skipping commit",
 						obj.GetResourceVersion(), revisionID)
 					continue
@@ -455,18 +568,26 @@ func loadHistoryFromDB(
 	) bool {
 		var current *store.Snapshot
 		if snapshot != nil {
-			// full snapshot: start anew
-			diffMap := make(diffmap.DiffMap)
-			maps.Copy(diffMap, snapshot.Object)
+			// full snapshot: deep-clone so we own the map and later patches
+			// don't alias nested sub-maps.
 			current = &store.Snapshot{
 				ID:     revisionID,
-				Object: diffMap,
+				Object: resource.CloneMap(snapshot.Object),
 				Time:   snapshot.Time,
 			}
 		} else {
 			// patch: apply on top of last state
-			base := make(diffmap.DiffMap)
-			maps.Copy(base, objectRevisionState[objectUID].Object)
+			prev := objectRevisionState[objectUID]
+			if prev == nil {
+				log.Warn().
+					Str("objectUID", objectUID).
+					Stringer("revisionID", revisionID).
+					Msg("Patch arrived before any snapshot; skipping")
+				return true
+			}
+			// Deep-clone the previous state so Apply doesn't mutate it
+			// through shared nested map references.
+			base := resource.CloneMap(prev.Object)
 			diffmap.Apply(base, patch.Patch)
 			current = &store.Snapshot{
 				ID:     revisionID,
@@ -485,7 +606,13 @@ func loadHistoryFromDB(
 				unstructuredObj.GetNamespace(), unstructuredObj.GetName(), unstructuredObj.GetKind())
 			return true
 		}
-		if !pass.(bool) {
+		passBool, ok := pass.(bool)
+		if !ok {
+			log.Error().Msgf("Filter expression returned %T instead of bool for historic object %s/%s/%s",
+				pass, unstructuredObj.GetNamespace(), unstructuredObj.GetName(), unstructuredObj.GetKind())
+			return true
+		}
+		if !passBool {
 			return true
 		}
 
@@ -497,7 +624,7 @@ func loadHistoryFromDB(
 	return err
 }
 
-func validateArgsAndFlags(cmd *cobra.Command, args []string) error {
+func validateArgsAndFlags(_ *cobra.Command, args []string) error {
 	if len(args) == 0 && outputFile == "" {
 		return fmt.Errorf(
 			"at least one resource argument or the --output flag must be provided (you may provide both)")
