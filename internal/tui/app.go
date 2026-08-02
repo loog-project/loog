@@ -486,6 +486,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			len(a.store.StarredResources()),
 		)
 		a.setStatus(fmt.Sprintf("Now watching: %s (%d resources added)", msg.Kind.Kind, len(created)), false)
+		// Keep the watch manager in sync if it's still open.
+		if a.watchManager.IsVisible() {
+			a.watchManager.Refresh(a.store, a.store.UnwatchedKinds())
+		}
 
 	case RemoveWatchKindMsg:
 		count := a.store.ResourceCountByKind(msg.Kind)
@@ -513,6 +517,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.explorer.SetResource(nil)
 		}
 		a.setStatus(fmt.Sprintf("Unwatched: %s (%d resources removed)", msg.Kind, count), false)
+		// Keep the watch manager in sync if it's still open.
+		if a.watchManager.IsVisible() {
+			a.watchManager.Refresh(a.store, a.store.UnwatchedKinds())
+		}
 
 	case StatusMsg:
 		a.setStatus(msg.Text, msg.IsError)
