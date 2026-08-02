@@ -753,6 +753,11 @@ func (a *App) switchView(v ViewID) {
 	a.debugLog.Debug("app", "switch view: %s → %s", a.activeView, v)
 	a.activeView = v
 	a.header.SetView(v)
+	// Re-assert focus on the view's primary (left) panel. Panel focus is stored
+	// per view and persists across switches, so without this a view entered
+	// with the detail pane focused (from a previous visit) would silently
+	// swallow list keys like R, j, and k until the user pressed Tab.
+	a.focusPanel(PanelLeft)
 }
 
 func (a *App) nextPanel() {
