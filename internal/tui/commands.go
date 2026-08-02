@@ -67,7 +67,7 @@ func NewCommandRegistry() *CommandRegistry {
 		Action: func() tea.Cmd { return Cmd(ViewModeChangedMsg{Mode: ObjectMode}) },
 	})
 	cr.Register(Command{
-		Name: "View: Patch Mode", Description: "Show only changed fields", Shortcut: "p",
+		Name: "View: Changes Mode", Description: "Show only fields changed vs the previous revision", Shortcut: "p",
 		Action: func() tea.Cmd { return Cmd(ViewModeChangedMsg{Mode: PatchMode}) },
 	})
 	cr.Register(Command{

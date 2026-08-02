@@ -40,7 +40,7 @@ type ViewMode int
 const (
 	DiffMode   ViewMode = iota // Full object YAML with diff highlighting
 	ObjectMode                 // Full YAML, no diff annotations
-	PatchMode                  // Only changed fields
+	PatchMode                  // Only the fields that changed vs the previous revision
 	JSONMode                   // Raw JSON
 	RawMode                    // Raw database representation (debug)
 )
@@ -52,7 +52,7 @@ func (m ViewMode) String() string {
 	case ObjectMode:
 		return "Object"
 	case PatchMode:
-		return "Patch"
+		return "Changes"
 	case JSONMode:
 		return "JSON"
 	case RawMode:

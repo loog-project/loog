@@ -331,6 +331,19 @@ func (s *LiveStore) RebuildKindGroups() {
 	s.kindGroups = resource.BuildKindGroups(all)
 }
 
+// SortTimeline orders the timeline newest-first by revision time. IngestRevision
+// keeps the timeline in arrival order, which is correct for live events but not
+// for a bulk history load that walks one resource's revisions at a time. Call
+// this once after loading history so the timeline is globally chronological.
+func (s *LiveStore) SortTimeline() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	slices.SortStableFunc(s.timeline, func(a, b resource.TimelineEntry) int {
+		// Newest first.
+		return b.Revision.Time.Compare(a.Revision.Time)
+	})
+}
+
 func (s *LiveStore) ForEachResource(fn func(uid string, rd *resource.Data)) {
 	// Snapshot under the lock, then invoke the callback outside it. This keeps
 	// the write lock off the collector's ingestion path while the callback does

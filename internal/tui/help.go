@@ -156,7 +156,7 @@ func (h *HelpOverlay) View() string {
 		{Title: "Detail View", Bindings: []helpBinding{
 			{"d", "Diff mode (YAML with highlighting)"},
 			{"o", "Object mode (full YAML)"},
-			{"p", "Patch mode (changes only)"},
+			{"p", "Changes mode (only fields changed vs previous)"},
 			{"J", "JSON mode"},
 			{"r", "Raw mode (database record)"},
 			{"[ / ]", "Previous / next revision"},
