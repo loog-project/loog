@@ -13,36 +13,14 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+
+	"github.com/loog-project/loog/internal/resource"
 )
 
 var (
 	cachedGVRs []string
 	gvrsOnce   sync.Once
 )
-
-var completionCmd = &cobra.Command{
-	Use:       "completion [SHELL]",
-	Short:     "Prints shell completion scripts",
-	ValidArgs: []string{"bash", "zsh", "fish", "powershell"},
-	Args:      cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		switch args[0] {
-		case "bash":
-			return cmd.Root().GenBashCompletion(cmd.OutOrStdout())
-		case "zsh":
-			return cmd.Root().GenZshCompletion(cmd.OutOrStdout())
-		case "fish":
-			return cmd.Root().GenFishCompletion(cmd.OutOrStdout(), true)
-		case "powershell":
-			return cmd.Root().GenPowerShellCompletion(cmd.OutOrStdout())
-		}
-		return nil
-	},
-}
-
-func init() {
-	rootCmd.AddCommand(completionCmd)
-}
 
 // loadClusterGVRs loads the GroupVersionResources (GVRs) from the Kubernetes cluster
 func loadClusterGVRs(kubeConfigPath string) ([]string, error) {
@@ -122,4 +100,68 @@ func gvrCompletion(_ *cobra.Command, _ []string, _ string) ([]string, cobra.Shel
 		}
 	})
 	return cachedGVRs, cobra.ShellCompDirectiveNoFileComp
+}
+
+// loadClusterResourceKinds discovers all watchable resource types from the cluster
+// and returns them as []resource.Kind for use by the WatchManager.
+// It reuses the same discovery API as loadClusterGVRs but extracts richer metadata.
+func loadClusterResourceKinds(kubeConfigPath string) ([]resource.Kind, error) {
+	cfg, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("building kube config: %w", err)
+	}
+	cs, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("creating kubernetes client: %w", err)
+	}
+	lists, err := cs.Discovery().ServerPreferredResources()
+	if err != nil {
+		// Discovery can return partial results on errors (e.g. metrics-server unavailable).
+		// Use whatever we got if lists is non-nil.
+		if lists == nil {
+			return nil, fmt.Errorf("getting server preferred resources: %w", err)
+		}
+	}
+
+	var kinds []resource.Kind
+	seen := make(map[string]bool) // deduplicate by Kind name
+	for _, list := range lists {
+		if len(list.APIResources) == 0 {
+			continue
+		}
+		// Parse group/version from the list's GroupVersion string
+		gv := list.GroupVersion
+		for _, res := range list.APIResources {
+			// Only include resources that support list or watch
+			canWatch := false
+			for _, verb := range res.Verbs {
+				if verb == "list" || verb == "watch" {
+					canWatch = true
+					break
+				}
+			}
+			if !canWatch {
+				continue
+			}
+			// Skip sub-resources (e.g. "pods/log", "deployments/scale")
+			if strings.Contains(res.Name, "/") {
+				continue
+			}
+			if seen[res.Kind] {
+				continue
+			}
+			seen[res.Kind] = true
+			kinds = append(kinds, resource.Kind{
+				Kind:       res.Kind,
+				APIVersion: gv,
+				Resource:   res.Name,
+				Namespaced: res.Namespaced,
+			})
+		}
+	}
+
+	sort.Slice(kinds, func(i, j int) bool {
+		return kinds[i].Kind < kinds[j].Kind
+	})
+	return kinds, nil
 }
