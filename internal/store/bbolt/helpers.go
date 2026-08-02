@@ -108,6 +108,50 @@ func decompressPayload(compressed []byte) ([]byte, error) {
 	return s2.Decode(nil, compressed)
 }
 
+// detectCompression inspects the first stored record and aligns s.compress with
+// how the file was actually written. Compression is not recorded per record, so
+// a store opened with the wrong setting (e.g. --replay, which can't know the
+// original flag) would otherwise feed compressed bytes straight to the decoder.
+func (s *Store) detectCompression() {
+	_ = s.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketSnapshots)
+		if b == nil {
+			return nil
+		}
+		k, v := b.Cursor().First()
+		if k == nil || len(v) < 1 {
+			return nil
+		}
+		payload := v[1:]
+		// An uncompressed record unmarshals directly; try that first so raw
+		// msgpack is never mistaken for a compressed block.
+		if s.recordUnmarshals(v[0], payload) {
+			s.compress = false
+			return nil
+		}
+		// Otherwise, if it decompresses and then unmarshals, it was compressed.
+		if d, err := decompressPayload(payload); err == nil && s.recordUnmarshals(v[0], d) {
+			s.compress = true
+		}
+		return nil
+	})
+}
+
+// recordUnmarshals reports whether payload decodes into the record type named
+// by typeByte. Used only for compression probing at open time.
+func (s *Store) recordUnmarshals(typeByte byte, payload []byte) bool {
+	switch typeByte {
+	case typePatch:
+		var p store.Patch
+		return s.codec.Unmarshal(payload, &p) == nil
+	case typeSnapshot:
+		var sn store.Snapshot
+		return s.codec.Unmarshal(payload, &sn) == nil
+	default:
+		return false
+	}
+}
+
 func (s *Store) parsePatchOrSnapshot(v []byte) (*store.Snapshot, *store.Patch, error) {
 	if len(v) < 1 {
 		return nil, nil, store.ErrInvalidRevision
