@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	"github.com/loog-project/loog/internal/resource"
 	"github.com/loog-project/loog/internal/store"
 	"github.com/loog-project/loog/internal/util"
 	"github.com/loog-project/loog/pkg/diffmap"
@@ -30,6 +30,7 @@ type TrackerService struct {
 	commitLocks           map[string]*lockWrap
 	commitLockMutex       sync.RWMutex
 	stopCommitLockJanitor chan struct{}
+	closeOnce             sync.Once
 }
 
 type lockWrap struct {
@@ -59,15 +60,17 @@ func NewTrackerService(rps store.ResourcePatchStore, snapshotEvery uint64, withC
 // Close closes the TrackerService and releases any resources it holds.
 // After you call Close, the TrackerService should not be used anymore.
 func (t *TrackerService) Close() error {
-	close(t.stopCommitLockJanitor)
+	t.closeOnce.Do(func() {
+		close(t.stopCommitLockJanitor)
 
-	if t.cache != nil {
-		t.cache.close()
-	}
+		if t.cache != nil {
+			t.cache.close()
+		}
 
-	t.commitLockMutex.Lock()
-	t.commitLocks = nil
-	t.commitLockMutex.Unlock()
+		t.commitLockMutex.Lock()
+		t.commitLocks = nil
+		t.commitLockMutex.Unlock()
+	})
 
 	return nil
 }
@@ -146,10 +149,7 @@ func (t *TrackerService) Commit(
 		if err != nil {
 			return 0, err
 		}
-		if ts.obj == nil {
-			ts.obj = make(diffmap.DiffMap)
-		}
-		maps.Copy(ts.obj, newObject.Object)
+		ts.obj = resource.CloneMap(newObject.Object)
 		ts.rev = snapshot.ID
 		return snapshot.ID, nil
 	}
@@ -160,10 +160,12 @@ func (t *TrackerService) Commit(
 	if err != nil {
 		return 0, err
 	}
+	// Apply only the diff to the cached state instead of copying the
+	// entire object. This is O(changed keys) rather than O(all keys).
 	if ts.obj == nil {
 		ts.obj = make(diffmap.DiffMap)
 	}
-	maps.Copy(ts.obj, newObject.Object)
+	diffmap.Apply(ts.obj, diff)
 	ts.rev = p.ID
 
 	return p.ID, nil
@@ -178,12 +180,21 @@ func newPatch(previousID store.RevisionID, diff diffmap.DiffMap) store.Patch {
 }
 
 func newSnapshot(newObject *unstructured.Unstructured, previousID store.RevisionID) store.Snapshot {
-	snapshot := store.Snapshot{PreviousID: previousID, Object: newObject.Object, Time: time.Now()}
-	return snapshot
+	// Deep-clone the object so the snapshot is independent of the caller's map.
+	// Without this, subsequent mutations of newObject.Object corrupt the stored snapshot.
+	return store.Snapshot{
+		PreviousID: previousID,
+		Object:     resource.CloneMap(newObject.Object),
+		Time:       time.Now(),
+	}
 }
 
 // Restore brings back the object state at *rev*.
-func (t *TrackerService) Restore(ctx context.Context, objID string, revision store.RevisionID) (*store.Snapshot, error) {
+func (t *TrackerService) Restore(
+	ctx context.Context,
+	objID string,
+	revision store.RevisionID,
+) (*store.Snapshot, error) {
 	var patchChain []*store.Patch
 	currentRevision := revision
 
@@ -261,9 +272,12 @@ func (t *TrackerService) objLock(uid string) *lockWrap {
 	return mu
 }
 
-func (t *TrackerService) WarmCache(uid string, snapshot *store.Snapshot) {
+func (t *TrackerService) WarmCache(uid string, obj diffmap.DiffMap, rev store.RevisionID) {
 	if t.cache == nil {
 		return
 	}
-	t.cache.set(uid, &trackerState{obj: snapshot.Object, rev: snapshot.ID})
+	lock := t.objLock(uid)
+	lock.mu.Lock()
+	defer lock.mu.Unlock()
+	t.cache.set(uid, &trackerState{obj: obj, rev: rev})
 }

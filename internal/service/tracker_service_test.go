@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
@@ -20,7 +21,10 @@ import (
 
 // == Tests =================================================================
 
-func mustNewSvc(t *testing.T, snapshotEvery uint64, durable, withCache bool) (*service.TrackerService, *bboltStore.Store) {
+func mustNewSvc(t *testing.T, snapshotEvery uint64, durable, withCache bool) (
+	*service.TrackerService,
+	*bboltStore.Store,
+) {
 	t.Helper()
 	st, err := bboltStore.New(t.TempDir()+"/db.bb", nil, durable)
 	if err != nil {
@@ -53,13 +57,13 @@ func TestCommitRestore_RotationAndDiff(t *testing.T) {
 	uid := "uid-rot"
 	obj := newCM(uid)
 
-	// first commit → snapshot rev0
+	// first commit -> snapshot rev0
 	rev0, _ := svc.Commit(ctx, uid, obj.DeepCopy())
 	if rev0 != 0 {
 		t.Fatalf("want rev0=0, got %d", rev0)
 	}
 
-	// mutate three times → three patches
+	// mutate three times -> three patches
 	for i := 1; i <= 3; i++ {
 		obj.Object["data"].(diffmap.DiffMap)["val"] = "x" + strconv.Itoa(i)
 		rev, _ := svc.Commit(ctx, uid, obj.DeepCopy())
@@ -119,6 +123,7 @@ func TestHotCache_FastPath(t *testing.T) {
 }
 
 func TestTrackerService_ConcurrentCommits(t *testing.T) {
+	baseline := runtime.NumGoroutine()
 	ctx := context.Background()
 	svc, raw := mustNewSvc(t, 8, true, false)
 
@@ -131,12 +136,12 @@ func TestTrackerService_ConcurrentCommits(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(workers)
 
-	for w := 0; w < workers; w++ {
+	for w := range workers {
 		go func(id int) {
 			defer wg.Done()
 
 			local := obj.DeepCopy()
-			for i := 0; i < loops; i++ {
+			for i := range loops {
 				local.Object["data"].(diffmap.DiffMap)["val"] = id*100 + i
 				if _, err := svc.Commit(ctx, uid, local); err != nil {
 					t.Errorf("worker %d: %v", id, err)
@@ -153,9 +158,9 @@ func TestTrackerService_ConcurrentCommits(t *testing.T) {
 		t.Fatalf("latest want %d got %d", want, latest)
 	}
 
-	// leak check: janitor + GC + main should stay under 8 goroutines
-	if g := runtime.NumGoroutine(); g > 8 {
-		t.Fatalf("goroutine leak: %d still running", g)
+	// leak check: goroutine count should not grow significantly
+	if g := runtime.NumGoroutine(); g > baseline+2 {
+		t.Fatalf("goroutine leak: %d still running (baseline was %d)", g, baseline)
 	}
 }
 
@@ -273,26 +278,29 @@ func benchCommit(b *testing.B, snapshotEvery uint64, durable, withCache bool) {
 	}(db)
 
 	svc := service.NewTrackerService(db, snapshotEvery, withCache)
+	defer func() { _ = svc.Close() }()
 
 	// make this object large
 	m := map[string]any{}
-	for i := 0; i < 500; i++ {
+	for i := range 500 {
 		v := strings.Repeat(string(rune(i+65)), 26)
 		m[v] = v
 	}
 
-	// base object – simple unstructured with metadata.name mutated each loop.
-	base := &unstructured.Unstructured{Object: map[string]any{
-		"apiVersion": "v1",
-		"kind":       "ConfigMap",
-		"metadata": map[string]any{
-			"uid":        "bench-uid",
-			"namespace":  "default",
-			"name":       "cm-0",
-			"generation": int64(1),
+	// base object: simple unstructured with metadata.name mutated each loop.
+	base := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]any{
+				"uid":        "bench-uid",
+				"namespace":  "default",
+				"name":       "cm-0",
+				"generation": int64(1),
+			},
+			"data": m,
 		},
-		"data": m,
-	}}
+	}
 
 	objectID := "bench-uid"
 
@@ -316,4 +324,117 @@ func benchCommit(b *testing.B, snapshotEvery uint64, durable, withCache bool) {
 	} else {
 		b.Fatalf("stat db file: %v", err)
 	}
+}
+
+// benchCommitWithOptions uses NewWithOptions for fine-grained control.
+func benchCommitWithOptions(b *testing.B, snapshotEvery uint64, withCache bool, opts bboltStore.Options) {
+	tempDir := b.TempDir()
+	dbPath := fmt.Sprintf("%s/bench-%d.db", tempDir, snapshotEvery)
+
+	db, err := bboltStore.NewWithOptions(dbPath, opts)
+	if err != nil {
+		b.Fatalf("init store: %v", err)
+	}
+	defer func(store *bboltStore.Store) {
+		_ = store.Close()
+	}(db)
+
+	svc := service.NewTrackerService(db, snapshotEvery, withCache)
+	defer func() { _ = svc.Close() }()
+
+	m := map[string]any{}
+	for i := range 500 {
+		v := strings.Repeat(string(rune(i+65)), 26)
+		m[v] = v
+	}
+
+	base := &unstructured.Unstructured{
+		Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]any{
+				"uid":        "bench-uid",
+				"namespace":  "default",
+				"name":       "cm-0",
+				"generation": int64(1),
+			},
+			"data": m,
+		},
+	}
+
+	objectID := "bench-uid"
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		meta := base.Object["metadata"].(map[string]any)
+		meta["name"] = "cm-" + strconv.Itoa(i)
+		meta["generation"] = int64(i + 1)
+
+		if _, err := svc.Commit(b.Context(), objectID, base); err != nil {
+			b.Fatalf("commit error: %v", err)
+		}
+	}
+	b.StopTimer()
+
+	if fi, err := os.Stat(dbPath); err == nil {
+		b.ReportMetric(float64(fi.Size())/1e3, "KB_db")
+	} else {
+		b.Fatalf("stat db file: %v", err)
+	}
+}
+
+// Periodic sync benchmarks (the new recommended production mode)
+
+func BenchmarkCommit_PeriodicSync8_WithCache(b *testing.B) {
+	benchCommitWithOptions(b, 8, true, bboltStore.Options{
+		Durable:      true,
+		SyncInterval: 50 * time.Millisecond,
+	})
+}
+
+func BenchmarkCommit_PeriodicSync8_NoCache(b *testing.B) {
+	benchCommitWithOptions(b, 8, false, bboltStore.Options{
+		Durable:      true,
+		SyncInterval: 50 * time.Millisecond,
+	})
+}
+
+func BenchmarkCommit_PeriodicSync16_WithCache(b *testing.B) {
+	benchCommitWithOptions(b, 16, true, bboltStore.Options{
+		Durable:      true,
+		SyncInterval: 50 * time.Millisecond,
+	})
+}
+
+// Compressed benchmarks
+
+func BenchmarkCommit_Compressed8_WithCache(b *testing.B) {
+	benchCommitWithOptions(b, 8, true, bboltStore.Options{
+		Compress: true,
+	})
+}
+
+func BenchmarkCommit_Compressed8_Durable_WithCache(b *testing.B) {
+	benchCommitWithOptions(b, 8, true, bboltStore.Options{
+		Durable:  true,
+		Compress: true,
+	})
+}
+
+// The recommended production mode: periodic sync + compression
+func BenchmarkCommit_PeriodicSyncCompressed8_WithCache(b *testing.B) {
+	benchCommitWithOptions(b, 8, true, bboltStore.Options{
+		Durable:      true,
+		SyncInterval: 50 * time.Millisecond,
+		Compress:     true,
+	})
+}
+
+func BenchmarkCommit_PeriodicSyncCompressed16_WithCache(b *testing.B) {
+	benchCommitWithOptions(b, 16, true, bboltStore.Options{
+		Durable:      true,
+		SyncInterval: 50 * time.Millisecond,
+		Compress:     true,
+	})
 }

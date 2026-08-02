@@ -26,9 +26,10 @@ type trackerState struct {
 
 // stateCache is a cache of trackerState objects.
 type stateCache struct {
-	mu     sync.RWMutex
-	data   map[string]*trackerState
-	stopCh chan struct{}
+	mu        sync.RWMutex
+	data      map[string]*trackerState
+	stopCh    chan struct{}
+	closeOnce sync.Once
 }
 
 // newStateCache returns a new state cache with a janitor that evicts cold entries.
@@ -43,13 +44,15 @@ func newStateCache() *stateCache {
 
 // close stops the janitor and clears the cache.
 func (c *stateCache) close() {
-	close(c.stopCh)
-	c.mu.Lock()
-	for _, e := range c.data {
-		e.obj = nil
-	}
-	c.data = nil
-	c.mu.Unlock()
+	c.closeOnce.Do(func() {
+		close(c.stopCh)
+		c.mu.Lock()
+		for _, e := range c.data {
+			e.obj = nil
+		}
+		c.data = nil
+		c.mu.Unlock()
+	})
 }
 
 func (c *stateCache) evictCold() {
@@ -62,7 +65,7 @@ func (c *stateCache) evictCold() {
 		if age > ttl {
 			delete(c.data, k)
 		} else {
-			// decay hit counter so “old” popularity fades
+			// decay hit counter so "old" popularity fades
 			if hc := atomic.LoadUint32(&e.hitCount); hc > 0 {
 				atomic.StoreUint32(&e.hitCount, hc/2)
 			}
@@ -102,11 +105,17 @@ func (c *stateCache) get(uid string) *trackerState {
 }
 
 // set overwrites (or creates) the entry.
+// If the cache is at capacity, existing entries can still be updated but
+// new entries are dropped.
 func (c *stateCache) set(uid string, ts *trackerState) {
 	c.mu.Lock()
-	if len(c.data) < maxTrackedEntries {
-		c.data[uid] = ts
+	_, exists := c.data[uid]
+	if !exists && len(c.data) >= maxTrackedEntries {
+		// At capacity and this is a new key; drop it.
+		c.mu.Unlock()
+		return
 	}
+	c.data[uid] = ts
 	c.mu.Unlock()
 	atomic.StoreInt64(&ts.lastRead, time.Now().UnixNano())
 }
