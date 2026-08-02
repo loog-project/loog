@@ -73,8 +73,9 @@ type Store interface {
 // Pass a Simulator to NewApp via WithSimulator to enable live data generation.
 type Simulator interface {
 	// ScheduleNextTick returns a tea.Cmd that, after a delay, sends a
-	// SimulationTickMsg for a random resource. Returns nil if no resources exist.
-	ScheduleNextTick() tea.Cmd
+	// SimulationTickMsg (tagged with epoch) for a random resource.
+	// Returns nil if no resources exist.
+	ScheduleNextTick(epoch uint64) tea.Cmd
 
 	// GenerateRevision creates a new simulated revision for the given resource.
 	GenerateRevision(rd *resource.Data) resource.Revision
