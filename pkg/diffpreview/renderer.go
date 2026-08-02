@@ -9,6 +9,10 @@ import (
 type RenderOptions struct {
 	IndentSize                int
 	EnableBackgroundHighlight bool
+	// ChangesOnly, when true, omits map keys and list items that have no
+	// changes anywhere in their subtree, producing a compact diff that shows
+	// only what changed (with the surrounding path kept for context).
+	ChangesOnly bool
 }
 
 // RenderYAML turns an AnnotatedNode tree into syntax-highlighted YAML with
@@ -45,6 +49,9 @@ func (r *renderer) renderMap(children map[string]*AnnotatedNode, level int) {
 	prefix := r.indent(level)
 	for _, key := range sortedKeys(children) {
 		child := children[key]
+		if r.opts.ChangesOnly && !hasChanges(child) {
+			continue
+		}
 		r.sb.WriteString(prefix + r.styledKey(key, child.Change))
 		r.renderChildValue(child, level)
 	}
@@ -56,6 +63,9 @@ func (r *renderer) renderList(items []*AnnotatedNode, level int, parentChange Ch
 	prefix := r.indent(level)
 
 	for _, item := range items {
+		if r.opts.ChangesOnly && !hasChanges(item) {
+			continue
+		}
 		change := effectiveChange(item.Change, parentChange)
 		dash := r.styledDash(change)
 
@@ -80,6 +90,15 @@ func (r *renderer) renderList(items []*AnnotatedNode, level int, parentChange Ch
 // "- " line; the rest are indented one level deeper.
 func (r *renderer) renderListMapItem(children map[string]*AnnotatedNode, prefix, dash string, level int, _ ChangeType) {
 	keys := sortedKeys(children)
+	if r.opts.ChangesOnly {
+		filtered := keys[:0:0]
+		for _, k := range keys {
+			if hasChanges(children[k]) {
+				filtered = append(filtered, k)
+			}
+		}
+		keys = filtered
+	}
 	if len(keys) == 0 {
 		r.sb.WriteString(prefix + dash + "{}\n")
 		return

@@ -1230,7 +1230,7 @@ func (dv *DetailView) CurrentHint() string {
 	return strings.Join([]string{
 		dv.theme.KeyHint("d", "diff"),
 		dv.theme.KeyHint("o", "object"),
-		dv.theme.KeyHint("p", "patch"),
+		dv.theme.KeyHint("p", "changes"),
 		dv.theme.KeyHint("J", "json"),
 		dv.theme.KeyHint("r", "raw"),
 		dv.theme.KeyHint("[/]", "prev/next"),
@@ -1271,12 +1271,7 @@ func (dv *DetailView) renderContent() {
 	case ObjectMode:
 		body = RenderYAMLObject(rev.Object, dv.theme, 2)
 	case PatchMode:
-		if rev.Patch != nil {
-			body = RenderYAMLObject(rev.Patch, dv.theme, 2)
-		} else {
-			body = lipgloss.NewStyle().Foreground(dv.theme.Overlay0).Italic(true).
-				Render("(no patch - this is a full snapshot)")
-		}
+		body = dv.renderChanges(rev)
 	case JSONMode:
 		body = RenderJSONObject(rev.Object, dv.theme)
 	case RawMode:
@@ -1309,6 +1304,31 @@ func (dv *DetailView) renderDiff(rev resource.Revision) string {
 		IndentSize:                2,
 		EnableBackgroundHighlight: true,
 	})
+}
+
+// renderChanges shows only the fields that changed versus the previous
+// revision, computed from the objects. Unlike the stored patch, this works for
+// snapshot revisions too (they have no stored patch).
+func (dv *DetailView) renderChanges(rev resource.Revision) string {
+	if rev.Object == nil {
+		return dv.theme.MutedStyle().Render("(no object data)")
+	}
+
+	var prevObj map[string]any
+	if dv.revIndex > 0 {
+		prevObj = dv.resource.Revisions[dv.revIndex-1].Object
+	}
+
+	node := diffpreview.Diff(prevObj, rev.Object)
+	out := diffpreview.RenderYAML(node, dv.theme.DiffPreviewTheme(), diffpreview.RenderOptions{
+		IndentSize:                2,
+		EnableBackgroundHighlight: true,
+		ChangesOnly:               true,
+	})
+	if strings.TrimSpace(out) == "" {
+		return dv.theme.MutedStyle().Render("(no changes from previous revision)")
+	}
+	return out
 }
 
 // renderRaw shows the revision as a raw database record.

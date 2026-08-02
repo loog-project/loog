@@ -289,6 +289,7 @@ func runReplayMode() error {
 	if loadErr := loadHistoryFromDB(trackerService, rps, filterProgram, handler); loadErr != nil {
 		return fmt.Errorf("loading capture: %w", loadErr)
 	}
+	liveStore.SortTimeline()
 	liveStore.RebuildKindGroups()
 
 	// No recording, no simulator, no watch callbacks: a pure browse session.
@@ -497,6 +498,10 @@ func runInteractive(
 		if historyErr := loadHistoryFromDB(trackerService, rps, prog, handler); historyErr != nil {
 			log.Error().Err(historyErr).Msg("Error loading history from database")
 		}
+		// History is walked one resource at a time, so the timeline arrives
+		// grouped by resource. Sort it chronologically and refresh once.
+		liveStore.SortTimeline()
+		program.Send(adapter.LiveRevisionMsg{})
 	}()
 	go func() {
 		defer wg.Done()
@@ -728,7 +733,11 @@ func loadHistoryFromDB(
 			return true
 		}
 
-		if handleErr := handler.HandleRevision(unstructuredObj, revisionID, current, patch); handleErr != nil {
+		// Pass the original snapshot/patch (not the reconstructed `current`) so
+		// the handler derives the correct event type and PreviousID. `current`
+		// always has PreviousID 0, which made every historic revision look ADDED.
+		// The full reconstructed object travels in unstructuredObj.
+		if handleErr := handler.HandleRevision(unstructuredObj, revisionID, snapshot, patch); handleErr != nil {
 			log.Error().Err(handleErr).Msg("Error handling historic revision")
 		}
 		return true
