@@ -43,7 +43,7 @@ func TestSortTimelineNewestFirst_CausalOrder(t *testing.T) {
 	// Simulate the reported scenario: B observed before A, but A is causally
 	// first (lower rv). Ready events land within the same instant.
 	entries := []TimelineEntry{
-		{Revision: Revision{ResourceVersion: 205, Time: base}},                       // B ready (observed first)
+		{Revision: Revision{ResourceVersion: 205, Time: base}},                            // B ready (observed first)
 		{Revision: Revision{ResourceVersion: 200, Time: base.Add(30 * time.Millisecond)}}, // A ready (observed later)
 	}
 	SortTimelineNewestFirst(entries)

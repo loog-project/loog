@@ -1,0 +1,224 @@
+# GoReleaser configuration. Validate with `goreleaser check`; dry-run with
+# `make snapshot`. Releases are produced by .github/workflows/release.yaml on
+# pushing a `v*` tag.
+version: 2
+
+project_name: loog
+
+before:
+  hooks:
+    - go mod tidy
+    - go mod download
+    # Shell completions bundled into archives and Linux packages.
+    - mkdir -p completions
+    - sh -c "go run . completion bash > completions/loog.bash"
+    - sh -c "go run . completion zsh  > completions/loog.zsh"
+    - sh -c "go run . completion fish > completions/loog.fish"
+
+builds:
+  - id: loog
+    main: .
+    binary: loog
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .FullCommit }}
+      - -X main.date={{ .CommitDate }}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: loog
+    ids:
+      - loog
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_
+      {{- if eq .Os "darwin" }}macos{{ else }}{{ .Os }}{{ end }}_
+      {{- .Arch }}
+    files:
+      - README.md
+      - LICENSE
+      - src: completions/*
+        dst: completions
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+sboms:
+  - id: archives
+    artifacts: archive
+
+signs:
+  - id: checksums
+    cmd: cosign
+    artifacts: checksum
+    output: true
+    certificate: "${artifact}.pem"
+    signature: "${artifact}.sig"
+    args:
+      - sign-blob
+      - "--output-certificate=${certificate}"
+      - "--output-signature=${signature}"
+      - "${artifact}"
+      - "--yes"
+
+dockers:
+  - id: loog-amd64
+    goos: linux
+    goarch: amd64
+    dockerfile: Dockerfile
+    use: buildx
+    image_templates:
+      - "ghcr.io/loog-project/loog:{{ .Version }}-amd64"
+      - "ghcr.io/loog-project/loog:latest-amd64"
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.description=Kubernetes resource history viewer (TUI)"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.source=https://github.com/loog-project/loog"
+      - "--label=org.opencontainers.image.licenses=Apache-2.0"
+  - id: loog-arm64
+    goos: linux
+    goarch: arm64
+    dockerfile: Dockerfile
+    use: buildx
+    image_templates:
+      - "ghcr.io/loog-project/loog:{{ .Version }}-arm64"
+      - "ghcr.io/loog-project/loog:latest-arm64"
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.description=Kubernetes resource history viewer (TUI)"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.source=https://github.com/loog-project/loog"
+      - "--label=org.opencontainers.image.licenses=Apache-2.0"
+
+docker_manifests:
+  - name_template: "ghcr.io/loog-project/loog:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/loog-project/loog:{{ .Version }}-amd64"
+      - "ghcr.io/loog-project/loog:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/loog-project/loog:latest"
+    image_templates:
+      - "ghcr.io/loog-project/loog:latest-amd64"
+      - "ghcr.io/loog-project/loog:latest-arm64"
+
+docker_signs:
+  - id: images
+    cmd: cosign
+    artifacts: manifests
+    output: true
+    args:
+      - sign
+      - "${artifact}"
+      - "--yes"
+
+nfpms:
+  - id: loog
+    package_name: loog
+    ids:
+      - loog
+    vendor: loog-project
+    homepage: "https://github.com/loog-project/loog"
+    maintainer: "The loog Authors <maintainers@loog.dev>"
+    description: "Kubernetes resource history viewer (TUI)"
+    license: Apache-2.0
+    formats:
+      - deb
+      - rpm
+    bindir: /usr/bin
+    contents:
+      - src: ./completions/loog.bash
+        dst: /usr/share/bash-completion/completions/loog
+        file_info:
+          mode: 0644
+      - src: ./completions/loog.zsh
+        dst: /usr/share/zsh/site-functions/_loog
+        file_info:
+          mode: 0644
+      - src: ./completions/loog.fish
+        dst: /usr/share/fish/vendor_completions.d/loog.fish
+        file_info:
+          mode: 0644
+      - src: ./LICENSE
+        dst: /usr/share/doc/loog/LICENSE
+        file_info:
+          mode: 0644
+
+brews:
+  - name: loog
+    ids:
+      - loog
+    repository:
+      owner: loog-project
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/loog-project/loog"
+    description: "Kubernetes resource history viewer (TUI)"
+    license: "Apache-2.0"
+    commit_author:
+      name: loog-release-bot
+      email: bot@loog.dev
+    commit_msg_template: "chore: brew formula update for {{ .ProjectName }} {{ .Tag }}"
+    install: |
+      bin.install "loog"
+      generate_completions_from_executable(bin/"loog", "completion")
+    test: |
+      assert_match version.to_s, shell_output("#{bin}/loog version")
+
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Performance
+      regexp: '^.*?perf(\(.+\))??!?:.+$'
+      order: 2
+    - title: Others
+      order: 999
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+      - "^style:"
+      - "Merge pull request"
+      - "Merge branch"
+
+release:
+  github:
+    owner: loog-project
+    name: loog
+  draft: false
+  prerelease: auto
+  footer: |
+    ---
+    Released with [GoReleaser](https://goreleaser.com).

@@ -90,3 +90,38 @@ install-all: build link-kubectl link-k9s
 uninstall-all: unlink-kubectl unlink-k9s
 	@echo "Removed installed links."
 	@echo "Delete the loog binary if you want to uninstall it completely."
+
+# ----- development & release -------------------------------------------------
+
+.PHONY: test
+test:
+	@go test ./...
+
+.PHONY: test-race
+test-race:
+	@go test -race ./...
+
+.PHONY: lint
+lint:
+	@command -v golangci-lint >/dev/null 2>&1 || { echo "error: golangci-lint not found in PATH."; exit 1; }
+	@golangci-lint run
+
+.PHONY: completions
+completions: build
+	@mkdir -p completions
+	@loog completion bash > completions/loog.bash
+	@loog completion zsh  > completions/loog.zsh
+	@loog completion fish > completions/loog.fish
+	@echo "Wrote shell completions to ./completions"
+
+.PHONY: release-check
+release-check:
+	@command -v goreleaser >/dev/null 2>&1 || { echo "error: goreleaser not found in PATH."; exit 1; }
+	@goreleaser check
+
+# Local dry-run of the release build (no publish, signing, SBOM, or images, so
+# it doesn't need cosign/syft/docker). Artifacts land in ./dist.
+.PHONY: snapshot
+snapshot:
+	@command -v goreleaser >/dev/null 2>&1 || { echo "error: goreleaser not found in PATH."; exit 1; }
+	@goreleaser release --snapshot --clean --skip=publish,sign,sbom,docker
