@@ -1,100 +1,86 @@
+# loog demo - records the MVP feature tour in simulate mode (no cluster needed).
+# Regenerate with: ./assets/make-demo.sh  (builds loog, runs vhs, burns captions)
 Require loog
-Require tmux
-Require kubectl
 
-Output demo.mp4
-Output demo.gif
+Output demo-raw.mp4
 
-Set FontSize 12
-Set Height 720
-Set Width 1280
-
-Set Margin 0
+Set Shell zsh
+Set FontSize 13
+Set Width 1400
+Set Height 820
 Set Padding 10
+Set Margin 0
+Set TypingSpeed 55ms
 
 Hide
-  Type@0ms "tmux -f /dev/null -L test new-session -- zsh" Enter
-  Type@0ms "tmux split-window -d -v -l 4 -- zsh && \" Enter
-  Type@0ms "tmux set status && \" Enter
-  Type@0ms 'tmux setw pane-border-style "fg=0" && \' Enter
-  Type@0ms 'tmux setw pane-active-border-style "fg=0"' Enter
-  Sleep 0.5
-  Ctrl+L
-
-  # full screen
-  Ctrl+B
-  Type z
-
-  Sleep 1
+Type "clear" Enter
+Ctrl+L
 Show
 
-Type `loog -resource v1/namespaces -filter-expr 'Names("demo-test")'`
-Sleep 0.5
+# Launch in simulate mode
+Type "loog --simulate"
+Sleep 700ms
 Enter
+Sleep 4s
 
-# wait for the "WHERE REVISION" monkey
-Wait+Screen /WHERE/
-Wait+Screen /REVISION/
+# Explorer: browse the resource tree down to a deployment with history
+Type@280ms "jjjjjjjj"
+Sleep 2500ms
 
-Sleep 1
+# Revisions: scroll the history (the detail diff follows the selection)
+Type "2"
+Sleep 900ms
+Type@500ms "jjj"
+Sleep 2500ms
 
-# we are now ready to create the namespace
-Ctrl+B
-Type z # exit full screen
-Ctrl+B
-Type o # swich pane
-Sleep 1
-Type `kubectl create namespace demo-test`
+# Detail view modes: focus the detail panel, then Changes / Object / Diff
+Type "3"
+Sleep 900ms
+Type "p"
+Sleep 3s
+Type "o"
+Sleep 3s
+Type "d"
+Sleep 2500ms
+
+# Command palette -> switch to the Timeline
+Ctrl+K
+Sleep 1500ms
+Type@85ms "timeline"
+Sleep 1500ms
 Enter
-Sleep 1
-Ctrl+B
-Type o # switch pane
+Sleep 2500ms
 
-# wait until the namespace is here
-Wait+Screen /now/
-Sleep 2
-Right
-Down
-Sleep 1
-Right
-Sleep 0.5
-Down
+# Timeline: navigate, then reverse the sort order and back
+Type@430ms "jjjjj"
+Sleep 2s
+Type "R"
+Sleep 2500ms
+Type "R"
+Sleep 1500ms
 
-Sleep 5
+# Mark two revisions for comparison
+Type "c"
+Sleep 1200ms
+Type@430ms "jjjj"
+Sleep 800ms
+Type "c"
+Sleep 1200ms
 
-# now edit the namespace
-Ctrl+B
-Type o
-Type `kubectl annotate namespace demo-test hello="world"`
+# Command palette -> Compare view (side-by-side)
+Ctrl+K
+Sleep 1s
+Type@85ms "to compare"
+Sleep 1200ms
 Enter
-Sleep 1
-Ctrl+B
-Type o
-Ctrl+B
-Type z
-Sleep 0.5
+Sleep 3500ms
 
-Wait+Screen /now/
-Sleep 1
-Down
-Sleep 1
-Type "pp"
-Sleep 5
-Type "pp"
-Sleep 1
-Type "h"
-Sleep 8 
+# Help overlay
+Type "?"
+Sleep 3500ms
+Escape
+Sleep 700ms
 
-# Cleanup
 Hide
-  Type "q"
-  Sleep 1
-
-  Ctrl+B
-  Type z
-  Ctrl+B
-  Type o
-  Type `kubectl delete namespace demo-test`
-  Enter
-  Ctrl+B
-  Type o
+Type "q"
+Sleep 500ms
