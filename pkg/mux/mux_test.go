@@ -587,10 +587,13 @@ func TestStop_ConcurrentDispatchNoPanic(t *testing.T) {
 		t.Fatalf("Add: %v", err)
 	}
 
-	// Fire many events concurrently to maximize the chance of a
-	// dispatch in flight when Stop is called.
+	// Fire events concurrently to maximize the chance of a dispatch in flight
+	// when Stop is called. Keep the count below the fake watcher's fixed 100-slot
+	// channel: once Stop cancels the informer, the reflector stops draining that
+	// channel, and any further Creates would overflow it and panic ("channel
+	// full") inside the client-go fake watcher itself.
 	var wg sync.WaitGroup
-	for i := range 200 {
+	for i := range 50 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
