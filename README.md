@@ -6,7 +6,7 @@
 [
   <a href="#quick-start">Quick Start</a> •
   <a href="#installation">Installation</a> •
-  <a href="#contributing">Contributing</a> •
+  <a href="#contributing">Contributing</a>
 ]
 </p>
 
