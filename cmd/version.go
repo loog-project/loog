@@ -29,7 +29,7 @@ var versionCmd = &cobra.Command{
 	Short: "Print version, commit, and build information",
 	Args:  cobra.NoArgs,
 	Run: func(cmd *cobra.Command, _ []string) {
-		fmt.Fprintf(cmd.OutOrStdout(),
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(),
 			"loog %s\n  commit:  %s\n  built:   %s\n  go:      %s\n  os/arch: %s/%s\n",
 			buildVersion, buildCommit, buildDate,
 			runtime.Version(), runtime.GOOS, runtime.GOARCH,

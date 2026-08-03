@@ -22,8 +22,11 @@ jobs:
           cache: true
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: v1.64.8
-          # Don't gate on pre-existing findings; flag only what a PR introduces.
+          version: v2.12.2
+          # Build golangci-lint from source with the runner's Go toolchain
+          # (set from go.mod above). A prebuilt binary refuses to lint a module
+          # whose `go` directive is newer than the Go it was compiled with.
+          install-mode: goinstall
           only-new-issues: true
