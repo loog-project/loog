@@ -158,13 +158,40 @@ loog -f 'Object.GetLabels()["app"] == "web" && Object.GetNamespace() == "adm"' a
 
 ## Installation
 
-### `loog` base binary
+### Homebrew (macOS / Linux)
+
+```bash
+brew install loog-project/tap/loog
+```
+
+### Prebuilt binaries & Linux packages
+
+Grab an archive (`.tar.gz` / `.zip`), or a `.deb` / `.rpm` / `.apk`, from the
+[latest release](https://github.com/loog-project/loog/releases/latest).
+Every release ships checksums, SBOMs, and keyless [cosign](https://github.com/sigstore/cosign) signatures.
+
+```bash
+# Debian/Ubuntu
+sudo dpkg -i loog_*_linux_amd64.deb
+# Fedora/RHEL
+sudo rpm -i loog_*_linux_amd64.rpm
+```
+
+### Container image
+
+```bash
+docker run --rm -v "$HOME/.kube:/root/.kube:ro" ghcr.io/loog-project/loog:latest -H -o /dev/stdout v1/pods
+```
+
+Images are multi-arch (`linux/amd64`, `linux/arm64`). Interactive TUI mode needs a TTY (`-it`); the image is most useful for headless collection.
+
+### From source
 
 ```bash
 go install github.com/loog-project/loog@latest
 ```
 
-or clone and build from source:
+or clone and build:
 
 ```bash
 git clone https://github.com/loog-project/loog
