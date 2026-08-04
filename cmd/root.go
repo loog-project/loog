@@ -321,7 +321,8 @@ func setupProduction(ctx context.Context, args []string) (
 	if outputFile == "" {
 		file, fileErr := os.CreateTemp("", "loog-output-*.loog")
 		if fileErr != nil {
-			return cleanup, nil, nil, nil, nil, fmt.Errorf("cannot create temp file: %w", fileErr)
+			err = fmt.Errorf("cannot create temp file: %w", fileErr)
+			return
 		}
 		outputFile = file.Name()
 		_ = file.Close() // bbolt reopens by path
@@ -345,7 +346,8 @@ func setupProduction(ctx context.Context, args []string) (
 		Msg("Compiling filter expression...")
 	prog, err = expr.Compile(filterExpr, expr.Env(util.EventEntryEnv{}), expr.AsBool())
 	if err != nil {
-		return cleanup, nil, nil, nil, nil, fmt.Errorf("error compiling filter expression: %w", err)
+		err = fmt.Errorf("error compiling filter expression: %w", err)
+		return
 	}
 
 	setupLog.Info().
@@ -357,7 +359,8 @@ func setupProduction(ctx context.Context, args []string) (
 		Compress:     !disableCompress,
 	})
 	if err != nil {
-		return cleanup, nil, nil, nil, nil, fmt.Errorf("error preparing store: %w", err)
+		err = fmt.Errorf("error preparing store: %w", err)
+		return
 	}
 	cleanups = append(cleanups, func() { _ = rps.Close() })
 	trackerService = service.NewTrackerService(rps, snapshotInterval, !disableCache)
@@ -366,26 +369,37 @@ func setupProduction(ctx context.Context, args []string) (
 	setupLog.Info().Msg("Preparing dynamic Kubernetes watch client...")
 	cfg, cfgErr := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
 	if cfgErr != nil {
-		return cleanup, nil, nil, nil, nil, fmt.Errorf("error loading kubeconfig: %w", cfgErr)
+		err = fmt.Errorf("error loading kubeconfig: %w", cfgErr)
+		return
 	}
 	dyn, dynErr := dynamic.NewForConfig(cfg)
 	if dynErr != nil {
-		return cleanup, nil, nil, nil, nil, fmt.Errorf("error creating dynamic watch client: %w", dynErr)
+		err = fmt.Errorf("error creating dynamic watch client: %w", dynErr)
+		return
 	}
 
 	m, err = mux.New(ctx, dyn)
 	if err != nil {
-		return cleanup, nil, nil, nil, nil, fmt.Errorf("error creating dynamic mux: %w", err)
+		err = fmt.Errorf("error creating dynamic mux: %w", err)
+		return
 	}
-	cleanups = append(cleanups, func() { m.Stop() })
+	cleanups = append(cleanups, func() {
+		// Defensive: the mux is only appended after a successful New above,
+		// but keep the guard so a future refactor can't reintroduce a nil deref.
+		if m != nil {
+			m.Stop()
+		}
+	})
 
 	for _, r := range args {
 		gvr, gvrParseErr := util.ParseGroupVersionResource(r)
 		if gvrParseErr != nil {
-			return cleanup, nil, nil, nil, nil, fmt.Errorf("cannot parse argument '%s' to GVR: %w", r, gvrParseErr)
+			err = fmt.Errorf("cannot parse argument '%s' to GVR: %w", r, gvrParseErr)
+			return
 		}
 		if muxAddErr := m.Add(gvr); muxAddErr != nil {
-			return cleanup, nil, nil, nil, nil, fmt.Errorf("cannot add GVR '%s' to dynamic mux: %w", gvr, muxAddErr)
+			err = fmt.Errorf("cannot add GVR '%s' to dynamic mux: %w", gvr, muxAddErr)
+			return
 		}
 	}
 

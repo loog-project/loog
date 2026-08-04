@@ -157,6 +157,9 @@ func (s *Store) syncLoop(interval time.Duration) {
 
 // Close flushes any pending writes and closes the database. It is idempotent.
 func (s *Store) Close() error {
+	if s == nil {
+		return nil
+	}
 	var err error
 	s.closeOnce.Do(func() {
 		if s.stopSync != nil {
