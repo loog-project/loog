@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -23,8 +22,6 @@ import (
 	"github.com/spf13/viper"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/util/homedir"
 	"k8s.io/klog/v2"
 
 	"github.com/loog-project/loog/internal/adapter"
@@ -85,12 +82,8 @@ func init() {
 	// global flags
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "",
 		"config file (default is $HOME/.loog.yaml)")
-	defaultKube := ""
-	if home := homedir.HomeDir(); home != "" {
-		defaultKube = filepath.Join(home, ".kube", "config")
-	}
-	rootCmd.PersistentFlags().StringVar(&kubeConfigPath, "kubeconfig", defaultKube,
-		"Path to the kubeconfig file (defaults to $HOME/.kube/config)")
+	rootCmd.PersistentFlags().StringVar(&kubeConfigPath, "kubeconfig", "",
+		"Path to the kubeconfig file (overrides $KUBECONFIG; defaults to $KUBECONFIG or $HOME/.kube/config)")
 	rootCmd.PersistentFlags().BoolVar(&enableDebugMode, "debug", false,
 		"Enable debug mode, which will print additional information to the debug.log file")
 	rootCmd.PersistentFlags().BoolVar(&truncateDebugLog, "truncate-debug", false,
@@ -364,9 +357,10 @@ func setupProduction(ctx context.Context, args []string) (
 	cleanups = append(cleanups, func() { _ = trackerService.Close() })
 
 	setupLog.Info().Msg("Preparing dynamic Kubernetes watch client...")
-	cfg, cfgErr := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
+	cfg, cfgErr := restConfigForKubeconfig(kubeConfigPath)
 	if cfgErr != nil {
-		return cleanup, nil, nil, nil, nil, fmt.Errorf("error loading kubeconfig: %w", cfgErr)
+		err = fmt.Errorf("error loading kubeconfig: %w", cfgErr)
+		return
 	}
 	dyn, dynErr := dynamic.NewForConfig(cfg)
 	if dynErr != nil {
