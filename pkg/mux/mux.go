@@ -239,6 +239,9 @@ func (m *Mux) Events() <-chan watch.Event {
 // Stop terminates all watches and closes the event channel. It is safe
 // to call multiple times.
 func (m *Mux) Stop() {
+	if m == nil {
+		return
+	}
 	m.mu.Lock()
 	if m.stopped {
 		m.mu.Unlock()

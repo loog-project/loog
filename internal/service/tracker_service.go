@@ -60,6 +60,9 @@ func NewTrackerService(rps store.ResourcePatchStore, snapshotEvery uint64, withC
 // Close closes the TrackerService and releases any resources it holds.
 // After you call Close, the TrackerService should not be used anymore.
 func (t *TrackerService) Close() error {
+	if t == nil {
+		return nil
+	}
 	t.closeOnce.Do(func() {
 		close(t.stopCommitLockJanitor)
 
