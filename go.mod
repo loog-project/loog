@@ -7,7 +7,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/expr-lang/expr v1.17.8
-	github.com/klauspost/compress v1.18.5
+	github.com/klauspost/compress v1.19.1
 	github.com/muesli/termenv v0.16.0
 	github.com/rs/zerolog v1.34.0
 	github.com/sahilm/fuzzy v0.1.1
