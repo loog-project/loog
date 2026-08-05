@@ -13,7 +13,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/loog-project/loog/internal/resource"
 )
@@ -28,6 +27,13 @@ func loadClusterGVRs(kubeConfigPath string) ([]string, error) {
 	const cacheTTL = 60 * time.Second
 
 	cacheKey := strings.ReplaceAll(kubeConfigPath, string(os.PathSeparator), "_")
+	if cacheKey == "" {
+		if env := os.Getenv("KUBECONFIG"); env != "" {
+			cacheKey = strings.ReplaceAll(env, string(os.PathSeparator), "_")
+		} else {
+			cacheKey = "default"
+		}
+	}
 	cachePath := filepath.Join(os.TempDir(), "loog_complete_"+cacheKey+".json")
 	if info, err := os.Stat(cachePath); err == nil && time.Since(info.ModTime()) < cacheTTL {
 		if data, err := os.ReadFile(cachePath); err == nil {
@@ -38,7 +44,7 @@ func loadClusterGVRs(kubeConfigPath string) ([]string, error) {
 		}
 	}
 
-	cfg, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
+	cfg, err := restConfigForKubeconfig(kubeConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("building kube config: %w", err)
 	}
@@ -107,7 +113,7 @@ func gvrCompletion(_ *cobra.Command, _ []string, _ string) ([]string, cobra.Shel
 // and returns them as []resource.Kind for use by the WatchManager.
 // It reuses the same discovery API as loadClusterGVRs but extracts richer metadata.
 func loadClusterResourceKinds(kubeConfigPath string) ([]resource.Kind, error) {
-	cfg, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
+	cfg, err := restConfigForKubeconfig(kubeConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("building kube config: %w", err)
 	}
