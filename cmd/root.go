@@ -40,6 +40,7 @@ var (
 	// persistent flags
 	cfgFile          string
 	kubeConfigPath   string
+	kubeContext      string
 	enableDebugMode  bool
 	truncateDebugLog bool
 
@@ -84,6 +85,8 @@ func init() {
 		"config file (default is $HOME/.loog.yaml)")
 	rootCmd.PersistentFlags().StringVar(&kubeConfigPath, "kubeconfig", "",
 		"Path to the kubeconfig file (overrides $KUBECONFIG; defaults to $KUBECONFIG or $HOME/.kube/config)")
+	rootCmd.PersistentFlags().StringVar(&kubeContext, "context", "",
+		"Name of the kubeconfig context to use (defaults to the current context)")
 	rootCmd.PersistentFlags().BoolVar(&enableDebugMode, "debug", false,
 		"Enable debug mode, which will print additional information to the debug.log file")
 	rootCmd.PersistentFlags().BoolVar(&truncateDebugLog, "truncate-debug", false,
@@ -360,7 +363,7 @@ func setupProduction(ctx context.Context, args []string) (
 	cleanups = append(cleanups, func() { _ = trackerService.Close() })
 
 	setupLog.Info().Msg("Preparing dynamic Kubernetes watch client...")
-	cfg, cfgErr := restConfigForKubeconfig(kubeConfigPath)
+	cfg, cfgErr := restConfigForKubeconfig(kubeConfigPath, kubeContext)
 	if cfgErr != nil {
 		err = fmt.Errorf("error loading kubeconfig: %w", cfgErr)
 		return
@@ -483,7 +486,7 @@ func runInteractive(
 
 	// Discover cluster resource kinds in the background for WatchManager
 	go func() {
-		kinds, err := loadClusterResourceKinds(kubeConfigPath)
+		kinds, err := loadClusterResourceKinds(kubeConfigPath, kubeContext)
 		if err != nil {
 			log.Warn().Err(err).Msg("Failed to discover cluster resource kinds for WatchManager")
 			return

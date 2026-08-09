@@ -23,7 +23,7 @@ var (
 )
 
 // loadClusterGVRs loads the GroupVersionResources (GVRs) from the Kubernetes cluster
-func loadClusterGVRs(kubeConfigPath string) ([]string, error) {
+func loadClusterGVRs(kubeConfigPath, kubeContext string) ([]string, error) {
 	const cacheTTL = 60 * time.Second
 
 	cacheKey := strings.ReplaceAll(kubeConfigPath, string(os.PathSeparator), "_")
@@ -33,6 +33,10 @@ func loadClusterGVRs(kubeConfigPath string) ([]string, error) {
 		} else {
 			cacheKey = "default"
 		}
+	}
+	if kubeContext != "" {
+		// Different contexts point at different clusters; scope the cache.
+		cacheKey += "@" + kubeContext
 	}
 	cachePath := filepath.Join(os.TempDir(), "loog_complete_"+cacheKey+".json")
 	if info, err := os.Stat(cachePath); err == nil && time.Since(info.ModTime()) < cacheTTL {
@@ -44,7 +48,7 @@ func loadClusterGVRs(kubeConfigPath string) ([]string, error) {
 		}
 	}
 
-	cfg, err := restConfigForKubeconfig(kubeConfigPath)
+	cfg, err := restConfigForKubeconfig(kubeConfigPath, kubeContext)
 	if err != nil {
 		return nil, fmt.Errorf("building kube config: %w", err)
 	}
@@ -102,7 +106,7 @@ func loadClusterGVRs(kubeConfigPath string) ([]string, error) {
 
 func gvrCompletion(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 	gvrsOnce.Do(func() {
-		if s, err := loadClusterGVRs(kubeConfigPath); err == nil {
+		if s, err := loadClusterGVRs(kubeConfigPath, kubeContext); err == nil {
 			cachedGVRs = s
 		}
 	})
@@ -112,8 +116,8 @@ func gvrCompletion(_ *cobra.Command, _ []string, _ string) ([]string, cobra.Shel
 // loadClusterResourceKinds discovers all watchable resource types from the cluster
 // and returns them as []resource.Kind for use by the WatchManager.
 // It reuses the same discovery API as loadClusterGVRs but extracts richer metadata.
-func loadClusterResourceKinds(kubeConfigPath string) ([]resource.Kind, error) {
-	cfg, err := restConfigForKubeconfig(kubeConfigPath)
+func loadClusterResourceKinds(kubeConfigPath, kubeContext string) ([]resource.Kind, error) {
+	cfg, err := restConfigForKubeconfig(kubeConfigPath, kubeContext)
 	if err != nil {
 		return nil, fmt.Errorf("building kube config: %w", err)
 	}
