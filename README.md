@@ -151,6 +151,7 @@ loog -f 'Object.GetLabels()["app"] == "web" && Object.GetNamespace() == "adm"' a
 ### Kubeconfig & Debug
 
 - `--kubeconfig <path>`: explicit kubeconfig. When unset, `loog` resolves the kubeconfig like `kubectl` does: it honors the `KUBECONFIG` environment variable (including a merged list of files) and otherwise falls back to `$HOME/.kube/config`.
+- `--context <name>`: kubeconfig context to use for the session (defaults to the current context), like `kubectl --context`.
 - `--debug`: write verbose logs to `debug.log` (`--truncate-debug` to start fresh)
   - this is useful for debugging the TUI
 
