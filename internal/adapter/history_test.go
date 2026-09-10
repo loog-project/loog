@@ -80,3 +80,29 @@ func TestBuildRevision_FirstSnapshotIsAdded(t *testing.T) {
 		t.Errorf("first snapshot event = %v, want ADDED", rev.EventType)
 	}
 }
+
+// A snapshot flagged Deleted maps to DELETED regardless of PreviousID.
+func TestBuildRevision_DeletedSnapshotIsDeleted(t *testing.T) {
+	obj := &unstructured.Unstructured{Object: map[string]any{"kind": "Pod"}}
+
+	// Deleted first-and-only snapshot (PreviousID 0) is still DELETED, not ADDED.
+	snap := &store.Snapshot{PreviousID: 0, Time: time.Now(), Deleted: true}
+	if rev := buildRevision(obj, 1, snap, nil); rev.EventType != resource.EventDeleted {
+		t.Errorf("deleted snapshot event = %v, want DELETED", rev.EventType)
+	}
+
+	// Deleted snapshot with prior history is DELETED, not MODIFIED.
+	snap2 := &store.Snapshot{PreviousID: 8, Time: time.Now(), Deleted: true}
+	if rev := buildRevision(obj, 9, snap2, nil); rev.EventType != resource.EventDeleted {
+		t.Errorf("deleted later snapshot event = %v, want DELETED", rev.EventType)
+	}
+}
+
+// A patch flagged Deleted maps to DELETED instead of MODIFIED.
+func TestBuildRevision_DeletedPatchIsDeleted(t *testing.T) {
+	obj := &unstructured.Unstructured{Object: map[string]any{"kind": "Pod"}}
+	patch := &store.Patch{PreviousID: 5, Time: time.Now(), Deleted: true}
+	if rev := buildRevision(obj, 6, nil, patch); rev.EventType != resource.EventDeleted {
+		t.Errorf("deleted patch event = %v, want DELETED", rev.EventType)
+	}
+}
