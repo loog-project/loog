@@ -24,6 +24,9 @@ type Patch struct {
 	// See [diffmap.Diff] for more details.
 	Patch diffmap.DiffMap `msgpack:"s" json:"patch,omitempty"`
 	Time  time.Time       `msgpack:"t" json:"time"`
+
+	// Deleted marks this revision as the point at which the resource was removed from the cluster.
+	Deleted bool `msgpack:"d,omitempty" json:"deleted,omitempty"`
 }
 
 type Snapshot struct {
@@ -35,4 +38,8 @@ type Snapshot struct {
 	// Object is the full resource state stored in this revision.
 	Object diffmap.DiffMap `msgpack:"o" json:"object,omitempty"`
 	Time   time.Time       `msgpack:"t" json:"time"`
+
+	// Deleted marks this revision as the point at which the resource was removed from the cluster.
+	// Object holds the last observed state before deletion.
+	Deleted bool `msgpack:"d,omitempty" json:"deleted,omitempty"`
 }

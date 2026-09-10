@@ -21,6 +21,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/klog/v2"
 
@@ -655,7 +656,13 @@ func runCollector(
 
 			// empty managed fields before committing as they only clutter and we in 99/100 cases don't need them
 			obj.SetManagedFields(nil)
-			revisionID, err := trackerService.Commit(ctx, string(obj.GetUID()), obj)
+
+			var revisionID store.RevisionID
+			if ev.Type == watch.Deleted {
+				revisionID, err = trackerService.CommitDelete(ctx, string(obj.GetUID()), obj)
+			} else {
+				revisionID, err = trackerService.Commit(ctx, string(obj.GetUID()), obj)
+			}
 			if err != nil {
 				var dupErr service.DuplicateResourceVersionError
 				if errors.As(err, &dupErr) {

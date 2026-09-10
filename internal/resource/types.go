@@ -112,6 +112,13 @@ func (rd *Data) LatestRevision() *Revision {
 	return &rd.Revisions[len(rd.Revisions)-1]
 }
 
+// IsDeleted reports whether the resource's most recent revision is a deletion,
+// i.e. the resource no longer exists on the cluster.
+func (rd *Data) IsDeleted() bool {
+	latest := rd.LatestRevision()
+	return latest != nil && latest.EventType == EventDeleted
+}
+
 // CreationTime returns the Kubernetes creationTimestamp from the first
 // revision's object metadata. Returns zero time if unavailable.
 func (rd *Data) CreationTime() time.Time {

@@ -172,6 +172,43 @@ func (t *TrackerService) Commit(
 	return p.ID, nil
 }
 
+// CommitDelete records that *lastObject* was deleted from the cluster and
+// returns the new revision ID. Unlike Commit, it always produces a new revision.
+func (t *TrackerService) CommitDelete(
+	ctx context.Context,
+	objID string,
+	lastObject *unstructured.Unstructured,
+) (store.RevisionID, error) {
+	lw := t.lockObject(objID)
+	defer lw.mu.Unlock()
+
+	var previousID store.RevisionID
+	var ts *trackerState
+	if t.cache != nil {
+		ts = t.cache.get(objID)
+	}
+	if ts != nil {
+		previousID = ts.rev
+	} else if latest, err := t.rps.GetLatestRevision(ctx, objID); err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			return 0, err
+		}
+	} else {
+		previousID = latest
+	}
+
+	snapshot := newSnapshot(lastObject, previousID)
+	snapshot.Deleted = true
+	if err := t.rps.SetSnapshot(ctx, objID, &snapshot); err != nil {
+		return 0, err
+	}
+
+	if t.cache != nil {
+		t.cache.set(objID, &trackerState{obj: snapshot.Object, rev: snapshot.ID})
+	}
+	return snapshot.ID, nil
+}
+
 func newPatch(previousID store.RevisionID, diff diffmap.DiffMap) store.Patch {
 	return store.Patch{
 		PreviousID: previousID,
