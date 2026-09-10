@@ -656,6 +656,11 @@ func (rt *ResourceTree) View() string {
 					}
 				}
 
+				deleted := rd.IsDeleted()
+				if deleted {
+					indicator = lipgloss.NewStyle().Foreground(rt.theme.Red).Render("✗")
+				}
+
 				loopBadge := ""
 				if rd.DetectLoop(6) {
 					loopBadge = " " + lipgloss.NewStyle().
@@ -681,6 +686,9 @@ func (rt *ResourceTree) View() string {
 
 				name := r.ShortName(maxNameLen)
 				nameStyle := lipgloss.NewStyle().Foreground(rt.theme.Text)
+				if deleted {
+					nameStyle = nameStyle.Foreground(rt.theme.Overlay1).Strikethrough(true)
+				}
 
 				if isDimmed {
 					dimColor := rt.theme.Surface2
@@ -1098,7 +1106,11 @@ func (rl *RevisionList) View() string {
 			dot = lipgloss.NewStyle().Foreground(rl.theme.Blue).Render("●")
 		}
 
-		idStr := lipgloss.NewStyle().Foreground(rl.theme.Mauve).Render(rev.ID.String())
+		idStyle := lipgloss.NewStyle().Foreground(rl.theme.Mauve)
+		if rev.EventType == resource.EventDeleted {
+			idStyle = idStyle.Strikethrough(true)
+		}
+		idStr := idStyle.Render(rev.ID.String())
 
 		etStyle := rl.theme.EventTypeStyle(rev.EventType)
 		etStr := etStyle.Render(rev.EventType.Symbol())
@@ -1276,6 +1288,14 @@ func (dv *DetailView) renderContent() {
 		body = RenderJSONObject(rev.Object, dv.theme)
 	case RawMode:
 		body = dv.renderRaw(rev)
+	}
+
+	// Call out deletions with a prominent banner so it's obvious the object no
+	// longer exists on the cluster; the body still shows its last known state.
+	if rev.EventType == resource.EventDeleted {
+		banner := dv.theme.ErrorStyle().Bold(true).
+			Render("  ✗ Resource deleted (showing last observed state)")
+		body = banner + "\n\n" + body
 	}
 
 	dv.content = titleLine + "\n" + separator + "\n" + body
@@ -2011,9 +2031,14 @@ func (tl *TimelineList) View() string {
 			kindName = lipgloss.NewStyle().Foreground(dimColor).Render(kindPrefix + nameStr)
 		} else {
 			kc := tl.theme.KindColor(e.Resource.Kind)
-			kindPart := lipgloss.NewStyle().Foreground(kc).Render(kindPrefix)
-			namePart := lipgloss.NewStyle().Foreground(tl.theme.Text).Render(nameStr)
-			kindName = kindPart + namePart
+			kindStyle := lipgloss.NewStyle().Foreground(kc)
+			nameStyle := lipgloss.NewStyle().Foreground(tl.theme.Text)
+			if e.Revision.EventType == resource.EventDeleted {
+				// Strike through deleted entries so they stand out beyond the (-) glyph.
+				kindStyle = kindStyle.Strikethrough(true)
+				nameStyle = nameStyle.Strikethrough(true)
+			}
+			kindName = kindStyle.Render(kindPrefix) + nameStyle.Render(nameStr)
 		}
 
 		etStr := ""

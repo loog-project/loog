@@ -100,6 +100,71 @@ func TestCommitRestore_RotationAndDiff(t *testing.T) {
 	}
 }
 
+func TestCommitDelete_RecordsDeletedRevision(t *testing.T) {
+	ctx := context.Background()
+	svc, raw := mustNewSvc(t, 8, true, true)
+
+	uid := "uid-del"
+	obj := newCM(uid)
+
+	// initial add + one update
+	rev0, _ := svc.Commit(ctx, uid, obj.DeepCopy())
+	obj.Object["data"].(diffmap.DiffMap)["val"] = "y"
+	obj.Object["metadata"].(diffmap.DiffMap)["resourceVersion"] = "2"
+	rev1, _ := svc.Commit(ctx, uid, obj.DeepCopy())
+
+	// delete
+	delRev, err := svc.CommitDelete(ctx, uid, obj.DeepCopy())
+	if err != nil {
+		t.Fatalf("CommitDelete: %v", err)
+	}
+	if delRev <= rev1 {
+		t.Fatalf("delete revision %d should be newer than %d", delRev, rev1)
+	}
+
+	snap, patch, err := raw.Get(ctx, uid, delRev)
+	if err != nil {
+		t.Fatalf("Get delete revision: %v", err)
+	}
+	if snap == nil {
+		t.Fatalf("delete revision should be stored as a snapshot, got patch=%v", patch)
+	}
+	if !snap.Deleted {
+		t.Errorf("delete snapshot Deleted = false, want true")
+	}
+	if snap.PreviousID != rev1 {
+		t.Errorf("delete snapshot PreviousID = %d, want %d", snap.PreviousID, rev1)
+	}
+	// The last observed state must be preserved.
+	if got := snap.Object["data"].(diffmap.DiffMap)["val"]; got != "y" {
+		t.Errorf("delete snapshot object val = %v, want y", got)
+	}
+	_ = rev0
+}
+
+// CommitDelete for a never-before-seen object still records a deleted revision
+// (PreviousID 0) rather than erroring.
+func TestCommitDelete_ColdStart(t *testing.T) {
+	ctx := context.Background()
+	svc, raw := mustNewSvc(t, 8, true, false)
+
+	uid := "uid-del-cold"
+	delRev, err := svc.CommitDelete(ctx, uid, newCM(uid))
+	if err != nil {
+		t.Fatalf("CommitDelete cold: %v", err)
+	}
+	snap, _, err := raw.Get(ctx, uid, delRev)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if snap == nil || !snap.Deleted {
+		t.Fatalf("expected deleted snapshot, got %#v", snap)
+	}
+	if snap.PreviousID != 0 {
+		t.Errorf("cold delete PreviousID = %d, want 0", snap.PreviousID)
+	}
+}
+
 func TestHotCache_FastPath(t *testing.T) {
 	ctx := context.Background()
 	svc, _ := mustNewSvc(t, 8, true, true)
@@ -107,8 +172,7 @@ func TestHotCache_FastPath(t *testing.T) {
 	uid := "uid-cache"
 	obj := newCM(uid)
 
-	// first commit fills cache
-	_, _ = svc.Commit(ctx, uid, obj.DeepCopy())
+	// first commit fills cache	_, _ = svc.Commit(ctx, uid, obj.DeepCopy())
 
 	// mutate & commit again
 	obj.Object["data"].(diffmap.DiffMap)["val"] = "cached"

@@ -85,17 +85,23 @@ func buildRevision(
 		rev.PreviousID = snapshot.PreviousID
 		rev.Time = snapshot.Time
 
-		// First revision (no previous) -> ADDED, otherwise MODIFIED
-		if snapshot.PreviousID == 0 {
+		switch {
+		case snapshot.Deleted:
+			rev.EventType = resource.EventDeleted
+		case snapshot.PreviousID == 0:
 			rev.EventType = resource.EventAdded
-		} else {
+		default:
 			rev.EventType = resource.EventModified
 		}
 	} else if patch != nil {
 		rev.PreviousID = patch.PreviousID
 		rev.Time = patch.Time
 		rev.Patch = resource.CloneMap(patch.Patch)
-		rev.EventType = resource.EventModified
+		if patch.Deleted {
+			rev.EventType = resource.EventDeleted
+		} else {
+			rev.EventType = resource.EventModified
+		}
 	}
 
 	return rev
