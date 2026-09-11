@@ -89,6 +89,19 @@ func (c *stateCache) janitor() {
 	}
 }
 
+// reset drops every cached entry. The next get for any object returns a miss,
+// forcing Commit to cold-start against the store. The segmented recorder calls
+// this on rotation so the first commit for each object in a fresh segment file
+// writes a full snapshot, keeping every segment self-contained.
+func (c *stateCache) reset() {
+	c.mu.Lock()
+	for k, e := range c.data {
+		e.obj = nil
+		delete(c.data, k)
+	}
+	c.mu.Unlock()
+}
+
 // get returns nil on a miss.
 func (c *stateCache) get(uid string) *trackerState {
 	c.mu.RLock()

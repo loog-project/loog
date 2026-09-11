@@ -93,6 +93,30 @@ loog -o history.loog v1/pods
 loog --append -o history.loog v1/pods
 ```
 
+### Continuous recording
+
+For dev/staging clusters where you want to answer *"what happened to this
+resource at 2am last Tuesday?"* after the fact, run loog as an always-on,
+in-cluster tracker. `loog record` watches your resources and writes changes
+into rotating `.loog` segments that roll on an interval and are pruned after a
+retention window, giving a fixed-size rolling history.
+
+```bash
+# Record locally into a segment directory (hourly segments, 30-day retention)
+loog record --dir ./segments --interval 1h --retention 720h \
+  apps/v1/deployments v1/configmaps
+
+# Pull a time frame back out into a single replayable file
+loog extract --dir ./segments --since 2h -o out.loog --replay
+```
+
+To retrieve from a running in-cluster recorder over HTTP:
+
+```bash
+kubectl -n loog port-forward svc/loog-recorder 8080:8080
+loog fetch --server localhost:8080 --since 1h --replay
+```
+
 ### Filtering
 
 The `-f/--filter` flag takes an [expr-lang](https://github.com/expr-lang/expr) boolean expression.
