@@ -204,6 +204,73 @@ func TestExtract_PreservesTimeAndClips(t *testing.T) {
 	}
 }
 
+// ExtractLive must include data still sitting in the active (unrolled) segment,
+// which a plain on-disk Extract cannot read (bbolt holds the file lock). This is
+// the "no changes in the last N minutes" case where recent data lives in the
+// active segment.
+func TestExtractLive_IncludesActiveSegment(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	segStore, err := Open(dir, Options{Interval: time.Hour, Bolt: bboltStore.Options{Durable: true}})
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer func() { _ = segStore.Close() }()
+
+	now := time.Now().UTC()
+	write := func(uid, val string, ts time.Time, prev store.RevisionID) {
+		snap := &store.Snapshot{
+			PreviousID: prev,
+			Object: diffmap.DiffMap{
+				"apiVersion": "v1",
+				"kind":       "ConfigMap",
+				"metadata":   diffmap.DiffMap{"uid": uid, "name": "cm", "namespace": "default"},
+				"data":       diffmap.DiffMap{"val": val},
+			},
+			Time: ts,
+		}
+		if err := segStore.SetSnapshot(ctx, uid, snap); err != nil {
+			t.Fatalf("set snapshot: %v", err)
+		}
+	}
+
+	// One revision in a rolled segment, then rotate, then a fresh revision that
+	// stays in the (locked) active segment.
+	write("u1", "old", now.Add(-20*time.Minute), 0)
+	if err := segStore.Rotate(); err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+	write("u1", "fresh", now.Add(-1*time.Minute), 0)
+
+	// Plain Extract (on-disk only) must NOT see the active-segment revision.
+	outOffline := t.TempDir() + "/offline.loog"
+	offline, err := Extract(ctx, dir, outOffline, ExtractOptions{
+		From:          now.Add(-30 * time.Minute),
+		ExcludeActive: segStore.ActivePath(),
+		Bolt:          bboltStore.Options{Durable: true},
+	})
+	if err != nil {
+		t.Fatalf("offline extract: %v", err)
+	}
+	if offline.RevisionsWritten != 1 {
+		t.Fatalf("offline extract wrote %d revisions, want 1 (active excluded)", offline.RevisionsWritten)
+	}
+
+	// ExtractLive must include the active-segment revision too.
+	outLive := t.TempDir() + "/live.loog"
+	live, err := ExtractLive(ctx, segStore, outLive, ExtractOptions{
+		From: now.Add(-30 * time.Minute),
+		Bolt: bboltStore.Options{Durable: true},
+	})
+	if err != nil {
+		t.Fatalf("live extract: %v", err)
+	}
+	if live.RevisionsWritten != 2 {
+		t.Fatalf("live extract wrote %d revisions, want 2 (rolled + active)", live.RevisionsWritten)
+	}
+}
+
 // Retention must prune a segment whose window ends before the cutoff.
 func TestSegmentedStore_RetentionPrunes(t *testing.T) {
 	dir := t.TempDir()

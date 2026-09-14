@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/watch"
 	fakedynamic "k8s.io/client-go/dynamic/fake"
+	clienttesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
 )
 
@@ -206,6 +207,46 @@ func TestAdd(t *testing.T) {
 	}
 	if m.Len() != 1 {
 		t.Fatalf("Len: got %d, want 1", m.Len())
+	}
+}
+
+// WithWatchErrorHandler must be invoked (with the right GVR) when a watch
+// fails. The initial list still succeeds, so Add returns; the reflector then
+// tries to watch, which the reactor rejects, firing the handler.
+func TestAdd_WatchErrorHandlerInvoked(t *testing.T) {
+	client := fakedynamic.NewSimpleDynamicClientWithCustomListKinds(
+		runtime.NewScheme(), gvrListKinds,
+	)
+	client.PrependWatchReactor("*", func(clienttesting.Action) (bool, watch.Interface, error) {
+		return true, nil, fmt.Errorf("synthetic watch failure")
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	got := make(chan schema.GroupVersionResource, 1)
+	m, err := New(ctx, client, WithWatchErrorHandler(func(gvr schema.GroupVersionResource, _ error) {
+		select {
+		case got <- gvr:
+		default: // already recorded one; the reflector retries in a loop
+		}
+	}))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(m.Stop)
+
+	if err := m.Add(deploymentGVR); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	select {
+	case gvr := <-got:
+		if gvr != deploymentGVR {
+			t.Fatalf("handler got gvr %v, want %v", gvr, deploymentGVR)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("watch error handler was not invoked")
 	}
 }
 
