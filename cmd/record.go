@@ -173,7 +173,7 @@ func runRecord(ctx context.Context, args []string) error {
 	// active file (which bbolt keeps exclusively locked).
 	var httpServer *http.Server
 	if recordHTTPAddr != "" {
-		api := httpapi.NewServer(segStore, recordFilter, !recordNoCompress)
+		api := httpapi.NewServer(segStore, recordFilter, !recordNoCompress, setupLog)
 		httpServer = &http.Server{Addr: recordHTTPAddr, Handler: api.Handler()}
 		go func() {
 			setupLog.Info().Str("addr", recordHTTPAddr).Msg("Serving retrieval API")
