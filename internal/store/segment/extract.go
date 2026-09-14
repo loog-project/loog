@@ -55,6 +55,17 @@ type Stats struct {
 // for that window. The output is written as self-contained snapshots, so it can
 // be browsed with `loog --replay outPath`.
 func Extract(ctx context.Context, dir, outPath string, opts ExtractOptions) (Stats, error) {
+	return extractInto(ctx, dir, nil, outPath, opts)
+}
+
+// ExtractLive is like Extract but also includes the recorder's currently active
+// segment, read through the live store's already-open bbolt handle.
+func ExtractLive(ctx context.Context, live *Store, outPath string, opts ExtractOptions) (Stats, error) {
+	opts.ExcludeActive = live.ActivePath()
+	return extractInto(ctx, live.Dir(), live, outPath, opts)
+}
+
+func extractInto(ctx context.Context, dir string, live *Store, outPath string, opts ExtractOptions) (Stats, error) {
 	var stats Stats
 
 	from := opts.From
@@ -68,7 +79,7 @@ func Extract(ctx context.Context, dir, outPath string, opts ExtractOptions) (Sta
 		return stats, fmt.Errorf("list segments: %w", err)
 	}
 	selected := selectOverlapping(all, from, to)
-	if len(selected) == 0 {
+	if len(selected) == 0 && live == nil {
 		return stats, fmt.Errorf("no segments overlap the requested window")
 	}
 
@@ -86,6 +97,15 @@ func Extract(ctx context.Context, dir, outPath string, opts ExtractOptions) (Sta
 			return stats, fmt.Errorf("extract %s: %w", seg.Name, err)
 		}
 	}
+
+	if live != nil {
+		stats.SegmentsScanned++
+		if err := extractRevisions(ctx, live.WalkObjectRevisions, "active",
+			out, from, to, opts.Filter, &stats, seenResources); err != nil {
+			return stats, fmt.Errorf("extract active segment: %w", err)
+		}
+	}
+
 	stats.Resources = len(seenResources)
 	return stats, nil
 }
@@ -113,9 +133,13 @@ func selectOverlapping(segs []Info, from, to time.Time) []Info {
 	return out
 }
 
-// extractSegment reconstructs object state within one segment and writes the
-// in-window revisions to out. Every revision in the segment is applied to keep
-// reconstruction correct, but only those inside [from,to] are emitted.
+// revisionWalker matches the shape of both bbolt Store.WalkObjectRevisions and
+// SegmentedStore.WalkObjectRevisions, so extraction can reconstruct from either
+// an on-disk segment file or the recorder's live active segment.
+type revisionWalker func(yield func(string, store.RevisionID, *store.Snapshot, *store.Patch) bool) error
+
+// extractSegment reconstructs object state within one on-disk segment file and
+// writes the in-window revisions to out.
 func extractSegment(
 	ctx context.Context,
 	seg Info,
@@ -130,12 +154,27 @@ func extractSegment(
 		return fmt.Errorf("open segment: %w", err)
 	}
 	defer func() { _ = src.Close() }()
+	return extractRevisions(ctx, src.WalkObjectRevisions, seg.Name, out, from, to, filter, stats, seenResources)
+}
 
-	// Per-segment reconstruction state. Reset per segment because rotation makes
-	// each segment start with fresh snapshots for every object it touches.
+// extractRevisions reconstructs object state from one segment's revision stream
+// (walk) and writes in-window revisions to out. Every revision is applied to
+// keep reconstruction correct, but only those inside [from,to] are emitted.
+// A fresh reconstruction map is used per call because rotation makes each
+// segment start with self-contained snapshots for every object it touches.
+func extractRevisions(
+	ctx context.Context,
+	walk revisionWalker,
+	segName string,
+	out *bboltStore.Store,
+	from, to time.Time,
+	filter *vm.Program,
+	stats *Stats,
+	seenResources map[string]struct{},
+) error {
 	state := make(map[string]diffmap.DiffMap)
 
-	walkErr := src.WalkObjectRevisions(func(
+	return walk(func(
 		uid string,
 		_ store.RevisionID,
 		snapshot *store.Snapshot,
@@ -159,7 +198,7 @@ func extractSegment(
 		case patch != nil:
 			base := state[uid]
 			if base == nil {
-				log.Warn().Str("uid", uid).Str("segment", seg.Name).
+				log.Warn().Str("uid", uid).Str("segment", segName).
 					Msg("Patch without a base snapshot during extraction; skipping")
 				return true
 			}
@@ -203,7 +242,6 @@ func extractSegment(
 		seenResources[uid] = struct{}{}
 		return true
 	})
-	return walkErr
 }
 
 func passesFilter(filter *vm.Program, obj diffmap.DiffMap) bool {

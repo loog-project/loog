@@ -22,19 +22,20 @@ import (
 )
 
 type Server struct {
-	dir           string
-	activePathFn  func() string
+	store         *segment.Store
 	defaultFilter string
 	compress      bool
 }
 
-func NewServer(dir string, activePathFn func() string, defaultFilter string, compress bool) *Server {
+// NewServer builds a Server bound to the recorder's live segment store, so
+// extraction can include the active (locked) segment and there is no blind
+// window for the most recent data.
+func NewServer(store *segment.Store, defaultFilter string, compress bool) *Server {
 	if defaultFilter == "" {
 		defaultFilter = "All()"
 	}
 	return &Server{
-		dir:           dir,
-		activePathFn:  activePathFn,
+		store:         store,
 		defaultFilter: defaultFilter,
 		compress:      compress,
 	}
@@ -46,13 +47,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/segments", s.handleSegments)
 	mux.HandleFunc("/extract", s.handleExtract)
 	return mux
-}
-
-func (s *Server) activePath() string {
-	if s.activePathFn == nil {
-		return ""
-	}
-	return s.activePathFn()
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -69,7 +63,7 @@ func (s *Server) handleSegments(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	segs, err := segment.ListSegments(s.dir, s.activePath())
+	segs, err := segment.ListSegments(s.store.Dir(), s.store.ActivePath())
 	if err != nil {
 		http.Error(w, "list segments: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -110,12 +104,11 @@ func (s *Server) handleExtract(w http.ResponseWriter, r *http.Request) {
 	_ = tmp.Close()
 	defer func() { _ = os.Remove(tmpPath) }()
 
-	stats, err := segment.Extract(r.Context(), s.dir, tmpPath, segment.ExtractOptions{
-		From:          from,
-		To:            to,
-		Filter:        program,
-		ExcludeActive: s.activePath(),
-		Bolt:          bboltStore.Options{Durable: true, Compress: s.compress},
+	stats, err := segment.ExtractLive(r.Context(), s.store, tmpPath, segment.ExtractOptions{
+		From:   from,
+		To:     to,
+		Filter: program,
+		Bolt:   bboltStore.Options{Durable: true, Compress: s.compress},
 	})
 	if err != nil {
 		http.Error(w, "extract: "+err.Error(), http.StatusInternalServerError)
