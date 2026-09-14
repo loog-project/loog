@@ -38,9 +38,10 @@ var ErrStopped = errors.New("mux is stopped")
 type Option func(*muxConfig)
 
 type muxConfig struct {
-	buffer        int
-	labelSelector string
-	fieldSelector string
+	buffer            int
+	labelSelector     string
+	fieldSelector     string
+	watchErrorHandler func(gvr schema.GroupVersionResource, err error)
 }
 
 // WithBuffer sets the capacity of the internal event channel.
@@ -64,6 +65,13 @@ func WithLabelSelector(s string) Option {
 func WithFieldSelector(s string) Option {
 	return func(c *muxConfig) {
 		c.fieldSelector = s
+	}
+}
+
+// WithWatchErrorHandler routes each informer's watch/list failures to fn.
+func WithWatchErrorHandler(fn func(gvr schema.GroupVersionResource, err error)) Option {
+	return func(c *muxConfig) {
+		c.watchErrorHandler = fn
 	}
 }
 
@@ -172,6 +180,17 @@ func (m *Mux) Add(gvr schema.GroupVersionResource) error {
 		cancel()
 		m.unwatch(gvr)
 		return fmt.Errorf("register event handler for %s: %w", gvr, err)
+	}
+
+	if m.cfg.watchErrorHandler != nil {
+		handlerGVR := gvr
+		if err := inf.SetWatchErrorHandler(func(_ *cache.Reflector, err error) {
+			m.cfg.watchErrorHandler(handlerGVR, err)
+		}); err != nil {
+			cancel()
+			m.unwatch(gvr)
+			return fmt.Errorf("set watch error handler for %s: %w", gvr, err)
+		}
 	}
 
 	// Start is non-blocking (it launches the informer goroutines and

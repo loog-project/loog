@@ -15,6 +15,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/dynamic"
 
@@ -36,6 +37,9 @@ var (
 	recordNoDurable   bool
 	recordNoCompress  bool
 	recordHTTPAddr    string
+	recordDisableH2   bool
+	recordQPS         float32
+	recordBurst       int
 )
 
 var recordCmd = &cobra.Command{
@@ -83,6 +87,12 @@ func init() {
 		"Disable s2 compression for stored payloads")
 	recordCmd.Flags().StringVar(&recordHTTPAddr, "http", "",
 		"If set, serve the retrieval API on this address (e.g. :8080)")
+	recordCmd.Flags().BoolVar(&recordDisableH2, "disable-http2", true,
+		"Use HTTP/1.1 (one connection per watch) so a single apiserver GOAWAY doesn't drop every watch at once")
+	recordCmd.Flags().Float32Var(&recordQPS, "qps", 20,
+		"Client-side QPS limit toward the apiserver")
+	recordCmd.Flags().IntVar(&recordBurst, "burst", 30,
+		"Client-side burst limit toward the apiserver")
 
 	rootCmd.AddCommand(recordCmd)
 }
@@ -123,6 +133,7 @@ func runRecord(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("loading kubeconfig: %w", err)
 	}
+	applyClientRobustness(cfg, recordQPS, recordBurst, recordDisableH2)
 	dyn, err := dynamic.NewForConfig(cfg)
 	if err != nil {
 		return fmt.Errorf("creating dynamic client: %w", err)
@@ -131,7 +142,7 @@ func runRecord(ctx context.Context, args []string) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	m, err := mux.New(ctx, dyn)
+	m, err := mux.New(ctx, dyn, mux.WithWatchErrorHandler(newWatchErrorLogger()))
 	if err != nil {
 		return fmt.Errorf("creating dynamic mux: %w", err)
 	}
@@ -162,7 +173,7 @@ func runRecord(ctx context.Context, args []string) error {
 	// active file (which bbolt keeps exclusively locked).
 	var httpServer *http.Server
 	if recordHTTPAddr != "" {
-		api := httpapi.NewServer(segStore.Dir(), segStore.ActivePath, recordFilter, !recordNoCompress)
+		api := httpapi.NewServer(segStore, recordFilter, !recordNoCompress)
 		httpServer = &http.Server{Addr: recordHTTPAddr, Handler: api.Handler()}
 		go func() {
 			setupLog.Info().Str("addr", recordHTTPAddr).Msg("Serving retrieval API")
@@ -191,6 +202,17 @@ func runRecord(ctx context.Context, args []string) error {
 	}
 	setupLog.Info().Msg("Recorder stopped, bye!")
 	return nil
+}
+
+func newWatchErrorLogger() func(schema.GroupVersionResource, error) {
+	return func(gvr schema.GroupVersionResource, err error) {
+		// Expected during shutdown when the context is canceled.
+		if errors.Is(err, context.Canceled) {
+			return
+		}
+		setupLog.Warn().Str("gvr", gvr.String()).Err(err).
+			Msg("watch/list failed; client-go will retry with backoff")
+	}
 }
 
 // runRecorderLoop consumes watch events and commits them into the active
