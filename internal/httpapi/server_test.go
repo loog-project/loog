@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/loog-project/loog/internal/store"
 	bboltStore "github.com/loog-project/loog/internal/store/bbolt"
 	"github.com/loog-project/loog/internal/store/segment"
@@ -57,7 +59,7 @@ func writeSegmentDir(t *testing.T) *segment.Store {
 
 func TestServer_Segments(t *testing.T) {
 	st := writeSegmentDir(t)
-	srv := httptest.NewServer(NewServer(st, "All()", false).Handler())
+	srv := httptest.NewServer(NewServer(st, "All()", false, zerolog.Nop()).Handler())
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/segments")
@@ -79,7 +81,7 @@ func TestServer_Segments(t *testing.T) {
 
 func TestServer_Extract(t *testing.T) {
 	st := writeSegmentDir(t)
-	srv := httptest.NewServer(NewServer(st, "All()", false).Handler())
+	srv := httptest.NewServer(NewServer(st, "All()", false, zerolog.Nop()).Handler())
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/extract?since=1h")
@@ -108,7 +110,7 @@ func TestServer_Extract(t *testing.T) {
 
 func TestServer_ExtractBadRange(t *testing.T) {
 	st := writeSegmentDir(t)
-	srv := httptest.NewServer(NewServer(st, "All()", false).Handler())
+	srv := httptest.NewServer(NewServer(st, "All()", false, zerolog.Nop()).Handler())
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/extract?since=notaduration")
