@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"os"
+
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -32,4 +34,25 @@ func restConfigForKubeconfig(explicitPath, contextName string) (*rest.Config, er
 	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		rules, overrides,
 	).ClientConfig()
+}
+
+func applyClientRobustness(cfg *rest.Config, qps float32, burst int, disableHTTP2 bool) {
+	if qps > 0 {
+		cfg.QPS = qps
+	}
+	if burst > 0 {
+		cfg.Burst = burst
+	}
+	if disableHTTP2 {
+		cfg.NextProtos = []string{"http/1.1"}
+		return
+	}
+	setenvIfEmpty("HTTP2_READ_IDLE_TIMEOUT_SECONDS", "30")
+	setenvIfEmpty("HTTP2_PING_TIMEOUT_SECONDS", "15")
+}
+
+func setenvIfEmpty(key, val string) {
+	if os.Getenv(key) == "" {
+		_ = os.Setenv(key, val)
+	}
 }
