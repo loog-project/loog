@@ -1,0 +1,286 @@
+/* ==========================================================================
+   loog docs theme
+   Electric-blue, flat, square. Built on Material for MkDocs.
+   Brand blue is #0327DD (the banner), with a light-blue accent #9ADAFF.
+   ========================================================================== */
+
+:root {
+  --lg-blue:       #0327DD;   /* brand electric blue */
+  --lg-blue-bright:#2f4dff;   /* hover / lighter blue */
+  --lg-sky:        #9ADAFF;   /* light-blue accent */
+
+  --md-primary-fg-color: var(--lg-blue);
+  --md-accent-fg-color:  var(--lg-blue-bright);
+}
+
+/* ---- Dark scheme (default) ---------------------------------------------- */
+[data-md-color-scheme="slate"] {
+  --md-default-bg-color:        #06070f;
+  --md-default-bg-color--light: #0c0e1a;
+  --md-code-bg-color:           #0e1020;
+  --md-default-fg-color:        #c7cbe0;
+
+  --md-primary-fg-color:        #06070f;   /* header background: near-black */
+  --md-accent-fg-color:         var(--lg-sky);
+  --md-typeset-a-color:         var(--lg-sky);
+
+  --lg-ink:       #ffffff;                 /* headings / strong ink */
+  --lg-body:      #c7cbe0;                 /* body text */
+  --lg-muted:     #7b80a0;                 /* labels, small caps */
+  --lg-line:      rgba(154, 218, 255, 0.20);
+  --lg-line-soft: rgba(154, 218, 255, 0.10);
+  --lg-panel:     #121427;                 /* banner / table header fill */
+  --lg-link:      var(--lg-sky);
+}
+
+/* ---- Light scheme -------------------------------------------------------- */
+[data-md-color-scheme="default"] {
+  --md-default-bg-color:        #ffffff;
+  --md-code-bg-color:           #f3f5ff;
+  --md-default-fg-color:        #1a1c2e;
+
+  --md-primary-fg-color:        var(--lg-blue);   /* header: brand blue */
+  --md-accent-fg-color:         var(--lg-blue);
+  --md-typeset-a-color:         var(--lg-blue);
+
+  --lg-ink:       #0a0c1c;
+  --lg-body:      #2a2d44;
+  --lg-muted:     #5c6180;
+  --lg-line:      rgba(3, 39, 221, 0.18);
+  --lg-line-soft: rgba(3, 39, 221, 0.10);
+  --lg-panel:     #eef1ff;
+  --lg-link:      var(--lg-blue);
+}
+
+html {
+  scrollbar-gutter: stable;
+}
+.md-sidebar__scrollwrap {
+  scrollbar-gutter: stable;
+}
+
+/* --- Kill rounded corners everywhere ------------------------------------- */
+.md-typeset .md-button,
+.md-typeset code,
+.md-typeset pre > code,
+.md-typeset .highlight,
+.md-typeset .highlighttable,
+.md-typeset .admonition,
+.md-typeset details,
+.md-typeset table:not([class]),
+.md-typeset .tabbed-set > .tabbed-labels,
+.md-typeset .tabbed-set > .tabbed-labels > label,
+.md-typeset .grid.cards > :is(ul, ol) > li,
+.md-search__form,
+.md-search__input,
+.md-search__output,
+.md-footer__link,
+.md-clipboard,
+.md-nav__link,
+input,
+button {
+  border-radius: 0 !important;
+}
+
+/* --- Typography ----------------------------------------------------------- */
+.md-typeset {
+  color: var(--lg-body);
+  font-size: 0.74rem;
+  line-height: 1.7;
+}
+
+.md-typeset h1 {
+  color: var(--lg-ink);
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  margin: 0 0 1.1rem;
+}
+
+.md-typeset h2 {
+  color: var(--lg-ink);
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+  margin: 3rem 0 1rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 2px solid var(--md-accent-fg-color);
+}
+
+.md-typeset h3 {
+  color: var(--lg-ink);
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 2rem 0 0.6rem;
+}
+
+.md-typeset h4 {
+  color: var(--lg-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin: 1.6rem 0 0.4rem;
+}
+
+.md-typeset p,
+.md-typeset li {
+  color: var(--lg-body);
+}
+
+.md-typeset strong {
+  color: var(--lg-ink);
+  font-weight: 700;
+}
+
+/* Links: quiet, underline on hover. */
+.md-typeset a {
+  color: var(--lg-link);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.12s ease;
+}
+.md-typeset a:hover {
+  border-bottom-color: currentColor;
+}
+
+a:focus:not(:focus-visible),
+button:focus:not(:focus-visible),
+.md-button:focus:not(:focus-visible),
+.md-clipboard:focus:not(:focus-visible),
+.md-header__button:focus:not(:focus-visible),
+.md-nav__button:focus:not(:focus-visible),
+.md-footer__link:focus:not(:focus-visible) {
+  outline: none;
+}
+:is(a, button, .md-button, .md-clipboard):focus-visible {
+  outline: 2px solid var(--md-accent-fg-color);
+  outline-offset: 2px;
+}
+
+/* --- Buttons -------------------------------------------------------------- */
+.md-typeset .md-button {
+  display: inline-block;
+  background: transparent;
+  color: var(--lg-ink);
+  border: 1px solid var(--lg-line);
+  padding: 0.7em 1.5em;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  box-shadow: none;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.md-typeset .md-button:hover {
+  background: var(--lg-blue);
+  color: #ffffff;
+  border-color: var(--lg-blue);
+}
+.md-typeset .md-button--primary {
+  background: var(--lg-blue);
+  color: #ffffff;
+  border-color: var(--lg-blue);
+}
+.md-typeset .md-button--primary:hover {
+  background: var(--lg-blue-bright);
+  color: #ffffff;
+  border-color: var(--lg-blue-bright);
+}
+
+/* --- Code ----------------------------------------------------------------- */
+.md-typeset code {
+  color: var(--lg-ink);
+  border: 1px solid var(--lg-line-soft);
+  padding: 0.1em 0.35em;
+  font-size: 0.85em;
+}
+.md-typeset pre > code {
+  border: 1px solid var(--lg-line);
+}
+.md-typeset a code {
+  border-color: transparent;
+  color: var(--lg-link);
+}
+
+/* --- Admonitions: flat, square, thick left rule -------------------------- */
+.md-typeset .admonition,
+.md-typeset details {
+  border: 1px solid var(--lg-line);
+  border-left-width: 3px;
+  box-shadow: none;
+  font-size: 0.74rem;
+}
+
+/* --- Tables --------------------------------------------------------------- */
+.md-typeset table:not([class]) {
+  border: 1px solid var(--lg-line);
+  font-size: 0.7rem;
+}
+.md-typeset table:not([class]) th {
+  background: var(--lg-panel);
+  color: var(--lg-ink);
+  font-weight: 700;
+}
+
+/* --- Grid cards ----------------------------------------------------------- */
+.md-typeset .grid.cards > :is(ul, ol) > li {
+  border: 1px solid var(--lg-line);
+  padding: 1.1rem 1.2rem;
+  box-shadow: none;
+  transition: border-color 0.15s ease;
+}
+.md-typeset .grid.cards > :is(ul, ol) > li:hover {
+  border-color: var(--md-accent-fg-color);
+}
+.md-typeset .grid.cards > :is(ul, ol) > li > hr {
+  margin: 0.6rem 0;
+  border: none;
+  border-top: 1px solid var(--lg-line);
+}
+
+/* --- Search --------------------------------------------------------------- */
+.md-search__input {
+  border: 1px solid var(--lg-line);
+}
+
+/* --- Footer prev/next: bordered blocks ----------------------------------- */
+.md-footer__link {
+  border: 1px solid var(--lg-line);
+  padding: 0.9rem 1.1rem;
+  margin: 0.6rem;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.md-footer__link:hover {
+  background: var(--lg-blue);
+  color: #fff;
+}
+.md-footer__link:hover :is(.md-footer__title, .md-footer__direction) {
+  color: #fff;
+}
+
+/* --- Left nav ------------------------------------------------------------- */
+.md-nav {
+  font-size: 0.72rem;
+}
+.md-nav__link--active {
+  color: var(--md-accent-fg-color);
+  font-weight: 700;
+}
+
+/* --- Selection ------------------------------------------------------------ */
+::selection {
+  background: var(--lg-blue);
+  color: #ffffff;
+}
+
+/* --- Landing banner ------------------------------------------------------- */
+.md-typeset .lg-banner {
+  display: block;
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto 1.6rem;
+  border: 1px solid var(--lg-line);
+}

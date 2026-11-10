@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- loog: the two googly "oo" eyes from the logo -->
+  <g>
+    <ellipse cx="22" cy="32" rx="13" ry="16" fill="#ffffff"/>
+    <ellipse cx="42" cy="32" rx="13" ry="16" fill="#ffffff"/>
+    <circle cx="24" cy="36" r="6" fill="#0a0a0a"/>
+    <circle cx="44" cy="36" r="6" fill="#0a0a0a"/>
+    <circle cx="26" cy="34" r="1.8" fill="#ffffff"/>
+    <circle cx="46" cy="34" r="1.8" fill="#ffffff"/>
+  </g>
+</svg>
