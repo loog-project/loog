@@ -357,3 +357,18 @@ func (t *TrackerService) WarmCache(uid string, obj diffmap.DiffMap, rev store.Re
 	defer lock.mu.Unlock()
 	t.cache.set(uid, &trackerState{obj: obj, rev: rev})
 }
+
+// ResetCache drops all cached object state. After it returns, the next Commit
+// for each object cold-starts against the store; on a freshly rotated, empty
+// segment file that means a full snapshot is written, keeping each segment
+// self-contained.
+//
+// ResetCache must not run concurrently with Commit for the same object. The
+// segmented recorder satisfies this by calling it from the same goroutine that
+// drives the collector loop.
+func (t *TrackerService) ResetCache() {
+	if t == nil || t.cache == nil {
+		return
+	}
+	t.cache.reset()
+}

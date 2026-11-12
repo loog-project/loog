@@ -5,3 +5,4 @@
 *.zip
 *.loog
 *.log
+/deploy
